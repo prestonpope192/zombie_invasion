@@ -1,0 +1,25 @@
+{
+  "name": "zombie-invasion",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "vercel-build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 8080",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "three": "^0.183.1"
+  },
+  "devDependencies": {
+    "jsdom": "^28.1.0",
+    "playwright": "^1.55.0",
+    "vite": "^7.1.3",
+    "vitest": "^3.2.4"
+  }
+}

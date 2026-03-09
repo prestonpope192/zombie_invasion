@@ -1,0 +1,1372 @@
+Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
+
+## Progress log
+- Migrated previous Phaser 2D implementation into `src/legacy2d` for reference.
+- Replaced runtime with Three.js + Rapier FPS architecture under `src/fps`.
+- Added FPS systems:
+  - physics world and capsule movement
+  - ballistics, drag, penetration, recoil
+  - enemy AI + wave director
+  - mobile dual-stick controls
+  - spatialized procedural audio
+  - FPS save/load profile (`zombie_invasion_fps_save_v1`)
+- Added FPS scene flow:
+  - boot -> menu -> raid -> summary/shop -> game over
+- Implemented deterministic browser hooks:
+  - `window.render_game_to_text`
+  - `window.advanceTime(ms)`
+- Added quality profile config and rendering pipeline with tone mapping + post-processing.
+- Added nginx wasm + 3D asset extensions handling.
+- Replaced unit tests with FPS-focused coverage:
+  - ballistics drop/drag
+  - penetration loss
+  - recoil recovery
+  - save schema
+  - wave budget
+
+## Validation log
+- `npm test` passing (8/8 tests).
+- `npm run build` passing.
+- Playwright runs completed with screenshot+state inspection and no new `errors-*.json` in validated output dirs:
+  - `/Users/preston/Code/zombie_invasion/output/fps-menu`
+  - `/Users/preston/Code/zombie_invasion/output/fps-summary`
+  - `/Users/preston/Code/zombie_invasion/output/fps-shop`
+  - `/Users/preston/Code/zombie_invasion/output/fps-web-game-v2`
+- Verified menu, raid, summary, and shop modes from `render_game_to_text` payloads and screenshots.
+
+## TODO / next agent notes
+- Improve environment brightness/contrast pass further for night readability while keeping tone.
+- Replace procedural placeholders with integrated CC0 model/textures from `src/fps/assets/ASSETS.md`.
+- Add explicit performance telemetry HUD (FPS moving average) and adaptive quality fallback thresholds.
+- Add non-debug path coverage for full wave clear in Playwright choreography.
+- Follow-up control fix pass:
+  - corrected FPS movement vectors so W/S and A/D align with camera direction
+  - added desktop fire fallback key (`F`) alongside mouse fire
+  - added persistent on-screen controls line to HUD during raids
+  - added muzzle flash + tracer feedback to make firing visibly obvious
+- Verified with Playwright run in `/Users/preston/Code/zombie_invasion/output/fps-fix-check`:
+  - no `errors-*.json`
+  - player moved from spawn toward village (z reduced)
+  - ammo decreased during firing (`11/15` shown)
+  - controls text visible on screen
+- Zombie readability upgrade pass (FPS):
+  - Reworked enemy mesh silhouette in `src/fps/scenes/RaidScene3D.js` with hunched undead posture, articulated limbs/jaw, exposed wound/bone details, and variant color palettes.
+  - Added stronger zombie readability cues: brighter emissive eyes, chest rot glow, and subtle outline shell for silhouette separation in dark scenes.
+  - Added per-variant construction path by passing enemy type into `makeZombieMesh(..., def.id)`.
+  - Added state-driven zombie pose animation in `src/fps/systems/enemyAi3D.js` (walk gait, attack claw posture, jaw/head motion, glow pulse).
+
+## Additional validation (zombie pass)
+- `npm test` passing (8/8 tests).
+- `npm run build` passing.
+- Playwright artifact captured in `/Users/preston/Code/zombie_invasion/output/fps-zombie-visual-2` (state + screenshot for raid context, no `errors-*.json` generated).
+- Docker redeployed and validated:
+  - `docker compose up --build -d` succeeded.
+  - `docker compose ps` shows `zombie-invasion` healthy on `0.0.0.0:8080->80/tcp`.
+  - `curl -I http://127.0.0.1:8080` returned `HTTP/1.1 200 OK`.
+- Follow-up zombie visibility tuning:
+  - Increased zombie emissive/readability (eyes/chest/outline) and reduced spawn radius from `30..39m` to `18..26m` so enemies are visibly zombie-like sooner.
+  - Verified neutral-camera screenshot artifact at `/Users/preston/Code/zombie_invasion/output/fps-zombie-idle-near/shot-0.png` shows recognizable zombie silhouettes and glow accents.
+- Re-validated after spawn-distance change:
+  - `npm test` passing (8/8).
+  - `npm run build` passing.
+  - Docker rebuilt and running on `0.0.0.0:8080` with `HTTP/1.1 200 OK`.
+- Village level art pass (layout realism):
+  - Replaced single-box village with a multi-building settlement in `src/fps/scenes/RaidScene3D.js`:
+    - town hall, chapel/tower, blacksmith, barn, and two houses
+    - roads and village square paving
+    - fence segments, lamp posts with warm lights, doors and window glow
+  - Expanded objective area collider (`village_core`) and retained village target center.
+  - Replaced random cube props with themed prop set (crates, barrel, hay bales, cart, well stone, gravestones).
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright screenshot/state validated at `/Users/preston/Code/zombie_invasion/output/fps-village-layout` with no `errors-*.json`.
+- Infinite ammo pass (guns):
+  - Added `isInfiniteAmmoWeapon()` in `src/fps/scenes/RaidScene3D.js` and set non-explosive weapons to infinite ammo behavior.
+  - Reload now bypasses ballistic guns and keeps mag at full.
+  - Fire no longer decrements ballistic ammo; explosive category still uses finite mag/reload.
+  - HUD now shows `Ammo: INF` for ballistic weapons.
+  - `render_game_to_text` keeps numeric ammo value for compatibility, using full mag size for infinite-ammo guns.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright check in `/Users/preston/Code/zombie_invasion/output/fps-infinite-ammo` confirms HUD shows `Ammo: INF` and state keeps pistol ammo at 15 while firing.
+- HUD quick shop action added:
+  - Added persistent top-right raid button (`Shop`) with safe-area-aware positioning and mobile/desktop sizing in `index.html`.
+  - Wired raid quick-shop button in `src/fps/scenes/RaidScene3D.js` to open the shop overlay during active raid mode.
+  - Shop button label now mirrors current coins: `Shop (<coins>)`.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright screenshot confirms top-right button visible: `/Users/preston/Code/zombie_invasion/output/fps-shop-button/shot-0.png`
+  - Playwright click-flow confirms button opens shop: `state-0.json` in `/Users/preston/Code/zombie_invasion/output/fps-shop-button-click` shows `{"mode":"shop",...}` with no `errors-*.json`.
+- UI visual redesign pass (zombie-themed + cleaner):
+  - Reworked typography to a stronger hierarchy (cinematic heading font + clean HUD/body font) and updated color system to toxic-green + blood-orange accents.
+  - Restyled overlays/panels/buttons/shop rows with cleaner spacing, glow accents, and consistent border treatment.
+  - Upgraded HUD readability with segmented pill-style lines and improved contrast.
+  - Refined crosshair, quick-shop button, player presence tint, and mobile control visual treatment for consistent art direction.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright style snapshots with no `errors-*.json`:
+    - menu: `/Users/preston/Code/zombie_invasion/output/fps-style-menu/shot-0.png`
+    - raid HUD: `/Users/preston/Code/zombie_invasion/output/fps-style-raid/shot-0.png`
+    - shop overlay: `/Users/preston/Code/zombie_invasion/output/fps-style-shop/shot-0.png`
+- Removed reload requirement entirely:
+  - All weapons now treated as infinite-ammo/no-reload (`isInfiniteAmmoWeapon` returns true for all weapons).
+  - `handleReload()` now no-ops gameplay-wise and keeps weapon mags full.
+  - `handleFire()` no longer blocks on reload state and never decrements ammo.
+  - Removed reload instruction text from menu and raid controls lines.
+  - Removed mobile reload button from touch controls layout.
+- Shop hotkey remap pass:
+  - Updated FPS raid keyboard shortcuts so `Q` opens shop (`handleShopShortcut`) and `O` cycles weapons (`handleWeaponCycle`).
+  - Synced desktop control copy in:
+    - `src/fps/scenes/RaidScene3D.js` HUD controls line (`Q shop`, `O/1-7 weapons`)
+    - `src/fps/scenes/MenuScene3D.js` menu help copy (`Q shop`, `O cycle weapon`)
+- Validation:
+  - `npm test` pass (18 files, 44 tests).
+  - `npm run build` pass.
+  - Playwright client run artifact: `/Users/preston/Code/zombie_invasion/output/fps-q-shop-hotkey/shot-0.png` + `state-0.json` (no `errors-*.json`).
+  - Targeted Playwright keypress check (held `Q`) produced `/Users/preston/Code/zombie_invasion/output/fps-q-shop-hotkey/state-q-key.json` with `{"mode":"shop",...}` and screenshot `/Users/preston/Code/zombie_invasion/output/fps-q-shop-hotkey/shot-q-key.png`.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright screenshots verify no reload text:
+    - `/Users/preston/Code/zombie_invasion/output/fps-no-reload-menu/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-no-reload-raid/shot-0.png`
+  - No `errors-*.json` in these runs.
+- Zombie chase behavior fix:
+  - Updated enemy AI pursuit priority in `src/fps/systems/enemyAi3D.js` so zombies prioritize chasing/attacking the player.
+  - Attack order now favors player contact first; village attack only takes over when player is not nearby.
+  - Movement now biases toward player target with slight chase speed boost; village-defense fallback applies only when player is very far.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright chase check at `/Users/preston/Code/zombie_invasion/output/fps-chase-check` shows `attack_player` states and player HP reduced (`96.8`), confirming zombies are reaching/chasing player.
+- Environment richness pass (creeks/trees/landscape):
+  - Added `buildLandscape()` to `src/fps/scenes/RaidScene3D.js` and wired it into `buildWorld()` before village/perimeter construction.
+  - Added terrain mounds with rock caps, two winding creeks with banks, decorative creek rocks, and grass clusters.
+  - Added broad tree-line coverage (evergreen + dead trees) plus trunk colliders in navigable areas.
+  - Added terrain colliders for mounds/creek zones to ground the scene physically.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright screenshot/state with no `errors-*.json`: `/Users/preston/Code/zombie_invasion/output/fps-landscape-pass/shot-0.png`.
+- Mega zombie escalation pass:
+  - Added `mega_zombie` to `src/fps/config/enemies_fps.json` with heavy HP/mass/damage/reward profile and distinct visuals.
+  - Added explicit `megaCount` per wave in `src/fps/config/waves_fps.json` to guarantee a few mega zombies each wave (1 on waves 1-3, 2 on waves 4-7, 3 on waves 8-12).
+  - Updated wave spawning in `src/fps/scenes/RaidScene3D.js` with per-wave spawn tracking so mega targets are guaranteed while preserving boss slot behavior.
+  - Updated enemy scaling map in `src/fps/systems/enemyAi3D.js` for mega-specific HP growth.
+- Validation (mega zombies):
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright artifact confirms `mega_zombie` in live state payload:
+    - `/Users/preston/Code/zombie_invasion/output/fps-mega-zombies/state-0.json`
+    - `/Users/preston/Code/zombie_invasion/output/fps-mega-zombies/state-1.json`
+  - Visual check screenshot:
+    - `/Users/preston/Code/zombie_invasion/output/fps-mega-zombies/shot-1.png`
+  - No `errors-*.json` emitted for `/Users/preston/Code/zombie_invasion/output/fps-mega-zombies`.
+- Coin reward clarity pass (kill-to-earn):
+  - Refactored zombie death payout into `awardKillReward(enemy)` in `src/fps/scenes/RaidScene3D.js`.
+  - Coins now explicitly grant on each zombie death and immediately update total coins and wave coin stats.
+  - Added real-time HUD feedback line showing `Reward: +<coins> (<enemy>)` for recent kills, then falls back to `Kill zombies to earn coins`.
+  - Added HUD styling for the reward line in `index.html` (`.fps-hud-line.fps-kill-reward`) for better readability.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+- Reward tuning update (per request):
+  - Set normal zombie rewards to `10` coins in `src/fps/config/enemies_fps.json` (`walker`, `runner`, `brute`).
+  - Set `mega_zombie` reward to `50` coins.
+  - Left `mini_boss` reward unchanged.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+- Weapon pricing rebalance (per request):
+  - Updated gun prices to a `50-1000` range in `src/fps/config/weapons_fps.json`:
+    - Pistol 50, SMG 220, Rifle 420, Shotgun 620, DMR 840, RPG 1000.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+- Jump/fall tuning pass (per request):
+  - Updated player vertical tuning in `src/fps/systems/playerControllerFps.js` for faster, matched jump/fall feel.
+  - Added explicit constants: `JUMP_SPEED_MPS = 6.2`, `GRAVITY_MPS2 = 18.5`, `MAX_FALL_SPEED_MPS = 20`.
+  - Added jump-phase descent snap so fall speed quickly matches jump speed magnitude after apex.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright jump scenario artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-jump-speed-match/state-0.json` shows player returned to grounded baseline (`y: 2.42`, `velocity.y: 0`) after jump.
+    - `/Users/preston/Code/zombie_invasion/output/fps-jump-speed-match/shot-0.png`
+  - No `errors-*.json` in `/Users/preston/Code/zombie_invasion/output/fps-jump-speed-match`.
+- Landscape/building interaction pass (bullet hit reactions):
+  - Added breakable village window panes in `src/fps/scenes/RaidScene3D.js`.
+  - Added material-based bullet impact VFX for walls/props/glass (decal burst + debris chips) via `spawnImpactReaction(...)`.
+  - Added glass shatter behavior via `tryBreakWindowAt(...)` with shard particles and persistent broken pane state.
+  - Added reset restore for windows per raid via `restoreBreakableWindows()`.
+  - Extended transient visual update loop to support velocity/gravity/spin for impact particles.
+  - Added text-state telemetry under `world` for validation: `brokenWindows`, `activeImpactFx`.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright run (window interaction) with no `errors-*.json`:
+    - `/Users/preston/Code/zombie_invasion/output/fps-window-reactivity-strafe/state-0.json` shows `"world":{"brokenWindows":1,...}` after firing.
+    - Screenshot: `/Users/preston/Code/zombie_invasion/output/fps-window-reactivity-strafe/shot-0.png`
+- Night readability lighting pass (slightly lighter):
+  - Increased tone-mapping exposure in `src/fps/systems/renderPipeline.js` from `1.55` to `1.8`.
+  - Updated raid lighting/fog in `src/fps/scenes/RaidScene3D.js`:
+    - Brighter night sky/fog colors
+    - Reduced fog density (`0.011 -> 0.0088`)
+    - Increased hemisphere, moon directional, fill point, and ambient light intensities
+  - Goal preserved: still nighttime, but with clearer scene readability.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright visual check with no `errors-*.json`:
+    - `/Users/preston/Code/zombie_invasion/output/fps-lighting-pass/shot-0.png`
+- Zombie hit-feedback upgrade (impact readability):
+  - Added stronger per-shot zombie knockback in `src/fps/scenes/RaidScene3D.js` using damage/mass-scaled impulse.
+  - Added zombie `hitStunSec` and `hitFlashSec` in `src/fps/systems/enemyAi3D.js` so hits briefly stagger enemies and visually flash.
+  - Added blood/spark-style enemy hit burst via `spawnEnemyHitReaction(...)`.
+  - Added crosshair hit-confirm flash via `triggerHitConfirm(...)` and HUD sync styling updates.
+  - Added `combatFeedback` state output in `render_game_to_text` with `hitConfirmActive` and `enemiesInHitReact`.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright smoke runs captured updated state contract fields under `combatFeedback` with no `errors-*.json` in latest runs.
+- Fire input reliability fix (quick taps not always firing):
+  - Added desktop fire buffering in `src/fps/systems/playerControllerFps.js` (`fireBufferedFrames`) so very short mouse/F key taps are queued for several frames.
+  - Added mobile fire buffering in `src/fps/systems/mobileFpsControls.js` so brief touch taps on FIRE are not dropped between ticks.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Quick-tap Playwright check in `/Users/preston/Code/zombie_invasion/output/fps-fire-buffer-quicktap/state-0.json` shows non-zero recoil (`pitchKick: 0.001`) after a 1-frame click, confirming shot registration.
+  - No `errors-*.json` in `/Users/preston/Code/zombie_invasion/output/fps-fire-buffer-quicktap`.
+- Added non-mouse look controls (desktop accessibility):
+  - In `src/fps/systems/playerControllerFps.js` added keyboard look axes:
+    - `I/K` and `PageUp/PageDown` for pitch (up/down)
+    - `J/L` for yaw (left/right)
+  - Added `KEYBOARD_LOOK_SPEED` and per-frame `updateLookFromKeyboard(...)`.
+  - Updated control text in:
+    - `src/fps/scenes/MenuScene3D.js`
+    - `src/fps/scenes/RaidScene3D.js`
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Browser verification via Playwright API:
+    - Pitch changed with keyboard look (`I` then `K`): `{ p0: -0.05, p1: -0.017, p2: -0.717 }`
+    - Yaw changed with keyboard look (`L` then `J`): `{ y0: 0, y1: -0.219, y2: 0.258 }`
+- Follow-up deploy + verification (keyboard look controls request):
+  - Confirmed desktop non-mouse look bindings are active in `src/fps/systems/playerControllerFps.js`:
+    - `I/K` (or `PageUp/PageDown`) for pitch up/down
+    - `J/L` for yaw left/right
+  - Confirmed controls text includes new bindings in:
+    - `src/fps/scenes/MenuScene3D.js`
+    - `src/fps/scenes/RaidScene3D.js`
+  - Validation rerun:
+    - `npm test` pass (8/8)
+    - `npm run build` pass
+  - Redeployed Docker and verified live service:
+    - `docker compose up --build -d` success
+    - `docker compose ps` shows `0.0.0.0:8080->80/tcp`
+    - `curl -I http://127.0.0.1:8080` returned `HTTP/1.1 200 OK`
+- Removed automatic firing (manual trigger only):
+  - Deleted auto-fire assist path from `src/fps/scenes/RaidScene3D.js`; `handleFire(...)` now returns unless explicit `input.fire` is active.
+  - Removed unused `autoFireAssistActive()` helper from `src/fps/scenes/RaidScene3D.js`.
+  - Removed `autoFireAssist` state plumbing from:
+    - `src/fps/systems/mobileFpsControls.js`
+    - `src/fps/systems/playerControllerFps.js`
+  - Updated menu copy to reflect manual shooting:
+    - `src/fps/scenes/MenuScene3D.js` now says mobile users must tap FIRE.
+- Validation:
+  - Playwright run (no-fire scenario) in `/Users/preston/Code/zombie_invasion/output/fps-no-autofire-check`:
+    - `state-0.json` shows `weapon.recoil` stayed `{ pitchKick: 0, yawKick: 0 }` while zombies were present.
+    - no `errors-*.json` artifacts emitted.
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+- Weapon differentiation pass (guns should feel meaningfully different):
+  - Added per-weapon feel profiles in `src/fps/scenes/RaidScene3D.js` (`WEAPON_FEEL` + `getWeaponFeel(...)`).
+  - Shot pipeline now varies by weapon:
+    - pellet count (shotgun now 12 pellets)
+    - spread scaling + ADS spread scaling
+    - tracer color/length/opacity
+    - projectile radius/color
+    - muzzle flash color/intensity/range/duration
+    - immediate camera kick tuning (pitch/yaw)
+    - enemy/environment hit reaction multipliers
+  - HUD weapon line now includes style label (e.g., `Style: Balanced sidearm`).
+  - `render_game_to_text` weapon payload now includes `feel` label.
+- Shop readability improvement:
+  - Updated `src/fps/scenes/ShopScene3D.js` rows to show per-weapon style + key stats (`DMG`, `RPM`, `Spread`).
+  - Added CSS in `index.html` for `fps-shop-weapon-meta` layout.
+- Audio differentiation pass:
+  - Updated `src/fps/systems/audio3d.js` so each weapon has distinct primary and tail tones (pitch, duration, gain, waveform).
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright smoke screenshot/state:
+    - raid HUD + weapon style line: `/Users/preston/Code/zombie_invasion/output/fps-weapon-diff-pass/shot-0.png`
+    - state includes weapon feel: `/Users/preston/Code/zombie_invasion/output/fps-weapon-diff-pass/state-0.json`
+    - shop rows include weapon style/stats: `/Users/preston/Code/zombie_invasion/output/fps-weapon-diff-shop/shot-0.png`
+    - no `errors-*.json` in these output dirs.
+- Per-weapon firing visual-effects pass (explicit muzzle identity):
+  - Added distinct on-fire VFX generation in `src/fps/scenes/RaidScene3D.js`:
+    - new helpers: `createTransientVisual(...)`, `spawnEjectedCasing(...)`, `spawnWeaponMuzzleFx(...)`
+    - per-weapon muzzle effects now include unique combinations of:
+      - glow intensity/shape
+      - sparks and additive flashes
+      - shotgun blast ring + smoke cloud
+      - rifle/DMR beam flash
+      - RPG forward flame cone + rear backblast cone + smoke plume
+      - per-weapon shell ejection behavior
+  - Extended weapon feel config with per-weapon tracer lifetime (`tracerTtl`) and used additive tracers.
+  - Added RPG projectile smoke trail in `stepProjectiles(...)` for persistent launcher identity while rocket travels.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright smoke artifact (no errors file generated):
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-fire-vfx/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-fire-vfx/state-0.json`
+- Equipped-weapon on-screen indicator added (explicit visual badge):
+  - Implemented dedicated weapon badge UI in `src/fps/scenes/RaidScene3D.js`:
+    - `createWeaponIndicator()` (persistent raid overlay)
+    - `getWeaponIndicatorMeta()` (glyph + accent per weapon)
+    - `syncWeaponIndicator()` (updates name/style and pulse animation on weapon swap)
+  - Wired lifecycle visibility:
+    - shown during `enter()`
+    - hidden on `exit()`
+  - Integrated live sync call in `syncHud()` so badge always matches equipped weapon.
+  - Added responsive styling and swap animation in `index.html`:
+    - `.fps-weapon-indicator*` classes
+    - `@keyframes weaponSwapPulse`
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright screenshot confirms indicator visible in raid:
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-indicator/shot-0.png`
+  - State capture:
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-indicator/state-0.json`
+  - no `errors-*.json` in indicator test output dir.
+- Crosshair differentiation pass (per-gun visual reticles):
+  - Reworked crosshair to multi-part structure in `src/fps/scenes/RaidScene3D.js` (`createCrosshair()`):
+    - ring, center dot, and 4 directional arms.
+  - Added per-weapon reticle profiles via `getCrosshairProfile(weaponId, ads)` and runtime sync via `syncCrosshairVisual(...)`:
+    - pistol: balanced ring + short arms
+    - smg: tighter rapid-fire reticle
+    - rifle: larger precise reticle
+    - shotgun: wide heavy reticle
+    - dmr: compact precision reticle
+    - rpg: square-style heavy launcher reticle
+  - Reticle now also adapts on ADS (profile scaling) and preserves hit-confirm color feedback.
+  - Updated CSS in `index.html` for crosshair sub-elements:
+    - `.fps-crosshair-ring`
+    - `.fps-crosshair-center`
+    - `.fps-crosshair-arm`
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright visual check:
+    - `/Users/preston/Code/zombie_invasion/output/fps-crosshair-per-weapon/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-crosshair-per-weapon/state-0.json`
+  - no `errors-*.json` in the output dir.
+- Pointer-lock exit instruction clarity update:
+  - Updated desktop instruction copy in `src/fps/scenes/MenuScene3D.js` to explicitly include `Esc unlock mouse-look`.
+  - Updated in-raid HUD controls line in `src/fps/scenes/RaidScene3D.js` to include `Esc unlock mouse-look`.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+- In-hand weapon visibility pass (first-person model shown clearly):
+  - Root cause fix in `src/fps/app/FpsGame.js`: camera was not attached to scene graph in the FPS runtime path.
+    - Added `this.scene3d.add(this.camera);` so camera-attached viewmodel rig renders reliably.
+  - Reworked FPS viewmodel geometry/placement in `src/fps/scenes/RaidScene3D.js`:
+    - moved/scaled rig into clearer lower-right framing
+    - enlarged forearm/glove meshes and tuned pose
+    - added more weapon silhouette detail (rail, grip, muzzle cap, accents)
+    - tuned bob/recoil transforms for visibility without blocking center aim.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright visual capture (gun now visible in player hands):
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-in-hands/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-in-hands/state-0.json`
+- Final verification + deploy status (current pass):
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Docker rebuild + restart pass via `docker compose up --build -d`.
+  - Container health:
+    - `docker compose ps` shows `game` up on `0.0.0.0:8080->80/tcp`.
+    - `curl -I http://127.0.0.1:8080` returns `HTTP/1.1 200 OK`.
+  - LAN test URL (current machine/session): `http://192.168.1.245:8080`.
+  - Verified first-person weapon visibility artifacts:
+    - screenshot: `/Users/preston/Code/zombie_invasion/output/fps-weapon-in-hands/shot-0.png`
+    - state: `/Users/preston/Code/zombie_invasion/output/fps-weapon-in-hands/state-0.json` (`weapon.viewModelVisible: true`).
+  - Note: one new Playwright capture run to `output/fps-weapon-in-hands-latest` produced no files (client hang/no output). Existing validated artifacts above remain the source of truth for this pass.
+- Input improvement: added keyboard double-jump on double-tap Space.
+  - File: `src/fps/systems/playerControllerFps.js`
+  - Added `DOUBLE_TAP_WINDOW_MS = 300` and desktop Space tap tracking.
+  - Behavior:
+    - first jump from ground still uses normal Space press
+    - second jump triggers only when desktop Space is double-tapped while airborne
+    - one mid-air jump max per airborne sequence.
+- UX copy updates for discoverability:
+  - `src/fps/scenes/MenuScene3D.js`
+  - `src/fps/scenes/RaidScene3D.js`
+  - Controls text now says `Space jump (double-tap for double jump)`.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright run executed after change:
+    - `/Users/preston/Code/zombie_invasion/output/fps-double-jump/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-double-jump/state-0.json`
+- Boss-wave landscape mutation feature added (landscape turns into zombies):
+  - File: `src/fps/scenes/RaidScene3D.js`
+  - Added transformable landscape registry for in-bounds trees (stores mesh + collider metadata).
+  - On boss spawn slot, trigger one-time mutation event for that wave:
+    - hide selected tree meshes
+    - remove tree colliders
+    - spawn zombies from those positions
+    - final boss wave mutates more landscape and can include a mega zombie.
+  - Added reset restoration so transformed trees/colliders come back on new runs.
+  - Added `world.landscapeZombified` to `render_game_to_text` payload for debugging/automation visibility.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright smoke artifact (raid render + no runtime crash):
+    - `/Users/preston/Code/zombie_invasion/output/fps-boss-landscape-smoke-raid/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-boss-landscape-smoke-raid/state-0.json`
+  - Note: long scripted Playwright action bursts intermittently hung in this environment; feature validation relied on code-path review + build/tests + smoke run.
+- Kill reward VFX polish: changed zombie kill feedback from meat-like visuals to gold coin visuals.
+  - File: `src/fps/scenes/RaidScene3D.js`
+  - Added `spawnCoinRewardBurst(origin, reward)`:
+    - spawns animated gold coin meshes with glint, spin, arc, and fade.
+    - coin count scales with reward size.
+  - Hooked kill economy to coin burst in `awardKillReward(enemy)`.
+  - Updated death chunk visuals to remove red/meat look:
+    - ragdoll debris physics material `flesh -> wood`
+    - mesh color changed to muted non-gore palette.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright run reached raid summary with expected kill/coin totals:
+    - `/Users/preston/Code/zombie_invasion/output/fps-coin-kill-vfx/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-coin-kill-vfx/state-0.json`
+- Major zombie roster expansion + progression rebalance:
+  - Added new enemy classes with distinct stat/behavior profiles in `src/fps/config/enemies_fps.json`:
+    - `crawler` (small, low HP, close attack)
+    - `leaper` (jump attack cadence)
+    - `armored` (higher HP + damage resistance + lower stagger)
+    - `flyer` (hovering aerial attacker)
+    - existing `walker`, `runner`, `brute`, `mega_zombie`, `mini_boss` retained and retuned.
+  - Reworked wave compositions in `src/fps/config/waves_fps.json` so early waves are simple and later waves introduce advanced types gradually.
+- AI system upgrades in `src/fps/systems/enemyAi3D.js`:
+  - Added per-type fields from config to runtime enemy state: movement mode, jump cadence, hover params, attack ranges, zigzag, damage multiplier, stagger resistance, visual offset.
+  - Added movement styles:
+    - zigzag strafing runners
+    - leaper jump pulses
+    - flyer hover/bob + aerial pursuit
+    - crawler pose/motion profile
+  - Added variant-aware animation behavior for crawler/flyer/leaper.
+- Visual + hitbox differentiation in `src/fps/scenes/RaidScene3D.js`:
+  - Added unique palettes and silhouette add-ons for new types (armor plates, wing fins, crouched crawler profile).
+  - Switched enemy collider sizing/scaling to `hitboxProfile` map (small/slim/human/leaper/large/armor/flyer/mega/boss).
+  - Added armored damage reduction/stagger-resistance handling during projectile hits.
+- Validation:
+  - `npm test` pass (8/8)
+  - `npm run build` pass
+  - Playwright quick smoke run artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-roster-smoke-quick/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-roster-smoke-quick/state-0.json`
+  - Note: longer scripted Playwright bursts intermittently hang in this environment; quick smoke + build/test used for this pass.
+- v2 house-start progression pass implemented:
+  - Save system upgraded to `zombie_invasion_fps_save_v2` in `src/fps/systems/saveFps.js` with new fields:
+    - `grenades`, `pistolUnlocked`, `openedBuildings`, `rescuedVillagers`
+    - default loadout now starts pipe-first + 5 grenades
+    - intentional v1->v2 start-over behavior
+  - Added new FPS config contracts:
+    - `src/fps/config/buildings_fps.json`
+    - `src/fps/config/economy_fps.json`
+    - `src/fps/config/boss_fps.json`
+  - Wired new configs into `src/fps/app/FpsGame.js`.
+  - Added pipe weapon to `src/fps/config/weapons_fps.json` and updated combat/audio/UI handling.
+  - `src/fps/scenes/RaidScene3D.js` major v2 updates:
+    - start inside configured house interior (`house_intro` phase)
+    - pipe-first run start, grenade inventory start at 5
+    - `E` building interactions (enter/exit), villager one-time rewards, opened/rescued tracking
+    - grenade throw (`G`) as consumable explosive
+    - wave-1 pistol unlock logic + auto-equip
+    - secret boss phase after wave 12 clear
+    - render hook expanded with `phase`, inventory/buildings/boss flags
+    - first-person viewmodel scale reduced (40% smaller target)
+  - `src/fps/scenes/ShopScene3D.js` updated with grenade packs and pistol progression lock.
+  - Menu/control copy updated for pipe+grenade flow.
+  - Mobile controls now include grenade action.
+- Added pure helper modules for rule coverage:
+  - `src/fps/systems/progressionRules.js`
+  - `src/fps/systems/doorRules.js`
+- Added/updated tests:
+  - `test/save.test.js`
+  - `test/progression_v2.test.js`
+  - `test/doors.test.js`
+  - `test/boss_phase.test.js`
+
+## Additional validation (v2 pass)
+- `npm test` passing (13/13).
+- `npm run build` passing.
+- Playwright web-game client runs (no `errors-*.json`) for v2 state checks:
+  - `/Users/preston/Code/zombie_invasion/output/fps-v2-house-start`
+  - `/Users/preston/Code/zombie_invasion/output/fps-v2-house-start-2`
+  - `/Users/preston/Code/zombie_invasion/output/fps-v2-house-light`
+  - `/Users/preston/Code/zombie_invasion/output/fps-v2-house-light-2`
+- Verified from `render_game_to_text`:
+  - phase starts as `house_intro`
+  - `insideId` starts at `village_house_a`
+  - equipped weapon starts as `pipe`
+  - grenades start at `5`
+- Direct Playwright key-interaction check confirms `E` exits house and flips phase:
+  - after interact: `phase: defense`, `insideId: null`, `startHouseExited: true`
+- Docker rebuilt and running:
+  - `docker compose up --build -d` succeeded
+  - service up on `0.0.0.0:8080`
+
+## TODO / next agent notes (v2)
+- Add explicit doorway geometry gaps for interiors (currently enter/exit is interaction-based teleport and can be triggered anywhere while inside).
+- Add richer interior dressing and better interior lighting balance (playable now but still sparse/dark in some camera angles).
+- Expand automated gameplay choreography to cover full wave-1 clear -> pistol unlock -> secret boss path using a richer Playwright input client.
+- Follow-up weapon-switch fix pass (shotgun selection issue):
+  - Fixed shop equip logic in `src/fps/scenes/ShopScene3D.js` so owned weapons are not disabled by wave-lock checks.
+  - Reworked numeric hotkey mapping in `src/fps/scenes/RaidScene3D.js` to explicit slots:
+    - `1 pistol`, `2 smg`, `3 rifle`, `4 shotgun`, `5 dmr`, `6 rpg`, `7/0 pipe`
+  - Updated control text in menu/HUD to show new slot mapping.
+- Validation:
+  - `npm test` pass (13/13).
+  - Headless Playwright verification confirmed pressing `Digit4` equips `shotgun` when owned.
+  - Headless Playwright verification confirmed owned shotgun button is enabled in shop even at low wave.
+  - Docker rebuilt and running on `0.0.0.0:8080`.
+- Mechanics test coverage expansion (current pass):
+  - Added `test/shop_rules.test.js` covering:
+    - pistol progression lock state (`Clears Wave 1`),
+    - buy/equip transitions,
+    - grenade pack affordability and application.
+  - Added `test/wave_director_flow.test.js` covering:
+    - intermission spawn blocking and resume behavior,
+    - final-wave completion signaling (`missionComplete`).
+  - Added `test/enemy_ai.test.js` covering:
+    - player-priority attack behavior,
+    - village attack fallback when player is far,
+    - leaper jump impulse behavior,
+    - alive-only `visibleEnemyPayload` output.
+  - Expanded `test/save.test.js` to verify intentional v1 -> v2 hard-reset behavior.
+- Validation (current pass):
+  - `npm test` passing (`12` files, `25` tests).
+  - `npm run build` passing.
+  - Playwright skill run artifacts captured for mechanics smoke:
+    - screenshot: `/Users/preston/Code/zombie_invasion/output/fps-mechanics-tests/shot-0.png`
+    - state: `/Users/preston/Code/zombie_invasion/output/fps-mechanics-tests/state-0.json`
+    - no `errors-*.json` generated in that output folder.
+- Structure impact + village damage pass:
+  - Added village structure damage rules module:
+    - `src/fps/systems/villageDamageRules.js`
+    - `isVillageStructureHit(entityId)` identifies village/interior/lamps and `village_core` as damageable structures.
+    - `computeVillageStructureDamage(...)` computes friendly-fire damage by material + weapon category + shattered-window bonus.
+  - Integrated structure damage into projectile hit resolution in `src/fps/scenes/RaidScene3D.js`:
+    - New `applyVillageStructureDamage(...)` called on static structure hits (including explosive impacts).
+    - Village HP now drops when player shots/projectiles hit village walls/windows/structure colliders.
+    - Added short HUD prompt: `Village damaged by friendly fire (-X HP).`
+  - Upgraded impact animation quality in `src/fps/scenes/RaidScene3D.js`:
+    - Glass break now has additive flash ring, significantly more shards, and mist/sparkle debris.
+    - Wall hits now produce larger decal + scorch ring + extra chips + dust plumes (material-aware).
+- Tests added:
+  - `test/village_damage_rules.test.js` (structure identification + material scaling + explosive vs ballistic damage).
+- Validation:
+  - `npm test` passing (`13` files, `28` tests).
+  - `npm run build` passing.
+  - Playwright/web-game smoke artifacts:
+    - `/Users/preston/Code/zombie_invasion/output/fps-structure-impact/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-structure-impact/state-0.json`
+- Re-validated after impact-VFX cleanup:
+  - `npm test` pass (`13` files, `28` tests).
+  - `npm run build` pass.
+- Note: Playwright client intermittently hangs in this environment when run via background shell orchestration; artifacts from direct run remain in `output/fps-structure-impact/`.
+- Double-jump airtime tuning pass:
+  - Updated `src/fps/systems/playerControllerFps.js`:
+    - Added stronger second-jump impulse (`DOUBLE_JUMP_SPEED_MPS = 8.4`).
+    - Added early-ascent reduced-gravity window for double jump (`DOUBLE_JUMP_FLOAT_WINDOW_SEC = 0.36`, `DOUBLE_JUMP_ASCENT_GRAVITY_SCALE = 0.48`).
+    - Added state tracking (`doubleJumpActive`, `doubleJumpFloatTimer`) and reset logic on landing/first jump.
+  - Added `test/player_controller_jump.test.js`:
+    - verifies second jump impulse is stronger than first jump,
+    - verifies reduced gravity behavior during double-jump ascent.
+- Validation:
+  - `npm test` pass (`14` files, `30` tests).
+  - `npm run build` pass.
+- Double jump rule update (per request):
+  - Removed double-tap timing gate in `src/fps/systems/playerControllerFps.js`.
+  - Double jump now triggers on any single airborne jump press while `canDoubleJump` is true.
+  - Still limited to one extra jump per airtime (`canDoubleJump` flips false after use).
+  - Updated control text in:
+    - `src/fps/scenes/MenuScene3D.js`
+    - `src/fps/scenes/RaidScene3D.js`
+- Tests:
+  - Expanded `test/player_controller_jump.test.js` to verify:
+    - second jump works after airborne delay (not timing-window based),
+    - only one extra jump per airtime,
+    - reduced-gravity ascent behavior for double jump.
+- Validation:
+  - `npm test` pass (`14` files, `31` tests).
+  - `npm run build` pass.
+  - Playwright client still intermittently hangs in this environment before artifact write.
+- Village damage readability + HUD bars pass:
+  - Added top HUD health bars for player and village in `src/fps/scenes/RaidScene3D.js` + `index.html` styles.
+  - Added shared village health helpers in `src/fps/systems/villageFeedback.js`.
+  - Added tests in `test/village_feedback.test.js`.
+  - Added village degradation feedback in `src/fps/scenes/RaidScene3D.js`:
+    - persistent smoke/fire emitters activate by village HP stage,
+    - broken-window light flicker scales with damage stage,
+    - full-screen warning overlay opacity scales with active village damage,
+    - impact bursts now spawn when village takes damage.
+  - Added village hurt audio cue in `src/fps/systems/audio3d.js` (`playVillageUnderAttack`).
+  - Wired village damage feedback into both sources:
+    - enemy attacks on village (`updateFixed`)
+    - friendly-fire structure damage (`applyVillageStructureDamage`).
+  - Updated HUD text to surface village integrity percent and move HP emphasis to bars.
+- Validation:
+  - `npm test` pass (`15` files, `33` tests).
+  - `npm run build` pass.
+  - Playwright smoke run via `$HOME/.codex/skills/develop-web-game/scripts/web_game_playwright_client.js` produced updated capture at `output/web-game/shot-0.png` showing top HP bars.
+- Mobile-friendly controls + HUD pass:
+  - Wired mobile `SWAP` and `SHOP` touch actions into raid update flow in `src/fps/scenes/RaidScene3D.js`.
+  - Added shared weapon-cycle path (`cycleOwnedWeapon`) used by keyboard (`Q`), mobile swap button state, and a new top-right quick `Swap` button.
+  - Added persistent top-right quick actions for both `Swap` and `Shop` with current-weapon/coin labels.
+  - Added mobile-specific concise controls text in HUD to reduce clutter.
+  - Hid combat touch controls in non-raid overlays (`menu`, `shop`, `summary`, `game_over`) and re-showed on raid start/resume in `src/fps/app/FpsGame.js`.
+  - Updated menu copy to reflect full mobile action set in `src/fps/scenes/MenuScene3D.js`.
+- Mobile UI/CSS responsiveness pass (`index.html`):
+  - Overlay/panel now support touch scrolling with safe-area-aware max-height.
+  - Shop list scrolling improved with touch momentum.
+  - Unified quick-action button styling for both `Swap` and `Shop`.
+  - Increased touch ergonomics (`touch-action`, tap highlight removal) and converted action cluster to a 3-column layout for 8 touch buttons.
+  - Added tighter small-screen spacing/size rules for HUD, quick buttons, sticks, and action buttons.
+- Validation:
+  - `npm test` pass (15 files, 33 tests)
+  - `npm run build` pass
+  - Playwright checks using `$WEB_GAME_CLIENT`:
+    - `output/fps-mobile-controls-check` (raid HUD + quick actions visible, no errors file)
+    - `output/fps-mobile-shop-check` (shop opened from top-right quick button, `state-0.json` mode `shop`, no errors file)
+- Door access coverage update:
+  - Added enterable config definitions for `village_chapel` and `village_barn` in `src/fps/config/buildings_fps.json` (exterior door/spawn + interior room + interior door/spawn).
+  - This enables opening/entering every village house/building door present in the village layout.
+  - Added `test/buildings_access.test.js` to guard required building IDs and interior door/spawn coordinates.
+- Validation:
+  - `npm test` pass (16 files, 35 tests)
+  - `npm run build` pass
+- Weapon hold/equip stability fix:
+  - Added `ensureActiveWeapon()` guard in `src/fps/scenes/RaidScene3D.js`.
+  - It now self-heals invalid/unknown equipped IDs, normalizes owned/unlocked weapon lists to configured weapon IDs, and guarantees the active weapon has ammo state.
+  - Called every active raid tick and on `resumeAfterIntermission()` (force sync from saved equipped weapon) so returning from shop/intermission cannot leave weapon/viewmodel desynced.
+- Validation:
+  - `npm test` pass (16 files, 35 tests)
+  - `npm run build` pass
+- Mini-map HUD pass (always-on, no purchase):
+  - Added a persistent top-right mini-map panel in raid mode (`index.html`, `src/fps/scenes/RaidScene3D.js`).
+  - Mini-map now renders: player heading marker, all active zombies, village core radius, building footprints, exterior doors, and unrescued villagers.
+  - Added minimap payload metadata in `render_game_to_text` (`miniMap` object).
+  - Added reusable mapping helpers in `src/fps/systems/minimapUtils.js`.
+- Tests:
+  - Added `test/minimap_utils.test.js` for coordinate/radius mapping and clamping behavior.
+  - `npm test` pass: 17 files, 38 tests.
+  - `npm run build` pass.
+- Playwright note:
+  - Attempted to run `$WEB_GAME_CLIENT` smoke test for this mini-map change, but the client hung in this environment during virtual-time stepping (no artifacts emitted). Existing test/build validation completed successfully.
+- Mini-map follow-up:
+  - Added raid-only visibility toggles for mini-map in scene `enter()` / `exit()`.
+  - Re-validated after follow-up:
+    - `npm test` pass (17 files / 38 tests)
+    - `npm run build` pass
+- Headshot damage pass:
+  - Added `src/fps/systems/headshotRules.js` to compute headshot zones per hitbox profile.
+  - Applied headshot multiplier (1.5x) to ballistic projectile hits in `src/fps/scenes/RaidScene3D.js`.
+  - Slightly boosted hit-confirm intensity on headshots for feedback.
+  - Added unit tests in `test/headshot_rules.test.js`.
+- Validation:
+  - `npm test` pass (18 files / 40 tests).
+- Mobile welcome screen fit fix:
+  - Added menu-specific mobile CSS in `index.html` to reduce intro title/body font size.
+  - Made `.fps-menu-actions` sticky at the bottom of the menu panel on small screens so Start/Reset buttons remain visible.
+  - Reduced mobile menu button padding/font size.
+- Validation:
+  - `npm test` pass (18 files / 40 tests)
+  - `npm run build` pass
+- Mobile HUD instruction cleanup:
+  - Added a mobile `?` quick action button in raid mode to toggle controls text visibility.
+  - Controls line is now hidden by default on mobile and shown only when `?` is toggled on.
+  - Help button switches between `?` and `x` and updates active styling while open.
+  - Added `ui.mobileInstructionsOpen` to `render_game_to_text` for automation visibility.
+  - Added CSS sizing/styling for the help button and constrained controls-line width on mobile.
+- Validation:
+  - `npm test` pass (18 files / 40 tests)
+  - `npm run build` pass
+- HUD declutter pass (top stats redesign):
+  - Kept only 3 compact health bars (`Health`, `Stamina`, `Village`) and 3 chips (`Wave`, `Coins`, `Enemies`) in top HUD.
+  - Removed top HUD fields for phase, weapon, physics, and persistent objective text.
+  - Updated `getContextPrompt()` default to empty so prompt line only appears for contextual actions (door/villager/boss/unlock prompts).
+  - Shortened controls copy and kept mobile controls hidden behind the existing `?` toggle.
+  - Added responsive HUD chip styling and compact mobile sizing in `index.html`.
+- Validation:
+  - `npm test` pass (40/40).
+  - `npm run build` pass.
+  - Playwright snapshot/state check at `/Users/preston/Code/zombie_invasion/output/fps-hud-compact` with no `errors-*.json`.
+- Mobile controls layout pass:
+  - Switched touch buttons from right-side grid to explicit positional layout in `index.html`.
+  - Added per-button classes in `src/fps/systems/mobileFpsControls.js` (`fps-mobile-button-<key>`).
+  - Positioned controls per request:
+    - `Jump` directly above left joystick.
+    - `Crouch` next to jump (toward center).
+    - `Fire` directly above right joystick.
+    - `Grenade` next to fire (toward center).
+  - Kept `Shop/Swap/Use/ADS` reachable near center/right so existing mechanics remain usable.
+  - Added mobile-specific size vars (`--stick-size`, `--btn-size`, `--btn-gap`) for <=900px.
+- Validation:
+  - `npm test` pass (40/40).
+  - `npm run build` pass.
+- Mobile welcome/menu fit fix:
+  - Moved long instructions into a collapsed `<details>` block in `MenuScene3D`.
+  - Kept primary actions (`Start Mission`, `Reset FPS Save`) directly under the short tagline so they are immediately visible.
+  - Added menu-specific compact styles for mobile in `index.html` (smaller panel width/height, tighter title/text spacing, smaller button sizing).
+  - Added styled `Controls & How To Play` summary row to reduce screen usage by default.
+- Validation:
+  - `npm test` pass (40/40).
+  - `npm run build` pass.
+  - Playwright client snapshot/state in `/Users/preston/Code/zombie_invasion/output/menu-mobile-fit-client` confirms `mode: "menu"` with compact visible buttons.
+- Mobile stale menu fix (deployment/cache):
+  - Rebuilt Docker image and redeployed (`docker compose up --build -d`) to pick up compact menu bundle `index-DpnHQ7xL.js`.
+  - Updated `nginx.conf` so root HTML responses are no-cache:
+    - `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`
+    - `Pragma: no-cache`
+    - `Expires: 0`
+  - Verified headers on `http://127.0.0.1:8080/` include no-cache values.
+- Mobile minimap toggle pass:
+  - Added `MAP` mobile quick button in `src/fps/systems/mobileFpsControls.js`.
+  - Added one-shot `map` state handling in controls snapshot/reset path.
+  - Added minimap visibility state to raid scene (`minimapOpen`) and wired toggle in `handleMobileQuickActions`.
+  - Minimap now starts hidden on mobile and visible on desktop at raid start.
+  - Added `updateMiniMapVisibility()` to sync panel visibility and map-button toggled style.
+  - Updated mobile controls help copy to include `MAP`.
+  - Updated `render_game_to_text` minimap flag to reflect visibility.
+  - Positioned `.fps-mobile-button-map` at bottom-right of the left joystick and added persistent toggled visual style.
+- Validation:
+  - `npm test` pass (40/40).
+  - `npm run build` pass.
+  - Docker rebuilt/redeployed; serving bundle `/assets/index-BVlNiNWd.js`.
+- Mobile joystick sensitivity tuning pass:
+  - Added stick response shaping in `src/fps/systems/mobileFpsControls.js` via `applyStickResponse()`.
+  - Increased deadzone and reduced low-end gain to prevent twitchy movement/look.
+  - Left stick now uses: `deadzone 0.18`, `exponent 1.35`, `gain 0.88`.
+  - Right stick now uses: `deadzone 0.24`, `exponent 1.75`, `gain 0.62`.
+  - Reduced mobile look speed in `src/fps/systems/playerControllerFps.js` from `0.038` to `0.029`.
+- Validation:
+  - `npm test` pass (40/40).
+  - `npm run build` pass.
+  - Docker rebuilt/redeployed with bundle `/assets/index-BmfROnHU.js`.
+- Mobile fullscreen support pass:
+  - Added mobile `FULL` quick button in `src/fps/systems/mobileFpsControls.js`.
+  - Added fullscreen toggle handling in `RaidScene3D` (`toggleFullscreenFromMobile`, `isFullscreenActive`, `syncFullscreenButton`).
+  - Added map/fullscreen toggled visual states and placed fullscreen button near left joystick in `index.html`.
+  - Updated mobile controls hint text to include `FULL`.
+  - Exposed fullscreen state in `render_game_to_text` under `ui.fullscreenActive`.
+- Validation:
+  - `npm test` pass (40/40).
+  - `npm run build` pass.
+  - Docker rebuilt/redeployed with bundle `/assets/index-DE4X2J8Y.js`.
+- Mobile bottom-screen coverage fix pass:
+  - Updated viewport sizing in `index.html` to use dynamic viewport units (`svh`/`dvh`) for `html/body/#app/canvas` so iOS Safari viewport changes do not leave a stale covered lower region.
+  - Hid decorative player-presence overlay on coarse pointers to reduce mobile screen obstruction.
+  - Added explicit mobile controls container sizing (`100vw` + `100svh/100dvh`) to keep the touch layer transparent and bounded to the live viewport.
+- Interior camera orientation fix:
+  - Added `yawFromForward(...)` in `src/fps/scenes/RaidScene3D.js`.
+  - Corrected start-house and teleport look-target yaw math so player faces intended direction instead of often looking into a wall.
+- Validation:
+  - `npm test` pass (18/18 files, 41/41 tests).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright capture artifacts:
+    - `/Users/preston/Code/zombie_invasion/output/mobile-bar-fix-check`
+    - `/Users/preston/Code/zombie_invasion/output/mobile-bar-fix-check-still`
+    - `/Users/preston/Code/zombie_invasion/output/mobile-bar-fix-orientation`
+- Mobile HUD cleanup pass (weapon indicator):
+  - Disabled weapon indicator creation on touch devices in `src/fps/scenes/RaidScene3D.js` (`createWeaponIndicator` now early-returns for mobile and removes stale node).
+  - Added CSS coarse-pointer fallback to hide `.fps-weapon-indicator` in `index.html`.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Mobile fullscreen control removed (per request):
+  - Removed `fullscreen` button/action from `src/fps/systems/mobileFpsControls.js`.
+  - Removed mobile fullscreen handling and button sync methods from `src/fps/scenes/RaidScene3D.js`.
+  - Updated mobile controls help text to remove FULL entry.
+  - Removed unused `.fps-mobile-button-fullscreen` CSS rule from `index.html`.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Mobile bottom-buttons cleanup:
+  - Removed `SWAP` and `SHOP` from on-screen mobile button list in `src/fps/systems/mobileFpsControls.js`.
+  - Updated mobile controls line in raid HUD to indicate `SWAP/SHOP` are top-right controls.
+  - Updated menu help mobile text to match the new control layout.
+- Validation:
+  - `npm test` pass (41/41)
+  - `npm run build` pass
+  - `docker compose up --build -d` pass
+- Auto-save-only UX pass:
+  - Removed manual `Save` button from FPS wave summary overlay in `src/fps/scenes/SummaryScene3D.js`.
+  - Removed manual `Save` button from FPS intermission shop in `src/fps/scenes/ShopScene3D.js`.
+  - Added persistence on `Continue` in shop before resuming.
+  - Added persistence for successful weapon buy/equip, armor buy/equip, and grenade-pack purchases.
+- Validation:
+  - `npm test` pass (18/18 files, 41/41 tests).
+  - `npm run build` pass.
+- Shop affordability UX pass:
+  - Added unaffordable weapon state in `src/fps/systems/shopRules.js` (`cannotAfford` contributes to disabled state).
+  - Added row-level unavailable styling hooks in `src/fps/scenes/ShopScene3D.js` for weapons, armor, and grenade packs.
+  - Added `.fps-shop-row.is-unavailable` greyscale styles in `index.html` so unaffordable/locked rows are visibly greyed out.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright screenshot/state check in `/Users/preston/Code/zombie_invasion/output/shop-grey-pass` confirms greyed-out unaffordable rows and no runtime errors file.
+- Shop ownership visibility pass:
+  - Added explicit `Owned`/`Equipped` badges to weapon and armor rows in `src/fps/scenes/ShopScene3D.js`.
+  - Added compact badge styling and title-row layout in `index.html`.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright screenshot/state check in `/Users/preston/Code/zombie_invasion/output/shop-owned-pass` confirms owned/equipped badges render and no runtime errors file.
+- Mobile joystick axis correction:
+  - Restored left-stick move Y behavior (`up = forward`) in `src/fps/systems/playerControllerFps.js`.
+  - Inverted right-stick look Y axis only in `updateLookFromMobile` so vertical look matches requested mobile feel.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Mobile button layout tweak:
+  - Swapped `JUMP` and `CROUCH` button positions.
+  - Moved both buttons to the bottom row (`bottom: stick-bottom + 6px`).
+  - File: `index.html` mobile control CSS.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Mobile context-action UX pass:
+  - Added `setButtonVisible(key, visible)` to `src/fps/systems/mobileFpsControls.js`.
+  - Defaulted mobile `USE` button hidden at control initialization.
+  - Wired raid interaction proximity into mobile `USE` visibility from `syncInteractPrompt()` in `src/fps/scenes/RaidScene3D.js`.
+  - Updated mobile controls help text to note `USE` appears only near interactables.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Mobile crouch behavior update:
+  - Changed mobile `CROUCH` button to toggle mode in `src/fps/systems/mobileFpsControls.js`.
+  - Tap once to crouch, tap again to uncrouch; no hold required.
+  - Updated mobile controls hint in `src/fps/scenes/RaidScene3D.js` to show `CROUCH (toggle)`.
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright smoke pass in `/Users/preston/Code/zombie_invasion/output/mobile-crouch-toggle-smoke` with no runtime errors file.
+- Jump descent tuning pass:
+  - Reduced gravity from `18.5` to `14.6` in `src/fps/systems/playerControllerFps.js`.
+  - Reduced max fall speed from `20` to `14`.
+  - Added softer post-apex descent snap via `FALL_SNAP_SPEED_MPS = 4.8` (previously snapped to `-JUMP_SPEED_MPS`).
+- Validation:
+  - `npm test` pass (41/41).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright smoke run in `/Users/preston/Code/zombie_invasion/output/jump-fall-tune-smoke` with no runtime errors file.
+- Pistol ownership gating fix:
+  - Updated Wave 1 progression so pistol is only `unlocked` (shop-available) and is no longer auto-added to `ownedWeapons`.
+  - Removed auto-equip behavior on pistol unlock in raid progression path.
+  - Updated save sanitization to avoid auto-granting pistol ownership when `pistolUnlocked=true`.
+  - Kept pistol price at `50` in `src/fps/config/weapons_fps.json` (already set).
+  - Updated tests:
+    - `test/progression_v2.test.js` now asserts unlock-for-purchase behavior.
+    - `test/save.test.js` adds regression coverage for unlocked-without-owned pistol.
+- Validation:
+  - `npm test` pass (43/43).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright smoke run in `/Users/preston/Code/zombie_invasion/output/pistol-gate-check` (state/screenshot captured, no errors file).
+- Shop mobile exit UX pass:
+  - Added a top-right `Exit` button to intermission shop header in `src/fps/scenes/ShopScene3D.js`.
+  - Wired `Exit` to the same close flow as `Continue` (persist save + resume).
+  - Added responsive styling in `index.html`:
+    - new `.fps-shop-header` layout
+    - sticky mobile shop header so exit remains visible while scrolling.
+- Validation:
+  - `npm test` pass (43/43).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+  - Playwright state/screenshot check in `/Users/preston/Code/zombie_invasion/output/shop-exit-top-check-2` confirms shop mode and visible top-right `EXIT` button.
+- Player hit feedback pass:
+  - Added subtle player damage flash overlay (`.fps-player-damage-overlay`) with red edge gradient.
+  - Added `onPlayerDamaged()` + `updatePlayerDamageEffects()` in `src/fps/scenes/RaidScene3D.js`.
+  - Hooked flash trigger to zombie-driven player damage only.
+  - Overlay visibility is managed on scene enter/exit and reset state.
+- Validation:
+  - `npm test` pass (44/44).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Zombie realism visual pass (FPS):
+  - Upgraded zombie materials in `src/fps/scenes/RaidScene3D.js` from flat/stylized standard shading toward more realistic physical shading:
+    - `MeshPhysicalMaterial` for skin/clothing with adjusted roughness/clearcoat.
+    - Added darker rot-skin material, torn-cloth variant material, and dedicated teeth material.
+    - Reduced exaggerated emissive glow intensity for skin/chest/eyes while preserving readability.
+  - Reworked zombie anatomy mesh composition for more human-like silhouettes:
+    - torso/pelvis converted from boxy blocks to capsule-based body forms
+    - upper/lower arms and legs converted to capsule limb forms
+    - added hands, nose stump, teeth, sleeve tears, and knee wound details
+    - preserved existing animation rig pivots (`leftArmPivot`, `rightArmPivot`, knees, etc.) so AI/pose updates remain compatible.
+- Validation:
+  - `npm test` pass (44/44).
+  - `npm run build` pass.
+  - Playwright client run produced artifacts in `/Users/preston/Code/zombie_invasion/output/fps-zombie-realism`:
+    - `shot-0.png`, `state-0.json` (baseline after start)
+    - `shot-zombies.png`, `state-zombies.json` (raid state with visible enemy list, no errors file generated)
+    - additional orientation captures: `shot-zombies-front.png`, `shot-zombies-close.png`.
+- Damage feedback pass (discrete bites + subtle red border flash):
+  - Changed player damage intake from immediate smooth subtraction to buffered pulse damage in `src/fps/scenes/RaidScene3D.js`:
+    - Added bite cadence constants:
+      - `PLAYER_BITE_INTERVAL_SEC = 0.42`
+      - `PLAYER_BITE_MAX_DAMAGE_PER_PULSE = 9`
+    - Added `pendingPlayerBiteDamage` accumulator.
+    - Enemy damage now accumulates continuously and applies in discrete bite pulses on interval.
+  - Tuned player damage flash intensity and max opacity to remain subtle:
+    - reduced `onPlayerDamaged()` flash accumulation
+    - reduced overlay opacity cap in `updatePlayerDamageEffects()`
+  - Updated player damage overlay visual in `index.html` to edge/border-focused red flash (top/bottom/left/right gradients + thin inset border).
+- Validation:
+  - `npm test` pass (44/44).
+  - `npm run build` pass.
+  - Required Playwright client run completed to `/Users/preston/Code/zombie_invasion/output/fps-bite-damage`:
+    - `shot-0.png`, `state-0.json`.
+  - Additional headless hit-capture scripts generated:
+    - `state-bite-final.json`
+    - `hp-samples.json`
+    - `shot-bite-fallback.png`
+  - Note: headless choreography did not reliably exit the starting house in this run, so the artifacts did not capture an active damage event despite code-level implementation.
+- Mini-map facing arrow fix:
+  - Corrected mini-map player arrow rotation in `src/fps/scenes/RaidScene3D.js` by inverting yaw for canvas-space rotation (`ctx.rotate(-yaw)`).
+  - Added inline note explaining canvas Y-axis inversion.
+- Validation:
+  - `npm test` pass (44/44).
+  - `npm run build` pass.
+  - Playwright artifact captured in `/Users/preston/Code/zombie_invasion/output/fps-minimap-facing` (`shot-0.png`, `state-0.json`) with no errors file.
+- Jump stamina cost pass:
+  - Updated `src/fps/systems/playerControllerFps.js` so jumps now consume stamina:
+    - grounded jump cost: `12` stamina
+    - double jump cost: `16` stamina
+  - Added constants:
+    - `JUMP_STAMINA_COST`
+    - `DOUBLE_JUMP_STAMINA_COST`
+  - Deduction is applied at jump trigger time for both first and double jump.
+  - Added regression/unit coverage in `test/player_controller_jump.test.js`:
+    - new test verifies stamina decreases from `100 -> 88 -> 72` across jump + double jump.
+- Validation:
+  - `npm test` pass (45/45).
+  - `npm run build` pass.
+  - Playwright smoke run captured in `/Users/preston/Code/zombie_invasion/output/fps-jump-stamina` (`shot-0.png`, `state-0.json`) with no errors file.
+- Modal spacing pass:
+  - Increased global overlay padding to include safe-area-aware margins on all sides.
+  - Updated modal max-height calculation to account for safe area insets.
+  - Fixed mobile override that previously removed horizontal modal padding.
+  - Mobile modals now use full available width inside padded overlay (`width: 100%`, `max-width: 860px`).
+  - File: `index.html`.
+- Validation:
+  - `npm test` pass (44/44).
+  - `npm run build` pass.
+  - `docker compose up --build -d` pass.
+- Villager escort + permanent upgrade system implemented (Town Hall delivery):
+  - Added new rules module: `src/fps/systems/villagerEscortRules.js`.
+    - Exports: `VILLAGER_PERK_DEFS`, `getVillagerPerkModifiers(save)`, `isVillagerAvailable(save, villagerId)`, `computeEscortDamage(dt, attackerCount, damagePerSec, maxAttackers)`, `computeDiscountedCost(cost, multiplier)`.
+  - Save schema extension in `src/fps/systems/saveFps.js`:
+    - Added persistent `deadVillagers: []` default.
+    - Added sanitization for `deadVillagers` (unique strings).
+    - Overlap resolution implemented (`rescuedVillagers` wins over `deadVillagers`).
+  - Shop pricing multiplier plumbing:
+    - `src/fps/systems/shopRules.js` now accepts optional `costMultiplier` on weapon/armor/grenade-pack state and purchase helpers.
+    - Costs/status labels now use discounted values via `computeDiscountedCost`.
+    - `src/fps/scenes/ShopScene3D.js` applies multiplier from `getVillagerPerkModifiers(save).shopCostMultiplier` consistently.
+  - Raid escort runtime/state refactor in `src/fps/scenes/RaidScene3D.js`:
+    - Villagers now track `state` (`idle|escorting|rescued|dead`), `hp/maxHp`, and health-bar refs.
+    - Added scene escort fields: `activeEscortVillagerId`, `escortDropoff`, `escortFollowOffset`, `escortTeleportCatchupDistance`.
+    - Added `updateEscort(dt)` loop and hooked it into `updateFixed(dt)` right after interact handling.
+    - Replaced instant villager rewards with escort start in `interactWithVillager`.
+    - Added escort success/failure persistence:
+      - Death -> `save.deadVillagers` + permanent loss.
+      - Dropoff -> `save.rescuedVillagers` + perk unlock.
+    - Added Town Hall exterior dropoff zone config + minimap destination ring/path while escort is active.
+    - Added escorted villager above-head world-space health bar (escort-only visibility).
+    - Added building-entry guard while escorting (`Deliver villager to Town Hall first.`); interior exit remains allowed.
+    - Updated interaction/context prompts to `escort` wording.
+    - Extended `render_game_to_text()` payload:
+      - `escort.active`, `escort.villagerId`, `escort.hp`, `escort.maxHp`, `escort.healthBarVisible`, `escort.dropoff`
+      - `villagers.rescuedCount`, `villagers.deadCount`, `villagers.availableCount`
+  - Permanent perk application wired:
+    - `+15%` village max HP (Town Hall) at run reset (and reapplied on unlock).
+    - `+2` starting grenades floor per run (House A).
+    - `+10%` kill coin rewards in `awardKillReward` (House B).
+    - `+0.06` additive armor DR before clamp in `getArmorDamageReduction` (Chapel).
+    - `-20%` grenade cooldown multiplier in grenade throw path (Barn).
+    - `10%` shop discount across weapon/armor/grenade pack labels + deductions (Blacksmith).
+  - Added deterministic testing hook for automation in `src/fps/app/FpsGame.js`:
+    - `window.__fpsGame = game`.
+
+## Additional tests added/updated (escort/perks)
+- Added `test/villager_escort_rules.test.js`:
+  - availability handling, perk aggregation, escort damage clamping, discount rounding.
+- Added `test/raid_kill_reward.test.js`:
+  - verifies kill coin multiplier path in `awardKillReward`.
+- Updated `test/save.test.js`:
+  - `deadVillagers` default + rescued/dead overlap resolution.
+- Updated `test/shop_rules.test.js`:
+  - discount reflected in status labels and purchase deductions.
+
+## Validation log (escort/perks)
+- `npm test` passing (20 files, 52 tests).
+- `npm run build` passing.
+- Required web-game client run (develop-web-game skill):
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-smoke-final2`
+  - Verified no `errors-*.json` and updated text payload fields present.
+- Playwright scenario artifacts (A/B/C/D):
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/state-scenario-a.json`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/state-scenario-b.json`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/state-scenario-c-death.json`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/state-scenario-c-next-run.json`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/state-scenario-d.json`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/shot-scenario-a.png`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/shot-scenario-b.png`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/shot-scenario-c-next-run.png`
+  - `/Users/preston/Code/zombie_invasion/output/fps-escort-scenarios/shot-scenario-d.png`
+  - Notes:
+    - Scenario B and C used deterministic forcing through exposed `window.__fpsGame` internals for reliable automation (dropoff completion and forced escort death) while still validating persisted save/state outcomes.
+- Zombie visibility fix (no invisible living zombies):
+  - Removed enemy mesh culling by `maxVisibleEnemies` in `src/fps/systems/enemyAi3D.js`.
+  - Alive enemies are now always rendered (`enemy.mesh.visible = true`) so minimap dots cannot represent hidden-but-alive zombies.
+- Validation:
+  - `npm test` pass (20 files, 52 tests)
+  - Playwright smoke run via web-game client: `/Users/preston/Code/zombie_invasion/output/fps-zombie-visibility-fix`
+  - No `errors-*.json` generated in that artifact directory.
+- Zombie arm orientation fix (forward-facing chase + attack) implemented.
+  - Added new pure helper module: `src/fps/systems/zombiePoseRules.js`.
+    - Export: `computeForwardArmPose({ state, time, variant })`.
+    - Chase (`state: advance`):
+      - shoulder base `x=-1.05`, sway `±0.10`
+      - forearm base `x=-0.45`, sway `±0.06`
+      - shoulder spread `z=+0.08/-0.08`
+    - Attack (`state: attack_player|attack_village`):
+      - shoulder base `x=-1.30`
+      - alternating swipe `±sin(t*6.2)*0.26`
+      - forearm opposite-phase `±0.16` around `-0.72`
+      - claw yaw twist `y=+0.10/-0.10`
+    - Returns `null` for non chase/attack states.
+  - Integrated helper into animation pipeline: `src/fps/systems/enemyAi3D.js`.
+    - Imported `computeForwardArmPose` and applied it after per-variant pose branches in `animateZombiePose(...)`.
+    - Arm + forearm pivots are hard-overridden when helper returns a pose, ensuring variants cannot revert backward-facing arms during chase/attack.
+  - Existing emissive and hit feedback logic left unchanged.
+
+## Tests added
+- New unit tests: `test/zombie_pose_rules.test.js`
+  - chase baseline and sway bounds (`x < -0.8`, bounded offsets)
+  - attack alternating left/right offsets and yaw twists
+  - non chase/attack returns `null`
+  - variant coverage confirms all major variants still get forward-arm output in chase/attack
+
+## Validation (arm orientation fix)
+- `npm test` passing (21 files, 56 tests).
+- `npm run build` passing.
+- Required web-game client run:
+  - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-smoke`
+  - no `errors-*.json` generated.
+- Playwright visual checks (raid):
+  - Chase (`advance`) screenshot + state:
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-orientation/shot-chase.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-orientation/state-chase.json`
+  - Attack (`attack_player`) screenshot + state:
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-orientation/shot-attack.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-orientation/state-attack.json`
+  - Additional swipe motion evidence (attack phase samples):
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-orientation/shot-attack-swipe-a.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-arm-orientation/shot-attack-swipe-b.png`
+- Spawn-direction restriction update:
+  - Updated zombie spawning in `src/fps/scenes/RaidScene3D.js` so all enemy spawns are redirected to a front-of-village zone.
+  - Added `getFrontVillageSpawnPoint()` and constants for front-zone bounds.
+  - `spawnEnemyAt(...)` now uses front-zone spawn positions for all spawn sources (wave, mutation, boss-triggered paths).
+- Validation:
+  - `npm test` pass (21 files, 56 tests)
+  - `npm run build` pass
+  - Playwright client smoke artifact: `/Users/preston/Code/zombie_invasion/output/fps-front-spawn-only` (no errors file generated)
+- Generated zombie type picture gallery (one screenshot per type) in `/Users/preston/Code/zombie_invasion/output/zombie-type-gallery`.
+- Included all current types plus secret boss (`secret_boss`) and wrote manifest: `index.json`.
+- Zombie realism polish pass:
+  - Updated `makeZombieMesh` in `src/fps/scenes/RaidScene3D.js` with more realistic anatomy and materials:
+    - toned down cartoony emissive/outline values
+    - refined torso/pelvis/head proportions
+    - added neck + clavicle forms, cheek rot detail, elbow joints, improved feet/toes
+    - variant-aware bulk/gaunt body scaling
+  - Updated movement feel in `src/fps/systems/enemyAi3D.js`:
+    - subtler gait amplitude, reduced bob, mild torso twist and less robotic head motion
+- Validation:
+  - `npm test` pass (21 files, 56 tests)
+  - `npm run build` pass
+  - Playwright web-game-client run: `/Users/preston/Code/zombie_invasion/output/fps-zombie-realism-smoke` (no errors file generated)
+  - Focused realism screenshot/state: `/Users/preston/Code/zombie_invasion/output/fps-zombie-realism-check/shot-realism.png` and `state-realism.json`
+- Village destruction flow update (survival mode after collapse):
+  - Updated `src/fps/scenes/RaidScene3D.js` so village HP reaching 0 no longer ends the run.
+  - Added/connected runtime behavior:
+    - one-time `markVillageDestroyed()` trigger when village HP hits 0
+    - persistent popup message: "Village destroyed. No safe zone remains. Survive as long as you can."
+    - enemies stop using village as a target after destruction (disabled village target position/radius passed into `stepEnemies`)
+    - village safe-zone ring no longer draws on minimap after destruction
+    - context prompt now reports survival objective after destruction
+  - Friendly-fire village damage now early-exits once village is already destroyed.
+  - `render_game_to_text()` village payload now includes `destroyed` boolean.
+  - `resetRun()` now fully resets destruction state and popup visibility/timers.
+- Validation:
+  - `npm test` pass (21 files, 56 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifacts:
+    - `output/web-game/shot-0.png`, `output/web-game/state-0.json`
+    - `output/fps-village-destroyed-smoke2/shot-0.png`, `output/fps-village-destroyed-smoke2/state-0.json`
+  - Verified text-state contains new field under village: `"destroyed": false` (baseline run before village collapse).
+- Minimap player-arrow facing fix:
+  - Replaced yaw-based minimap arrow rotation in `src/fps/scenes/RaidScene3D.js` with direct camera-forward vector projection.
+  - Arrow is now built from tip/tail/side points derived from world facing (`camera.getWorldDirection`) mapped to minimap axes, preventing backward/inverted orientation.
+- Validation:
+  - `npm test` pass (21 files, 56 tests).
+  - `npm run build` pass.
+- Wave spawn-count tuning (per request):
+  - Updated `src/fps/config/waves_fps.json` budgets to strict linear growth: wave 1 = 8 total spawns, then +2 each wave.
+  - New budgets by wave: `8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30`.
+  - Kept existing compositions, durations, spawn intervals, and boss/mega flags unchanged.
+- Validation:
+  - `npm test` pass (21 files, 56 tests).
+  - `npm run build` pass.
+- Bullet collision fix for "building shadows" issue:
+  - Removed hidden village helper collider creation in `src/fps/scenes/RaidScene3D.js` (`village_core` static box).
+  - This prevents projectiles from being intercepted by non-visible village-center collision geometry.
+- Validation:
+  - `npm test` pass (21 files, 56 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifact: `output/fps-shadow-bullet-fix/shot-0.png`, `output/fps-shadow-bullet-fix/state-0.json`.
+- Armor expansion pass (more armor options):
+  - Added new armor upgrades in `src/fps/config/economy_fps.json`:
+    - `chainmail` (29% DR, 900 coins)
+    - `tactical` (34% DR, 1250 coins)
+    - `hazmat` (40% DR, 1700 coins)
+    - `juggernaut` (50% DR, 2400 coins)
+  - Kept existing tiers (`cloth`, `leather`, `kevlar`, `reinforced`) unchanged.
+  - Added matching shop avatar palette classes in `index.html`:
+    - `.armor-chainmail`, `.armor-tactical`, `.armor-hazmat`, `.armor-juggernaut`
+- Validation:
+  - `npm test` pass (21 files, 56 tests).
+  - `npm run build` pass.
+- Village friendly-fire disabled:
+  - Added `FRIENDLY_FIRE_VILLAGE_DAMAGE = false` in `src/fps/scenes/RaidScene3D.js`.
+  - `applyVillageStructureDamage(...)` now early-returns when friendly fire is disabled, so player bullets/explosives no longer reduce village HP.
+  - Zombie-driven village damage remains active (enemy AI damage path unchanged).
+- Validation:
+  - `npm test` pass (21 files, 56 tests).
+  - `npm run build` pass.
+- New feature: Village level-up system
+  - Added persistent `villageLevel` to FPS save schema in `src/fps/systems/saveFps.js` (default `1`, sanitized to minimum `1`).
+  - Added configurable village upgrade economy block in `src/fps/config/economy_fps.json`:
+    - `label`, `maxLevel`, `hpPerLevel`, `baseCost`, `costGrowth`.
+  - Added village-upgrade rules in `src/fps/systems/shopRules.js`:
+    - `getVillageUpgradeState(...)`
+    - `applyVillageUpgradePurchase(...)`
+    - `getVillageLevelHpMultiplier(...)`
+  - Integrated into shop UI (`src/fps/scenes/ShopScene3D.js`):
+    - New `Village` section in intermission shop.
+    - Purchase button to level town defenses.
+    - Shows current level and max-village-HP bonus progression.
+    - Persists upgrade immediately and applies current-run village HP scaling via `raidScene.syncVillagerPerkModifiers({ applyVillageHealth: true })`.
+  - Integrated into raid HP scaling (`src/fps/scenes/RaidScene3D.js`):
+    - `maxVillageHp` now multiplies both villager perk multiplier and village-level multiplier.
+    - Raid text-state now includes `village.level`.
+- Tests updated:
+  - `test/save.test.js`: validates `villageLevel` default and clamp behavior.
+  - `test/shop_rules.test.js`: validates village upgrade purchase flow, multiplier effect, and max-level lock behavior.
+- Validation:
+  - `npm test` pass (21 files, 59 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifact: `output/fps-village-levelup/shot-0.png`, `output/fps-village-levelup/state-0.json` (shop mode + `villageLevel` in state).
+- Player realism visual pass (person model):
+  - Upgraded first-person arm/hand view model in `src/fps/scenes/RaidScene3D.js`:
+    - replaced block forearms/gloves with capsule + sphere based shoulders, forearms, wrist wraps, hands, thumbs, and knuckle shapes.
+    - switched to shaded `MeshStandardMaterial` skin/sleeve/glove materials for better depth and realism.
+  - Upgraded shop survivor avatar styling in `index.html`:
+    - more human facial details (eyes + mouth), richer skin gradients, torso paneling, and stronger arm/leg material shading.
+- Validation:
+  - `npm test` pass (21 files, 59 tests).
+  - `npm run build` pass.
+  - Playwright artifacts:
+    - shop avatar check: `output/fps-person-realism-pass/shot-0.png`, `state-0.json`
+    - raid first-person check: `output/fps-person-realism-raid/shot-0.png`, `state-0.json`
+- Med kit feature added (shop full heal):
+  - Added configurable med kit in `src/fps/config/economy_fps.json`:
+    - `"medKit": { "label": "Med Kit (Full Heal)", "cost": 20 }`
+  - Added shop rule helpers in `src/fps/systems/shopRules.js`:
+    - `getMedKitShopState(...)`
+    - `applyMedKitBuy(...)`
+  - Integrated med kit purchase into `src/fps/scenes/ShopScene3D.js`:
+    - New med kit row in shop with `20 coins` status.
+    - Disabled when player is already at full health.
+    - On purchase, deducts coins and restores player HP to full (`100`).
+- Tests:
+  - Extended `test/shop_rules.test.js` with med kit cases:
+    - successful full-heal purchase
+    - blocked purchase at full health
+- Validation:
+  - `npm test` pass (21 files, 61 tests).
+  - `npm run build` pass.
+- Gun realism pass (first-person viewmodel):
+  - Updated `src/fps/scenes/RaidScene3D.js` `buildViewWeaponMeshes()` with more detailed, profile-specific weapon geometry and materials:
+    - richer metal/polymer/rubber/wood/brass material palette
+    - launcher details (front grip, shoulder pad rubber, side rails, warhead body/tip)
+    - firearm detail additions (handguard grooves, muzzle crown, grip backstrap, mag base plate, rail teeth)
+    - profile-specific realism extras:
+      - pistol: reciprocating slide mesh, trigger, hammer, slide serrations
+      - smg: foregrip and support stock arms
+      - rifle: gas tube + gas block details
+      - shotgun: animated pump, shell rack + visible shells
+      - dmr: expanded scope assembly (ocular + mounts)
+  - Added weapon moving-part state:
+    - constructor now tracks `viewWeaponMovingParts` and `viewWeaponFireKick`
+    - `buildViewWeaponMeshes()` now registers named moving parts (`vm_slide`, `vm_bolt`, `vm_pump`) and captures base positions
+  - Added recoil-driven first-person weapon animation in `updateViewModel(...)`:
+    - stronger weapon kick/tilt response on shot
+    - moving slide/bolt/pump animation based on fire impulse decay
+    - subtle view-weapon root positional/rotational response while moving/firing
+  - Added fire impulse hooks:
+    - melee swing and ballistic fire now increase `viewWeaponFireKick` with per-weapon tuning
+    - reset paths (`resetRun`, `refreshViewWeaponModel`) clear fire-kick state
+- Validation:
+  - `npm test` pass (21 files, 61 tests)
+  - `npm run build` pass
+  - Playwright smoke run artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-gun-realism-pass/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-gun-realism-pass/state-0.json`
+    - no `errors-*.json` generated
+- Additional Playwright visual rerun for gun-pass artifact stability:
+  - `/Users/preston/Code/zombie_invasion/output/fps-gun-realism-pass-2/shot-0.png`
+  - `/Users/preston/Code/zombie_invasion/output/fps-gun-realism-pass-2/state-0.json`
+  - no `errors-*.json` generated
+- Minecraft-like zombie visual pass (FPS):
+  - Updated `makeZombieMesh(...)` in `src/fps/scenes/RaidScene3D.js` to use blockier cuboid geometry (head/torso/arms/legs/eyes/claws) and flat-shaded materials for a voxel-style silhouette while preserving existing animation pivots.
+- Direction arrow stability fix while walking:
+  - Updated minimap player-arrow direction in `src/fps/scenes/RaidScene3D.js` `drawMiniMap()` to derive facing from `playerController.state.yaw` directly instead of `camera.getWorldDirection(...)`, preventing movement/camera coupling from skewing the arrow while moving.
+- Validation:
+  - `npm test` pass (21 files, 61 tests).
+  - `npm run build` pass.
+- Foliage placement fix (barn/houses):
+  - Updated `buildLandscape()` in `src/fps/scenes/RaidScene3D.js` so decorative bush/grass cones no longer spawn inside building footprints.
+  - Added blocked spawn zones for village exterior buildings (including barn and both houses) plus all interior-room footprints from `buildingDefs`.
+  - Grass spawning now retries with bounded attempts and skips blocked coordinates.
+- Validation:
+  - `npm test` pass (21 files, 61 tests).
+  - `npm run build` pass.
+  - Playwright action-client run was flaky in this environment (`Target page ... closed`), so performed direct Playwright smoke capture instead:
+    - `/Users/preston/Code/zombie_invasion/output/fps-bush-block-check-direct/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-bush-block-check-direct/state-0.json`
+- Zombie house/barn intrusion fix:
+  - Root cause: enemy front-line spawn band overlapped village building footprints, and `spawnEnemyAt(def, waveNum, spawn)` ignored explicit `spawn` overrides.
+  - Updated `src/fps/scenes/RaidScene3D.js`:
+    - Added `isEnemySpawnBlocked(point, padding)` and `resolveEnemySpawnPoint(rawPoint)` helpers using `minimapStructures` footprints as no-spawn/no-occupy zones.
+    - Updated `getFrontVillageSpawnPoint()` to retry until a non-building spawn point is found (with fallback resolution).
+    - Fixed `spawnEnemyAt(...)` to honor provided `spawn` and then resolve to a valid non-building point.
+    - Added `keepEnemiesOutOfStructures()` and call it after physics step each tick to push any overlapping enemy back out of blocked structures.
+- Validation:
+  - `npm test` pass (21 files, 61 tests).
+  - `npm run build` pass.
+  - Runtime overlap check artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-structure-check/overlap-check.json` reports `"offenders": []` with active enemies present.
+- Escort follow-behavior fix (villager should just follow player):
+  - Root cause: escort follow offset in `src/fps/scenes/RaidScene3D.js` used inverse yaw rotation, which put villagers in front/on the wrong side at some headings.
+  - Added `computeEscortFollowTarget(...)` in `src/fps/systems/villagerEscortRules.js` to compute target using player forward/right basis so positive follow offset always trails behind the player.
+  - Updated `updateEscort(...)` in `src/fps/scenes/RaidScene3D.js` to use the new helper.
+  - Added regression coverage in `test/villager_escort_rules.test.js` for yaw `0` and `PI/2` to ensure escort target remains behind the player.
+- Validation:
+  - `npm test -- test/villager_escort_rules.test.js test/village.test.js` pass (2 files, 6 tests).
+  - Playwright client smoke run via develop-web-game skill script:
+    - `/Users/preston/Code/zombie_invasion/output/fps-escort-follow-fix/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-escort-follow-fix/state-0.json`
+    - no `errors-*.json` generated.
+- Mini-map villager visibility/color update:
+  - Added `Villager` legend entry in `src/fps/scenes/RaidScene3D.js` minimap panel template.
+  - Updated minimap villager rendering to draw both `idle` and active `escorting` villagers in blue (`rgba(74,171,255,...)`), with escort marker slightly larger for readability.
+  - Added missing legend color styles in `index.html`:
+    - `.fps-minimap-legend .villager::before` (blue)
+    - `.fps-minimap-legend .destination::before` (dropoff gold)
+- Validation:
+  - `npm test -- test/minimap_utils.test.js test/villager_escort_rules.test.js` pass (2 files, 8 tests).
+  - `npm run build` pass.
+  - Playwright client artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-minimap-villager-blue/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-minimap-villager-blue/state-0.json`
+    - no `errors-*.json` generated.
+- Added late-wave zombie animals (pig/horse/cow/chicken) that use normal zombie AI behavior:
+  - New enemy defs in `src/fps/config/enemies_fps.json`:
+    - `zombie_pig`, `zombie_horse`, `zombie_cow`, `zombie_chicken`
+    - all configured as ground attackers with standard zombie combat fields.
+  - Wave rollout in `src/fps/config/waves_fps.json`:
+    - wave 6+: introduces `zombie_chicken`, `zombie_pig`
+    - wave 8+: adds `zombie_cow`
+    - wave 10+: adds `zombie_horse`
+    - weights increase through wave 12 so animals appear more often later.
+  - Growth scaling in `src/fps/systems/enemyAi3D.js`:
+    - added per-wave HP growth map entries for all four animal variants.
+  - Visual implementation in `src/fps/scenes/RaidScene3D.js`:
+    - added animal zombie variant set and `makeZombieAnimalMesh(...)` for quadruped silhouettes with zombie glow/wound styling.
+    - `makeZombieMesh(...)` now routes animal variants to the new mesh builder.
+  - Animation implementation in `src/fps/systems/enemyAi3D.js`:
+    - added quadruped gait branch in `animateZombiePose(...)` for animal variants while keeping existing AI/targeting/attack flow unchanged.
+- Validation:
+  - `npm test -- test/enemy_ai.test.js test/raids.test.js test/wave_director_flow.test.js` pass (3 files, 9 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifact (no runtime errors file):
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-animals-smoke/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-zombie-animals-smoke/state-0.json`
+  - Composition verification script output confirms animal IDs are present from wave 6 onward and all four by wave 10.
+- Wave progression hardening (each level gets harder):
+  - Added explicit per-wave enemy scaling in `src/fps/systems/enemyAi3D.js`:
+    - new exported helper `computeWaveDifficultyScalars(wave)`.
+    - HP scalar: `1 + 0.035*(wave-1)`
+    - Attack scalar: `1 + min(0.5, 0.03*(wave-1))`
+    - Speed scalar: `1 + min(0.38, 0.022*(wave-1))`
+  - `createEnemyState(...)` now applies these scalars on top of existing per-type HP growth map, ensuring enemies are always tougher on higher waves.
+  - Added progression guard test in `test/raids.test.js`:
+    - verifies spawn pressure (`budget/spawnInterval`) strictly increases every wave.
+    - verifies HP/attack/speed scalars strictly increase every wave.
+- Validation:
+  - `npm test -- test/raids.test.js test/enemy_ai.test.js test/wave_director_flow.test.js` pass (3 files, 10 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-wave-difficulty-ramp/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-wave-difficulty-ramp/state-0.json`
+    - no `errors-*.json` generated.
+- Wave minimum-zombie floor added (rising each wave):
+  - Added `minAlive` to every wave in `src/fps/config/waves_fps.json`.
+    - Early-wave floors now explicitly meet request: wave 1..5 = `4,5,6,7,8`.
+    - Higher waves continue rising (`9..16`).
+  - Updated `spawnEnemiesFromWave(...)` in `src/fps/scenes/RaidScene3D.js`:
+    - no longer exits when scheduled `spawnCount` is 0.
+    - computes live enemy count and adds catch-up spawns when live enemies are below `wave.minAlive`.
+    - catch-up respects wave budget and syncs `waveDirector.spawnedBudget` when extra spawns are injected.
+  - Added test coverage in `test/raids.test.js`:
+    - verifies `minAlive` rises every wave.
+    - verifies early floor requirement (`>=4` at wave 1 and `>=8` by wave 5).
+- Validation:
+  - `npm test -- test/raids.test.js test/wave_director_flow.test.js test/enemy_ai.test.js` pass (3 files, 11 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifact confirms wave 1 maintains 4 zombies visible:
+    - `/Users/preston/Code/zombie_invasion/output/fps-minalive-ramp/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-minalive-ramp/state-0.json`
+    - no `errors-*.json` generated.

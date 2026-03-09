@@ -1,0 +1,15 @@
+{
+  "id": "secret_boss",
+  "label": "Catacomb Titan",
+  "spawn": { "x": 0, "y": 1.2, "z": -15.8 },
+  "hp": 1400,
+  "massKg": 520,
+  "speedMps": 1.15,
+  "attackDps": 34,
+  "coinReward": 750,
+  "hitboxProfile": "boss",
+  "movementMode": "ground",
+  "attackRange": 2.5,
+  "staggerResistance": 0.28,
+  "landscapeMutationCount": 6
+}

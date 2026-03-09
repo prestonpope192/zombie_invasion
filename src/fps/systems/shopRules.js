@@ -1,0 +1,202 @@
+import { computeDiscountedCost } from "./villagerEscortRules";
+
+export function getWeaponShopState({ weapon, waveNumber, save, costMultiplier = 1 }) {
+  const owned = save.ownedWeapons.includes(weapon.id);
+  const equipped = save.equippedWeaponId === weapon.id;
+  const waveLocked = waveNumber < weapon.unlockWave;
+  const progressionLocked = weapon.id === "pistol" && !save.pistolUnlocked;
+  const locked = waveLocked || progressionLocked;
+  const cost = computeDiscountedCost(weapon.cost, costMultiplier);
+  const cannotAfford = !owned && !equipped && save.coins < cost;
+  const disabled = (locked || cannotAfford) && !owned && !equipped;
+
+  let status = "Buy";
+  if (equipped) {
+    status = "Equipped";
+  } else if (owned) {
+    status = "Equip";
+  } else if (progressionLocked) {
+    status = "Clears Wave 1";
+  } else if (locked) {
+    status = `Unlocks Wave ${weapon.unlockWave}`;
+  } else {
+    status = `${cost} coins`;
+  }
+
+  return {
+    owned,
+    equipped,
+    cost,
+    waveLocked,
+    progressionLocked,
+    locked,
+    cannotAfford,
+    disabled,
+    status,
+  };
+}
+
+export function applyWeaponBuyOrEquip({ weapon, waveNumber, save, costMultiplier = 1 }) {
+  const state = getWeaponShopState({ weapon, waveNumber, save, costMultiplier });
+  if (state.equipped) {
+    return { changed: false, action: "none" };
+  }
+  if (state.owned) {
+    save.equippedWeaponId = weapon.id;
+    return { changed: true, action: "equip" };
+  }
+  if (state.locked || save.coins < state.cost) {
+    return { changed: false, action: "none" };
+  }
+  save.coins -= state.cost;
+  if (!save.ownedWeapons.includes(weapon.id)) {
+    save.ownedWeapons.push(weapon.id);
+  }
+  if (!save.unlockedWeapons.includes(weapon.id)) {
+    save.unlockedWeapons.push(weapon.id);
+  }
+  save.equippedWeaponId = weapon.id;
+  return { changed: true, action: "buy" };
+}
+
+export function applyGrenadePackBuy({ pack, save, costMultiplier = 1 }) {
+  if (!pack) {
+    return { changed: false };
+  }
+  const cost = computeDiscountedCost(pack.cost, costMultiplier);
+  if (save.coins < cost) {
+    return { changed: false };
+  }
+  save.coins -= cost;
+  save.grenades = Math.max(0, (save.grenades ?? 0) + pack.amount);
+  return { changed: true };
+}
+
+export function getArmorShopState({ armor, save, costMultiplier = 1 }) {
+  const owned = save.ownedArmors.includes(armor.id);
+  const equipped = save.equippedArmorId === armor.id;
+  const cost = computeDiscountedCost(armor.cost, costMultiplier);
+  let status = "Buy";
+  if (equipped) {
+    status = "Equipped";
+  } else if (owned) {
+    status = "Equip";
+  } else {
+    status = `${cost} coins`;
+  }
+
+  return {
+    owned,
+    equipped,
+    cost,
+    disabled: !owned && save.coins < cost,
+    status,
+  };
+}
+
+export function applyArmorBuyOrEquip({ armor, save, costMultiplier = 1 }) {
+  const state = getArmorShopState({ armor, save, costMultiplier });
+  if (state.equipped) {
+    return { changed: false, action: "none" };
+  }
+  if (state.owned) {
+    save.equippedArmorId = armor.id;
+    return { changed: true, action: "equip" };
+  }
+  if (save.coins < state.cost) {
+    return { changed: false, action: "none" };
+  }
+  save.coins -= state.cost;
+  if (!save.ownedArmors.includes(armor.id)) {
+    save.ownedArmors.push(armor.id);
+  }
+  save.equippedArmorId = armor.id;
+  return { changed: true, action: "buy" };
+}
+
+function resolveVillageUpgradeConfig(economy) {
+  const raw = economy?.villageUpgrade ?? {};
+  const maxLevel = Math.max(1, Math.round(Number(raw.maxLevel ?? 8)));
+  const hpPerLevel = Math.max(0, Number(raw.hpPerLevel ?? 0.08));
+  const baseCost = Math.max(1, Math.round(Number(raw.baseCost ?? 180)));
+  const costGrowth = Math.max(1, Number(raw.costGrowth ?? 1.45));
+  return {
+    label: typeof raw.label === "string" && raw.label ? raw.label : "Town Defenses",
+    maxLevel,
+    hpPerLevel,
+    baseCost,
+    costGrowth,
+  };
+}
+
+function getVillageLevel(save) {
+  const parsed = Math.round(Number(save?.villageLevel ?? 1));
+  return Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+}
+
+export function getVillageLevelHpMultiplier({ save, economy } = {}) {
+  const config = resolveVillageUpgradeConfig(economy);
+  const level = Math.min(getVillageLevel(save), config.maxLevel);
+  return 1 + (level - 1) * config.hpPerLevel;
+}
+
+export function getVillageUpgradeState({ save, economy, costMultiplier = 1 } = {}) {
+  const config = resolveVillageUpgradeConfig(economy);
+  const level = Math.min(getVillageLevel(save), config.maxLevel);
+  const atMax = level >= config.maxLevel;
+  const nextLevel = atMax ? level : level + 1;
+  const baseCost = atMax ? 0 : Math.round(config.baseCost * Math.pow(config.costGrowth, Math.max(0, level - 1)));
+  const cost = atMax ? 0 : computeDiscountedCost(baseCost, costMultiplier);
+  const disabled = atMax || (save?.coins ?? 0) < cost;
+  const hpBonusPercent = Math.round((getVillageLevelHpMultiplier({ save: { villageLevel: level }, economy }) - 1) * 100);
+  const nextHpBonusPercent = atMax
+    ? hpBonusPercent
+    : Math.round((getVillageLevelHpMultiplier({ save: { villageLevel: nextLevel }, economy }) - 1) * 100);
+
+  return {
+    label: config.label,
+    level,
+    nextLevel,
+    maxLevel: config.maxLevel,
+    hpBonusPercent,
+    nextHpBonusPercent,
+    atMax,
+    cost,
+    disabled,
+    status: atMax ? "Maxed" : `${cost} coins`,
+  };
+}
+
+export function applyVillageUpgradePurchase({ save, economy, costMultiplier = 1 } = {}) {
+  const state = getVillageUpgradeState({ save, economy, costMultiplier });
+  if (state.atMax || (save?.coins ?? 0) < state.cost) {
+    return { changed: false };
+  }
+  save.coins -= state.cost;
+  save.villageLevel = state.nextLevel;
+  return { changed: true };
+}
+
+export function getMedKitShopState({ save, currentHp, maxHp = 100, cost = 20 } = {}) {
+  const safeMaxHp = Math.max(1, Number(maxHp) || 100);
+  const hp = Math.max(0, Math.min(safeMaxHp, Number(currentHp) || 0));
+  const safeCost = Math.max(0, Math.round(Number(cost) || 20));
+  const atFullHealth = hp >= safeMaxHp - 0.001;
+  const cannotAfford = (save?.coins ?? 0) < safeCost;
+  return {
+    cost: safeCost,
+    atFullHealth,
+    cannotAfford,
+    disabled: atFullHealth || cannotAfford,
+    status: atFullHealth ? "Full Health" : `${safeCost} coins`,
+  };
+}
+
+export function applyMedKitBuy({ save, currentHp, maxHp = 100, cost = 20 } = {}) {
+  const state = getMedKitShopState({ save, currentHp, maxHp, cost });
+  if (state.disabled) {
+    return { changed: false, newHp: Math.max(0, Math.min(maxHp, Number(currentHp) || 0)) };
+  }
+  save.coins -= state.cost;
+  return { changed: true, newHp: Math.max(1, Number(maxHp) || 100) };
+}

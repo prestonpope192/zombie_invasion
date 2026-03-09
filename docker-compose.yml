@@ -1,0 +1,9 @@
+services:
+  game:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zombie-invasion
+    ports:
+      - "8080:80"
+    restart: unless-stopped

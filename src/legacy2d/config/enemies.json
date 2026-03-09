@@ -1,0 +1,35 @@
+[
+  {
+    "id": "normal",
+    "label": "Normal Zombie",
+    "hp": 10,
+    "contactDamage": 10,
+    "villageDamage": 10,
+    "speed": 42,
+    "sizeScale": 1,
+    "coinReward": 10,
+    "attackInterval": 1
+  },
+  {
+    "id": "super",
+    "label": "Super Zombie",
+    "hp": 20,
+    "contactDamage": 20,
+    "villageDamage": 20,
+    "speed": 36,
+    "sizeScale": 2,
+    "coinReward": 50,
+    "attackInterval": 1
+  },
+  {
+    "id": "boss",
+    "label": "Boss Zombie",
+    "hp": 60,
+    "contactDamage": 25,
+    "villageDamage": 25,
+    "speed": 24,
+    "sizeScale": 3,
+    "coinReward": 250,
+    "attackInterval": 1
+  }
+]

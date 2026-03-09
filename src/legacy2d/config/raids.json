@@ -1,0 +1,502 @@
+[
+  {
+    "raid": 1,
+    "normals": 8,
+    "supers": 0,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.4,
+    "clearBonus": 24,
+    "perfectDefenseBonus": 12
+  },
+  {
+    "raid": 2,
+    "normals": 12,
+    "supers": 0,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.38,
+    "clearBonus": 28,
+    "perfectDefenseBonus": 14
+  },
+  {
+    "raid": 3,
+    "normals": 16,
+    "supers": 0,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.36,
+    "clearBonus": 32,
+    "perfectDefenseBonus": 16
+  },
+  {
+    "raid": 4,
+    "normals": 20,
+    "supers": 0,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.33,
+    "clearBonus": 36,
+    "perfectDefenseBonus": 18
+  },
+  {
+    "raid": 5,
+    "normals": 24,
+    "supers": 1,
+    "hasBoss": true,
+    "bossId": "boss_tier_1",
+    "spawnCadence": 1.31,
+    "clearBonus": 40,
+    "perfectDefenseBonus": 20
+  },
+  {
+    "raid": 6,
+    "normals": 28,
+    "supers": 2,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.29,
+    "clearBonus": 44,
+    "perfectDefenseBonus": 22
+  },
+  {
+    "raid": 7,
+    "normals": 32,
+    "supers": 3,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.27,
+    "clearBonus": 48,
+    "perfectDefenseBonus": 24
+  },
+  {
+    "raid": 8,
+    "normals": 36,
+    "supers": 3,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.25,
+    "clearBonus": 52,
+    "perfectDefenseBonus": 26
+  },
+  {
+    "raid": 9,
+    "normals": 40,
+    "supers": 4,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.22,
+    "clearBonus": 56,
+    "perfectDefenseBonus": 28
+  },
+  {
+    "raid": 10,
+    "normals": 44,
+    "supers": 5,
+    "hasBoss": true,
+    "bossId": "boss_tier_2",
+    "spawnCadence": 1.2,
+    "clearBonus": 60,
+    "perfectDefenseBonus": 30
+  },
+  {
+    "raid": 11,
+    "normals": 48,
+    "supers": 6,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.18,
+    "clearBonus": 64,
+    "perfectDefenseBonus": 32
+  },
+  {
+    "raid": 12,
+    "normals": 51,
+    "supers": 7,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.16,
+    "clearBonus": 68,
+    "perfectDefenseBonus": 34
+  },
+  {
+    "raid": 13,
+    "normals": 55,
+    "supers": 8,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.14,
+    "clearBonus": 72,
+    "perfectDefenseBonus": 36
+  },
+  {
+    "raid": 14,
+    "normals": 59,
+    "supers": 9,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.11,
+    "clearBonus": 76,
+    "perfectDefenseBonus": 38
+  },
+  {
+    "raid": 15,
+    "normals": 63,
+    "supers": 9,
+    "hasBoss": true,
+    "bossId": "boss_tier_3",
+    "spawnCadence": 1.09,
+    "clearBonus": 80,
+    "perfectDefenseBonus": 40
+  },
+  {
+    "raid": 16,
+    "normals": 67,
+    "supers": 10,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.07,
+    "clearBonus": 84,
+    "perfectDefenseBonus": 42
+  },
+  {
+    "raid": 17,
+    "normals": 71,
+    "supers": 11,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.05,
+    "clearBonus": 88,
+    "perfectDefenseBonus": 44
+  },
+  {
+    "raid": 18,
+    "normals": 75,
+    "supers": 12,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1.03,
+    "clearBonus": 92,
+    "perfectDefenseBonus": 46
+  },
+  {
+    "raid": 19,
+    "normals": 79,
+    "supers": 13,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 1,
+    "clearBonus": 96,
+    "perfectDefenseBonus": 48
+  },
+  {
+    "raid": 20,
+    "normals": 83,
+    "supers": 14,
+    "hasBoss": true,
+    "bossId": "boss_tier_4",
+    "spawnCadence": 0.98,
+    "clearBonus": 100,
+    "perfectDefenseBonus": 50
+  },
+  {
+    "raid": 21,
+    "normals": 88,
+    "supers": 14,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.96,
+    "clearBonus": 104,
+    "perfectDefenseBonus": 52
+  },
+  {
+    "raid": 22,
+    "normals": 93,
+    "supers": 15,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.94,
+    "clearBonus": 108,
+    "perfectDefenseBonus": 54
+  },
+  {
+    "raid": 23,
+    "normals": 99,
+    "supers": 16,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.92,
+    "clearBonus": 112,
+    "perfectDefenseBonus": 56
+  },
+  {
+    "raid": 24,
+    "normals": 104,
+    "supers": 17,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.89,
+    "clearBonus": 116,
+    "perfectDefenseBonus": 58
+  },
+  {
+    "raid": 25,
+    "normals": 109,
+    "supers": 18,
+    "hasBoss": true,
+    "bossId": "boss_tier_5",
+    "spawnCadence": 0.87,
+    "clearBonus": 120,
+    "perfectDefenseBonus": 60
+  },
+  {
+    "raid": 26,
+    "normals": 114,
+    "supers": 19,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.85,
+    "clearBonus": 124,
+    "perfectDefenseBonus": 62
+  },
+  {
+    "raid": 27,
+    "normals": 119,
+    "supers": 20,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.83,
+    "clearBonus": 128,
+    "perfectDefenseBonus": 64
+  },
+  {
+    "raid": 28,
+    "normals": 124,
+    "supers": 22,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.81,
+    "clearBonus": 132,
+    "perfectDefenseBonus": 66
+  },
+  {
+    "raid": 29,
+    "normals": 129,
+    "supers": 23,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.78,
+    "clearBonus": 136,
+    "perfectDefenseBonus": 68
+  },
+  {
+    "raid": 30,
+    "normals": 135,
+    "supers": 24,
+    "hasBoss": true,
+    "bossId": "boss_tier_6",
+    "spawnCadence": 0.76,
+    "clearBonus": 140,
+    "perfectDefenseBonus": 70
+  },
+  {
+    "raid": 31,
+    "normals": 140,
+    "supers": 26,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.74,
+    "clearBonus": 144,
+    "perfectDefenseBonus": 72
+  },
+  {
+    "raid": 32,
+    "normals": 145,
+    "supers": 27,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.72,
+    "clearBonus": 148,
+    "perfectDefenseBonus": 74
+  },
+  {
+    "raid": 33,
+    "normals": 150,
+    "supers": 28,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.7,
+    "clearBonus": 152,
+    "perfectDefenseBonus": 76
+  },
+  {
+    "raid": 34,
+    "normals": 155,
+    "supers": 30,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.67,
+    "clearBonus": 156,
+    "perfectDefenseBonus": 78
+  },
+  {
+    "raid": 35,
+    "normals": 160,
+    "supers": 31,
+    "hasBoss": true,
+    "bossId": "boss_tier_7",
+    "spawnCadence": 0.65,
+    "clearBonus": 160,
+    "perfectDefenseBonus": 80
+  },
+  {
+    "raid": 36,
+    "normals": 165,
+    "supers": 32,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.63,
+    "clearBonus": 164,
+    "perfectDefenseBonus": 82
+  },
+  {
+    "raid": 37,
+    "normals": 171,
+    "supers": 33,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.61,
+    "clearBonus": 168,
+    "perfectDefenseBonus": 84
+  },
+  {
+    "raid": 38,
+    "normals": 176,
+    "supers": 35,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.59,
+    "clearBonus": 172,
+    "perfectDefenseBonus": 86
+  },
+  {
+    "raid": 39,
+    "normals": 181,
+    "supers": 36,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.56,
+    "clearBonus": 176,
+    "perfectDefenseBonus": 88
+  },
+  {
+    "raid": 40,
+    "normals": 186,
+    "supers": 37,
+    "hasBoss": true,
+    "bossId": "boss_tier_8",
+    "spawnCadence": 0.54,
+    "clearBonus": 180,
+    "perfectDefenseBonus": 90
+  },
+  {
+    "raid": 41,
+    "normals": 191,
+    "supers": 39,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.52,
+    "clearBonus": 184,
+    "perfectDefenseBonus": 92
+  },
+  {
+    "raid": 42,
+    "normals": 196,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.5,
+    "clearBonus": 188,
+    "perfectDefenseBonus": 94
+  },
+  {
+    "raid": 43,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.48,
+    "clearBonus": 192,
+    "perfectDefenseBonus": 96
+  },
+  {
+    "raid": 44,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.45,
+    "clearBonus": 196,
+    "perfectDefenseBonus": 98
+  },
+  {
+    "raid": 45,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": true,
+    "bossId": "boss_tier_9",
+    "spawnCadence": 0.43,
+    "clearBonus": 200,
+    "perfectDefenseBonus": 100
+  },
+  {
+    "raid": 46,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.41,
+    "clearBonus": 204,
+    "perfectDefenseBonus": 102
+  },
+  {
+    "raid": 47,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.39,
+    "clearBonus": 208,
+    "perfectDefenseBonus": 104
+  },
+  {
+    "raid": 48,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.37,
+    "clearBonus": 212,
+    "perfectDefenseBonus": 106
+  },
+  {
+    "raid": 49,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": false,
+    "bossId": null,
+    "spawnCadence": 0.35,
+    "clearBonus": 216,
+    "perfectDefenseBonus": 108
+  },
+  {
+    "raid": 50,
+    "normals": 200,
+    "supers": 40,
+    "hasBoss": true,
+    "bossId": "boss_tier_10",
+    "spawnCadence": 0.35,
+    "clearBonus": 220,
+    "perfectDefenseBonus": 110
+  }
+]

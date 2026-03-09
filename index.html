@@ -1,0 +1,1698 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
+    />
+    <title>Zombie Invasion FPS</title>
+    <style>
+      :root {
+        --font-heading: "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        --font-body: "Trebuchet MS", "Segoe UI", sans-serif;
+        --ink: #f1f9f0;
+        --ink-dim: #b5c6b2;
+        --accent: #b8f272;
+        --accent-strong: #d5ff89;
+        --accent-blood: #ff7158;
+        --panel: rgba(9, 15, 18, 0.88);
+        --panel-border: rgba(184, 242, 114, 0.5);
+        --line: rgba(176, 242, 129, 0.24);
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        min-height: 100svh;
+        min-height: 100dvh;
+        overflow: hidden;
+        touch-action: none;
+        font-family: var(--font-body);
+        background:
+          radial-gradient(circle at 18% 14%, #27343c 0%, rgba(39, 52, 60, 0.18) 26%, transparent 56%),
+          radial-gradient(circle at 82% 78%, #2e201a 0%, rgba(46, 32, 26, 0.14) 22%, transparent 55%),
+          linear-gradient(165deg, #05090d 0%, #0a1217 48%, #071014 100%);
+        color: var(--ink);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 2;
+        opacity: 0.18;
+        background:
+          repeating-linear-gradient(
+            0deg,
+            rgba(153, 193, 136, 0.06) 0px,
+            rgba(153, 193, 136, 0.06) 1px,
+            transparent 1px,
+            transparent 3px
+          );
+      }
+
+      #app {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100svh;
+        height: 100dvh;
+      }
+
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100svh;
+        height: 100dvh;
+      }
+
+      #rotate-prompt {
+        position: fixed;
+        inset: 0;
+        z-index: 300;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+        font: 700 24px/1.2 var(--font-heading);
+        letter-spacing: 0.03em;
+        color: var(--accent-strong);
+        background: rgba(5, 8, 10, 0.95);
+      }
+
+      body.portrait.touch-device #rotate-prompt {
+        display: flex;
+      }
+
+      .fps-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 200;
+        background: linear-gradient(180deg, rgba(2, 4, 5, 0.74), rgba(2, 4, 5, 0.6));
+        backdrop-filter: blur(3px);
+        padding:
+          calc(env(safe-area-inset-top) + 20px)
+          calc(env(safe-area-inset-right) + 20px)
+          calc(env(safe-area-inset-bottom) + 20px)
+          calc(env(safe-area-inset-left) + 20px);
+        box-sizing: border-box;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .fps-panel {
+        width: min(860px, 100%);
+        max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
+        border: 1px solid var(--panel-border);
+        background:
+          linear-gradient(180deg, rgba(18, 28, 25, 0.9), var(--panel)),
+          radial-gradient(circle at 18% -10%, rgba(184, 242, 114, 0.1), transparent 58%);
+        border-radius: 16px;
+        padding: 22px;
+        box-sizing: border-box;
+        box-shadow:
+          0 20px 48px rgba(0, 0, 0, 0.52),
+          inset 0 0 0 1px rgba(219, 255, 151, 0.08);
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+      }
+
+      .fps-panel h1,
+      .fps-panel h2 {
+        margin: 0 0 14px;
+        font-family: var(--font-heading);
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        color: var(--accent);
+        text-transform: uppercase;
+        text-shadow: 0 2px 10px rgba(167, 223, 95, 0.24);
+      }
+
+      .fps-panel p,
+      .fps-shop-row span {
+        color: var(--ink);
+        font-size: 1.06rem;
+      }
+
+      .fps-panel h3 {
+        margin: 12px 0 8px;
+        font-family: var(--font-heading);
+        font-size: 1rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent-strong);
+      }
+
+      .fps-panel p {
+        margin: 8px 0;
+      }
+
+      .fps-panel.menu {
+        width: min(760px, 100%);
+      }
+
+      .fps-overlay.summary {
+        opacity: 0;
+        transition: opacity 280ms ease;
+      }
+
+      .fps-overlay.summary .fps-panel.summary {
+        opacity: 0;
+        transform: translateY(18px) scale(0.985);
+        transition:
+          opacity 260ms ease,
+          transform 340ms cubic-bezier(0.2, 0.85, 0.2, 1);
+      }
+
+      .fps-overlay.summary.is-visible {
+        opacity: 1;
+      }
+
+      .fps-overlay.summary.is-visible .fps-panel.summary {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .fps-menu-tagline {
+        margin: 4px 0 10px;
+      }
+
+      .fps-menu-help {
+        margin-top: 10px;
+        border: 1px solid rgba(184, 242, 114, 0.28);
+        border-radius: 10px;
+        background: linear-gradient(180deg, rgba(10, 14, 18, 0.72), rgba(8, 12, 16, 0.62));
+        overflow: hidden;
+      }
+
+      .fps-menu-help summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 9px 12px;
+        font-size: 0.92rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--accent-strong);
+        border-bottom: 1px solid rgba(184, 242, 114, 0.12);
+      }
+
+      .fps-menu-help summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .fps-menu-help summary span::before {
+        content: "+";
+        display: inline-block;
+        width: 14px;
+        margin-right: 8px;
+        text-align: center;
+      }
+
+      .fps-menu-help[open] summary span::before {
+        content: "-";
+      }
+
+      .fps-menu-help p {
+        margin: 8px 0;
+        padding: 0 12px;
+        color: var(--ink-dim);
+        font-size: 0.92rem;
+        line-height: 1.25;
+      }
+
+      .fps-menu-help p:last-child {
+        padding-bottom: 10px;
+      }
+
+      .fps-menu-actions,
+      .fps-shop-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      button {
+        border: 1px solid rgba(184, 242, 114, 0.36);
+        background: linear-gradient(180deg, rgba(26, 34, 42, 0.88), rgba(12, 17, 23, 0.88));
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-family: var(--font-body);
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        transition: background 0.16s ease, transform 0.12s ease, border-color 0.16s ease;
+      }
+
+      button:hover {
+        border-color: rgba(206, 255, 140, 0.7);
+        background: linear-gradient(180deg, rgba(44, 57, 62, 0.92), rgba(18, 24, 28, 0.92));
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        opacity: 0.42;
+        border-color: rgba(255, 255, 255, 0.16);
+        color: #9aa99a;
+      }
+
+      .fps-shop-list {
+        display: grid;
+        gap: 8px;
+        max-height: min(45vh, 340px);
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        margin-top: 12px;
+      }
+
+      .fps-shop-columns {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 250px;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .fps-shop-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .fps-shop-header h2 {
+        margin: 0;
+      }
+
+      .fps-shop-exit-top {
+        flex: 0 0 auto;
+        min-width: 96px;
+      }
+
+      .fps-shop-main {
+        min-width: 0;
+      }
+
+      .fps-shop-avatar-panel {
+        border: 1px solid rgba(184, 242, 114, 0.25);
+        border-radius: 10px;
+        background: linear-gradient(180deg, rgba(15, 20, 24, 0.88), rgba(8, 12, 15, 0.9));
+        padding: 10px;
+      }
+
+      .fps-avatar-stage {
+        height: 220px;
+        border: 1px solid rgba(184, 242, 114, 0.22);
+        border-radius: 10px;
+        background:
+          radial-gradient(circle at 50% 20%, rgba(168, 204, 255, 0.24), transparent 55%),
+          linear-gradient(180deg, rgba(12, 16, 22, 0.92), rgba(11, 14, 16, 0.92));
+        position: relative;
+        display: grid;
+        place-items: end center;
+        overflow: hidden;
+        touch-action: none;
+      }
+
+      .fps-player-avatar {
+        --avatar-yaw: 0deg;
+        --armor-primary: #687266;
+        --armor-secondary: #566154;
+        --skin-light: #efcbad;
+        --skin-mid: #d4ae8f;
+        --skin-shadow: #b98e70;
+        --hair-dark: #2a2626;
+        --hair-light: #4b423f;
+        width: 136px;
+        height: 198px;
+        position: relative;
+        transform-style: preserve-3d;
+        transform: rotateY(var(--avatar-yaw));
+        transition: transform 120ms linear;
+        margin-bottom: 6px;
+      }
+
+      .fps-player-avatar .avatar-shadow {
+        position: absolute;
+        left: 24px;
+        bottom: 0;
+        width: 88px;
+        height: 16px;
+        border-radius: 50%;
+        background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0) 72%);
+        filter: blur(1.2px);
+      }
+
+      .fps-player-avatar .avatar-neck {
+        position: absolute;
+        top: 50px;
+        left: 59px;
+        width: 18px;
+        height: 18px;
+        border-radius: 8px;
+        background: linear-gradient(180deg, var(--skin-light), var(--skin-shadow));
+        border: 1px solid rgba(255, 230, 208, 0.24);
+        box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.25);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-head {
+        position: absolute;
+        top: 11px;
+        left: 46px;
+        width: 44px;
+        height: 50px;
+        border-radius: 48% 48% 46% 46% / 45% 45% 55% 55%;
+        background:
+          radial-gradient(circle at 34% 32%, rgba(255, 236, 220, 0.82), rgba(0, 0, 0, 0) 38%),
+          radial-gradient(circle at 72% 82%, rgba(155, 92, 66, 0.18), rgba(0, 0, 0, 0) 48%),
+          linear-gradient(180deg, var(--skin-light), var(--skin-mid));
+        border: 1px solid rgba(255, 232, 214, 0.22);
+        box-shadow: inset 0 -5px 7px rgba(0, 0, 0, 0.22), 0 5px 14px rgba(0, 0, 0, 0.22);
+        z-index: 3;
+      }
+
+      .fps-player-avatar .avatar-hair {
+        position: absolute;
+        top: -1px;
+        left: 3px;
+        width: 38px;
+        height: 19px;
+        border-radius: 12px 12px 8px 8px;
+        background:
+          linear-gradient(180deg, var(--hair-light), var(--hair-dark)),
+          repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 1px, rgba(0, 0, 0, 0) 1px 4px);
+        box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.38);
+      }
+
+      .fps-player-avatar .avatar-ear {
+        position: absolute;
+        top: 24px;
+        width: 8px;
+        height: 11px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, var(--skin-light), var(--skin-shadow));
+        border: 1px solid rgba(255, 233, 216, 0.2);
+      }
+
+      .fps-player-avatar .avatar-ear.left {
+        left: -5px;
+      }
+
+      .fps-player-avatar .avatar-ear.right {
+        right: -5px;
+      }
+
+      .fps-player-avatar .avatar-eye {
+        position: absolute;
+        top: 20px;
+        width: 8px;
+        height: 5px;
+        border-radius: 999px;
+        background: #eef4ff;
+        box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+      }
+
+      .fps-player-avatar .avatar-eye.left {
+        left: 11px;
+      }
+
+      .fps-player-avatar .avatar-eye.right {
+        right: 11px;
+      }
+
+      .fps-player-avatar .avatar-eye::after {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 1px;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: #151b24;
+      }
+
+      .fps-player-avatar .avatar-nose {
+        position: absolute;
+        top: 25px;
+        left: 19px;
+        width: 6px;
+        height: 9px;
+        border-radius: 4px;
+        background: linear-gradient(180deg, rgba(178, 120, 90, 0.28), rgba(114, 70, 51, 0.38));
+      }
+
+      .fps-player-avatar .avatar-mouth {
+        position: absolute;
+        top: 35px;
+        left: 14px;
+        width: 16px;
+        height: 5px;
+        border-radius: 0 0 8px 8px;
+        border-bottom: 1px solid rgba(66, 33, 30, 0.72);
+      }
+
+      .fps-player-avatar .avatar-mouth::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 4px;
+        width: 16px;
+        height: 5px;
+        border-radius: 999px;
+        background: rgba(36, 25, 23, 0.18);
+      }
+
+      .fps-player-avatar .avatar-torso {
+        position: absolute;
+        top: 61px;
+        left: 38px;
+        width: 60px;
+        height: 82px;
+        border-radius: 15px 15px 13px 13px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0) 32%),
+          linear-gradient(180deg, var(--armor-primary), var(--armor-secondary));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 6px 11px rgba(255, 255, 255, 0.08), inset 0 -10px 12px rgba(0, 0, 0, 0.25);
+        z-index: 1;
+      }
+
+      .fps-player-avatar .avatar-torso::before {
+        content: "";
+        position: absolute;
+        left: 10px;
+        top: 11px;
+        width: 40px;
+        height: 26px;
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(0, 0, 0, 0.2));
+        border: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .fps-player-avatar .avatar-torso::after {
+        content: "";
+        position: absolute;
+        left: 7px;
+        bottom: 10px;
+        width: 46px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgba(12, 15, 19, 0.34);
+      }
+
+      .fps-player-avatar .avatar-arm,
+      .fps-player-avatar .avatar-leg {
+        position: absolute;
+        background: linear-gradient(180deg, var(--armor-primary), var(--armor-secondary));
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 2px 6px rgba(255, 255, 255, 0.1), inset 0 -7px 10px rgba(0, 0, 0, 0.28);
+      }
+
+      .fps-player-avatar .avatar-arm {
+        top: 71px;
+        width: 18px;
+        height: 66px;
+        z-index: 0;
+      }
+
+      .fps-player-avatar .avatar-arm.left {
+        left: 18px;
+        transform: rotate(8deg);
+      }
+
+      .fps-player-avatar .avatar-arm.right {
+        right: 18px;
+        transform: rotate(-8deg);
+      }
+
+      .fps-player-avatar .avatar-arm::after {
+        content: "";
+        position: absolute;
+        left: 2px;
+        bottom: -8px;
+        width: 12px;
+        height: 14px;
+        border-radius: 9px;
+        background: linear-gradient(180deg, var(--skin-light), var(--skin-shadow));
+        border: 1px solid rgba(255, 231, 211, 0.2);
+      }
+
+      .fps-player-avatar .avatar-leg {
+        top: 132px;
+        width: 24px;
+        height: 62px;
+        border-radius: 11px 11px 9px 9px;
+      }
+
+      .fps-player-avatar .avatar-leg.left {
+        left: 42px;
+      }
+
+      .fps-player-avatar .avatar-leg.right {
+        right: 42px;
+      }
+
+      .fps-player-avatar .avatar-leg::after {
+        content: "";
+        position: absolute;
+        left: -1px;
+        bottom: -7px;
+        width: 24px;
+        height: 12px;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #222a33, #0f141a);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .fps-player-avatar.armor-cloth {
+        --armor-primary: #6f7765;
+        --armor-secondary: #5a6351;
+      }
+
+      .fps-player-avatar.armor-leather {
+        --armor-primary: #8a5f42;
+        --armor-secondary: #6f4932;
+      }
+
+      .fps-player-avatar.armor-kevlar {
+        --armor-primary: #3f5c73;
+        --armor-secondary: #32475a;
+      }
+
+      .fps-player-avatar.armor-reinforced {
+        --armor-primary: #6e7279;
+        --armor-secondary: #565a61;
+      }
+
+      .fps-player-avatar.armor-chainmail {
+        --armor-primary: #7f857e;
+        --armor-secondary: #686e67;
+      }
+
+      .fps-player-avatar.armor-tactical {
+        --armor-primary: #4d5b66;
+        --armor-secondary: #3c4853;
+      }
+
+      .fps-player-avatar.armor-hazmat {
+        --armor-primary: #5f6d4b;
+        --armor-secondary: #4c583d;
+      }
+
+      .fps-player-avatar.armor-juggernaut {
+        --armor-primary: #7b7f86;
+        --armor-secondary: #61656c;
+      }
+
+      .fps-avatar-controls {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .fps-avatar-controls button {
+        font-size: 12px;
+        padding: 8px 6px;
+      }
+
+      .fps-avatar-caption {
+        margin: 8px 0 0;
+        font-size: 0.94rem;
+        color: var(--ink-dim);
+      }
+
+      .fps-shop-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(166, 227, 104, 0.06));
+        border: 1px solid rgba(188, 235, 135, 0.18);
+        border-radius: 8px;
+        padding: 11px 12px;
+      }
+
+      .fps-shop-row.is-unavailable {
+        background: linear-gradient(90deg, rgba(98, 103, 110, 0.22), rgba(78, 82, 88, 0.18));
+        border-color: rgba(158, 165, 173, 0.28);
+      }
+
+      .fps-shop-row.is-unavailable .fps-shop-weapon-meta strong {
+        color: rgba(224, 228, 232, 0.78);
+      }
+
+      .fps-shop-row.is-unavailable .fps-shop-weapon-meta small {
+        color: rgba(194, 201, 210, 0.62);
+      }
+
+      .fps-shop-row.is-unavailable button[disabled] {
+        border-color: rgba(146, 153, 160, 0.36);
+        background: rgba(80, 86, 92, 0.42);
+        color: rgba(216, 222, 228, 0.62);
+      }
+
+      .fps-shop-weapon-meta {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .fps-shop-title-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .fps-shop-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 18px;
+        padding: 0 7px;
+        border-radius: 999px;
+        font-family: var(--font-body);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .fps-shop-badge.owned {
+        border: 1px solid rgba(181, 234, 124, 0.44);
+        background: rgba(58, 95, 37, 0.38);
+        color: #d8f5a4;
+      }
+
+      .fps-shop-badge.equipped {
+        border: 1px solid rgba(142, 209, 255, 0.5);
+        background: rgba(44, 78, 112, 0.42);
+        color: #c7e8ff;
+      }
+
+      .fps-shop-weapon-meta strong {
+        color: var(--ink);
+        font-size: 1.02rem;
+      }
+
+      .fps-shop-weapon-meta small {
+        color: var(--ink-dim);
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .fps-hud {
+        --village-alert: 0;
+        position: fixed;
+        left: calc(env(safe-area-inset-left) + 12px);
+        top: calc(env(safe-area-inset-top) + 12px);
+        z-index: 150;
+        display: grid;
+        gap: 6px;
+        font-size: 17px;
+        font-family: var(--font-body);
+        font-weight: 700;
+        text-shadow: 0 2px 2px rgba(0, 0, 0, 0.78);
+        max-width: min(92vw, 760px);
+      }
+
+      .fps-hud-health {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(136px, 1fr));
+        gap: 8px;
+        max-width: min(92vw, 760px);
+      }
+
+      .fps-hud-health-item {
+        display: grid;
+        gap: 4px;
+        padding: 6px 7px;
+        border: 1px solid rgba(184, 242, 114, 0.34);
+        border-radius: 10px;
+        background: linear-gradient(180deg, rgba(9, 13, 21, 0.85), rgba(8, 12, 18, 0.58));
+        box-shadow: inset 0 0 0 1px rgba(184, 242, 114, 0.08);
+      }
+
+      .fps-hud-health-label {
+        font-size: 12px;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        color: var(--ink);
+      }
+
+      .fps-hud-health-track {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(16, 26, 18, 0.6);
+        border: 1px solid rgba(184, 242, 114, 0.24);
+      }
+
+      .fps-hud-health-fill {
+        width: 100%;
+        height: 100%;
+        transition: width 150ms linear, filter 150ms linear, background 180ms ease;
+      }
+
+      .fps-hud-health-fill.player {
+        background: linear-gradient(90deg, #9ae782, #57bc6e);
+      }
+
+      .fps-hud-health-fill.stamina {
+        background: linear-gradient(90deg, #91d2ff, #4e8ecf);
+      }
+
+      .fps-hud-health-fill.village {
+        background: linear-gradient(90deg, #f2de8a, #d28e4e);
+      }
+
+      .fps-hud.village-damaged .fps-hud-health-item.village {
+        border-color: rgba(255, 165, 95, 0.58);
+        box-shadow: 0 0 12px rgba(255, 108, 72, calc(0.2 + var(--village-alert) * 0.35));
+      }
+
+      .fps-hud.village-damaged .fps-hud-health-fill.village {
+        filter: saturate(1.12);
+      }
+
+      .fps-hud.village-critical .fps-hud-health-fill.village {
+        background: linear-gradient(90deg, #ffa86a, #ff5e4a);
+      }
+
+      .fps-hud-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, max-content));
+        gap: 6px;
+      }
+
+      .fps-hud-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(184, 242, 114, 0.32);
+        background: linear-gradient(180deg, rgba(9, 14, 20, 0.85), rgba(8, 12, 18, 0.52));
+        font-size: 14px;
+        line-height: 1;
+        letter-spacing: 0.01em;
+        color: var(--ink);
+      }
+
+      .fps-hud-line {
+        display: inline-block;
+        max-width: min(92vw, 740px);
+        width: fit-content;
+        padding: 4px 8px;
+        border-left: 2px solid rgba(184, 242, 114, 0.65);
+        border-radius: 6px;
+        background: linear-gradient(90deg, rgba(10, 16, 22, 0.72), rgba(10, 16, 22, 0.24));
+        font-size: 14px;
+      }
+
+      .fps-hud-line.fps-kill-reward {
+        color: var(--accent-strong);
+        border-left-color: rgba(255, 113, 88, 0.7);
+        background: linear-gradient(90deg, rgba(44, 16, 12, 0.44), rgba(10, 16, 22, 0.28));
+      }
+
+      .fps-village-damage-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        pointer-events: none;
+        opacity: 0;
+        background:
+          radial-gradient(circle at 50% 58%, rgba(255, 160, 88, 0.08), rgba(0, 0, 0, 0) 42%),
+          radial-gradient(circle at 50% 58%, rgba(255, 72, 54, 0.12), rgba(0, 0, 0, 0) 72%);
+        transition: opacity 90ms linear;
+      }
+
+      .fps-player-damage-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 121;
+        pointer-events: none;
+        opacity: 0;
+        background:
+          linear-gradient(180deg, rgba(186, 26, 32, 0.32) 0%, rgba(186, 26, 32, 0) 18%),
+          linear-gradient(0deg, rgba(186, 26, 32, 0.32) 0%, rgba(186, 26, 32, 0) 18%),
+          linear-gradient(90deg, rgba(186, 26, 32, 0.26) 0%, rgba(186, 26, 32, 0) 12%),
+          linear-gradient(270deg, rgba(186, 26, 32, 0.26) 0%, rgba(186, 26, 32, 0) 12%);
+        box-shadow: inset 0 0 0 1px rgba(208, 46, 50, 0.4);
+        transition: opacity 80ms linear;
+      }
+
+      .fps-hud-line.fps-controls {
+        margin-top: 6px;
+        padding: 8px 10px;
+        background: rgba(8, 12, 20, 0.75);
+        border: 1px solid rgba(184, 242, 114, 0.22);
+        border-left: 2px solid rgba(184, 242, 114, 0.65);
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink-dim);
+      }
+
+      .fps-raid-actions {
+        position: fixed;
+        right: calc(env(safe-area-inset-right) + 12px);
+        top: calc(env(safe-area-inset-top) + 12px);
+        z-index: 175;
+        display: flex;
+        gap: 8px;
+      }
+
+      .fps-raid-actions .fps-quick-btn {
+        min-width: 126px;
+        border: 1px solid rgba(184, 242, 114, 0.62);
+        background: linear-gradient(180deg, rgba(22, 33, 22, 0.92), rgba(11, 17, 11, 0.92));
+        color: var(--ink);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.36);
+      }
+
+      .fps-raid-actions .fps-help-quick {
+        min-width: 44px;
+        width: 44px;
+        padding: 8px 0;
+        font-family: var(--font-heading);
+        font-size: 22px;
+        line-height: 1;
+        text-transform: none;
+      }
+
+      .fps-raid-actions .fps-help-quick.active {
+        border-color: rgba(221, 255, 147, 0.86);
+        background: linear-gradient(180deg, rgba(56, 80, 44, 0.95), rgba(24, 36, 20, 0.95));
+      }
+
+      .fps-raid-actions .fps-quick-btn:hover {
+        background: linear-gradient(180deg, rgba(40, 58, 34, 0.94), rgba(16, 25, 14, 0.94));
+      }
+
+      .fps-minimap-panel {
+        position: fixed;
+        right: calc(env(safe-area-inset-right) + 12px);
+        top: calc(env(safe-area-inset-top) + 72px);
+        z-index: 174;
+        width: 196px;
+        padding: 8px;
+        border-radius: 12px;
+        border: 1px solid rgba(184, 242, 114, 0.44);
+        background: linear-gradient(180deg, rgba(8, 12, 18, 0.85), rgba(6, 9, 14, 0.74));
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(3px);
+        pointer-events: none;
+      }
+
+      .fps-minimap-header {
+        font-size: 11px;
+        line-height: 1;
+        margin-bottom: 6px;
+        color: var(--ink);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 800;
+      }
+
+      .fps-minimap-canvas {
+        width: 100%;
+        height: auto;
+        border-radius: 8px;
+        border: 1px solid rgba(184, 242, 114, 0.26);
+        background: rgba(5, 9, 14, 0.86);
+        image-rendering: pixelated;
+      }
+
+      .fps-minimap-legend {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 3px 8px;
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--ink-dim);
+        font-weight: 700;
+      }
+
+      .fps-minimap-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .fps-minimap-legend span::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        display: inline-block;
+      }
+
+      .fps-minimap-legend .player::before {
+        background: #b8f26f;
+      }
+
+      .fps-minimap-legend .enemy::before {
+        background: #ff6675;
+      }
+
+      .fps-minimap-legend .village::before {
+        background: #f2de8a;
+      }
+
+      .fps-minimap-legend .villager::before {
+        background: #4aabff;
+      }
+
+      .fps-minimap-legend .door::before {
+        background: #bcf287;
+      }
+
+      .fps-minimap-legend .destination::before {
+        background: #ffd678;
+      }
+
+      .fps-weapon-indicator {
+        --weapon-accent: #b8f26f;
+        position: fixed;
+        left: 50%;
+        bottom: calc(env(safe-area-inset-bottom) + 14px);
+        transform: translateX(-50%);
+        z-index: 174;
+        pointer-events: none;
+      }
+
+      .fps-weapon-indicator-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: min(84vw, 320px);
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--weapon-accent) 52%, #1f2a18);
+        background: linear-gradient(180deg, rgba(9, 16, 22, 0.92), rgba(12, 18, 17, 0.86));
+        box-shadow:
+          0 10px 24px rgba(0, 0, 0, 0.42),
+          inset 0 0 0 1px color-mix(in srgb, var(--weapon-accent) 24%, transparent);
+      }
+
+      .fps-weapon-indicator-glyph {
+        width: 56px;
+        height: 40px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        font-family: var(--font-heading);
+        font-size: 16px;
+        letter-spacing: 0.06em;
+        color: #081007;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--weapon-accent) 86%, #ffffff), color-mix(in srgb, var(--weapon-accent) 72%, #7aa441));
+        box-shadow: 0 0 16px color-mix(in srgb, var(--weapon-accent) 44%, transparent);
+      }
+
+      .fps-weapon-indicator-meta {
+        display: grid;
+        gap: 2px;
+      }
+
+      .fps-weapon-indicator-name {
+        font-family: var(--font-heading);
+        font-size: 18px;
+        line-height: 1.05;
+        letter-spacing: 0.05em;
+        color: var(--ink);
+        text-transform: uppercase;
+      }
+
+      .fps-weapon-indicator-style {
+        font-family: var(--font-body);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: color-mix(in srgb, var(--weapon-accent) 72%, #daeac7);
+      }
+
+      .fps-weapon-indicator.swap .fps-weapon-indicator-card {
+        animation: weaponSwapPulse 0.26s ease-out;
+      }
+
+      @keyframes weaponSwapPulse {
+        0% {
+          transform: scale(0.95);
+          box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+        }
+        45% {
+          transform: scale(1.04);
+          box-shadow: 0 0 18px color-mix(in srgb, var(--weapon-accent) 52%, transparent);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      .fps-crosshair {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 20px;
+        height: 20px;
+        margin-left: -10px;
+        margin-top: -10px;
+        z-index: 160;
+        pointer-events: none;
+      }
+
+      .fps-crosshair-ring {
+        position: absolute;
+        inset: 0;
+        border: 2px solid rgba(213, 255, 137, 0.82);
+        border-radius: 999px;
+        box-shadow:
+          0 0 10px rgba(184, 242, 114, 0.58),
+          inset 0 0 8px rgba(184, 242, 114, 0.24);
+      }
+
+      .fps-crosshair-center {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 4px;
+        height: 4px;
+        margin-left: -2px;
+        margin-top: -2px;
+        border-radius: 50%;
+        background: rgba(213, 255, 137, 0.92);
+        box-shadow: 0 0 8px rgba(184, 242, 114, 0.72);
+      }
+
+      .fps-crosshair-arm {
+        position: absolute;
+        border-radius: 3px;
+        background: rgba(213, 255, 137, 0.86);
+        box-shadow: 0 0 8px rgba(184, 242, 114, 0.62);
+      }
+
+      .fps-interact-prompt {
+        position: fixed;
+        left: 50%;
+        bottom: calc(env(safe-area-inset-bottom) + 88px);
+        transform: translateX(-50%) translateY(12px);
+        z-index: 172;
+        pointer-events: none;
+        display: none;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(184, 242, 114, 0.45);
+        background: linear-gradient(180deg, rgba(12, 19, 25, 0.92), rgba(10, 14, 18, 0.86));
+        color: var(--ink);
+        opacity: 0;
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .fps-interact-prompt.visible {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      .fps-interact-key {
+        min-width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        border: 1px solid rgba(214, 255, 137, 0.6);
+        background: linear-gradient(180deg, rgba(210, 247, 137, 0.18), rgba(84, 115, 41, 0.3));
+        font-family: var(--font-heading);
+        font-size: 14px;
+        letter-spacing: 0.04em;
+        color: var(--accent-strong);
+      }
+
+      .fps-interact-text {
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .fps-player-presence {
+        position: fixed;
+        right: max(10px, env(safe-area-inset-right));
+        bottom: max(10px, env(safe-area-inset-bottom));
+        width: min(36vw, 320px);
+        height: min(30vh, 220px);
+        z-index: 140;
+        pointer-events: none;
+        opacity: 0.92;
+      }
+
+      .fps-presence-shoulder {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at 78% 88%, rgba(58, 66, 55, 0.88), rgba(16, 20, 18, 0.02) 72%);
+        border-bottom-right-radius: 18px;
+      }
+
+      .fps-presence-weapon {
+        position: absolute;
+        right: 14%;
+        bottom: 16%;
+        width: 44%;
+        height: 16%;
+        border-radius: 10px;
+        background: linear-gradient(90deg, rgba(127, 138, 123, 0.82), rgba(66, 74, 62, 0.9));
+        transform: skewX(-16deg) rotate(-11deg);
+        box-shadow: 0 0 10px rgba(189, 236, 140, 0.22);
+      }
+
+      .fps-mobile-controls {
+        --stick-size: 132px;
+        --btn-size: 64px;
+        --btn-gap: 10px;
+        --left-action-shift: -22px;
+        --left-stick-left: max(16px, env(safe-area-inset-left));
+        --right-stick-right: max(16px, env(safe-area-inset-right));
+        --stick-bottom: max(20px, env(safe-area-inset-bottom));
+        position: fixed;
+        inset: 0;
+        z-index: 170;
+        pointer-events: none;
+      }
+
+      .fps-stick-zone,
+      .fps-mobile-button {
+        pointer-events: auto;
+      }
+
+      .fps-stick-zone {
+        position: absolute;
+        width: var(--stick-size);
+        height: var(--stick-size);
+        border-radius: 50%;
+        border: 2px solid rgba(184, 242, 114, 0.35);
+        background: rgba(15, 24, 16, 0.35);
+        box-shadow: inset 0 0 16px rgba(166, 230, 111, 0.16);
+        touch-action: none;
+      }
+
+      .fps-stick-zone.left {
+        left: var(--left-stick-left);
+        bottom: var(--stick-bottom);
+      }
+
+      .fps-stick-zone.right {
+        right: var(--right-stick-right);
+        bottom: var(--stick-bottom);
+      }
+
+      .fps-stick-knob {
+        position: absolute;
+        width: 50px;
+        height: 50px;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, rgba(226, 255, 171, 0.96), rgba(147, 211, 86, 0.92));
+      }
+
+      .fps-mobile-buttons {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .fps-mobile-button {
+        position: absolute;
+        width: var(--btn-size);
+        height: var(--btn-size);
+        border-radius: 50%;
+        border: 2px solid rgba(184, 242, 114, 0.35);
+        background: rgba(11, 18, 14, 0.5);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        touch-action: manipulation;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        pointer-events: auto;
+      }
+
+      .fps-mobile-button.active {
+        background: linear-gradient(180deg, rgba(181, 240, 118, 0.95), rgba(131, 201, 72, 0.95));
+        color: #15200f;
+      }
+
+      .fps-mobile-button.toggled {
+        border-color: rgba(214, 255, 137, 0.78);
+        background: linear-gradient(180deg, rgba(71, 108, 49, 0.92), rgba(31, 52, 22, 0.92));
+        color: #dff6bb;
+      }
+
+      .fps-mobile-button-jump {
+        left: calc(50% + 12px);
+        bottom: calc(var(--stick-bottom) + 6px);
+      }
+
+      .fps-mobile-button-crouch {
+        left: calc(50% - var(--btn-size) - 12px);
+        bottom: calc(var(--stick-bottom) + 6px);
+      }
+
+      .fps-mobile-button-fire {
+        right: calc(var(--right-stick-right) + (var(--stick-size) - var(--btn-size)) / 2);
+        bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap));
+      }
+
+      .fps-mobile-button-grenade {
+        right: calc(var(--right-stick-right) + (var(--stick-size) - var(--btn-size)) / 2 + var(--btn-size) + var(--btn-gap));
+        bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap));
+      }
+
+      .fps-mobile-button-map {
+        left: calc(var(--left-stick-left) + var(--stick-size) - var(--btn-size) * 0.18);
+        bottom: calc(var(--stick-bottom) + 4px);
+      }
+
+      .fps-mobile-button-shop {
+        left: calc(50% - var(--btn-size) - 8px);
+        bottom: calc(var(--stick-bottom) + 6px);
+      }
+
+      .fps-mobile-button-swap {
+        left: calc(50% + 8px);
+        bottom: calc(var(--stick-bottom) + 6px);
+      }
+
+      .fps-mobile-button-interact {
+        left: calc(50% - var(--btn-size) / 2);
+        bottom: calc(var(--stick-bottom) + var(--btn-size) * 2 + var(--btn-gap) + 14px);
+      }
+
+      .fps-mobile-button-ads {
+        right: var(--right-stick-right);
+        bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-size) + 16px);
+      }
+
+      @media (pointer: fine) {
+        .fps-mobile-controls {
+          display: none;
+        }
+      }
+
+      @media (pointer: coarse) {
+        .fps-player-presence {
+          display: none;
+        }
+
+        .fps-weapon-indicator {
+          display: none !important;
+        }
+
+        .fps-mobile-controls {
+          width: 100vw;
+          height: 100svh;
+          height: 100dvh;
+          background: transparent;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .fps-mobile-controls {
+          --stick-size: 124px;
+          --btn-size: 60px;
+          --btn-gap: 8px;
+          --left-action-shift: -16px;
+        }
+
+        .fps-overlay {
+          align-items: flex-start;
+          padding:
+            calc(env(safe-area-inset-top) + 10px)
+            calc(env(safe-area-inset-right) + 14px)
+            calc(env(safe-area-inset-bottom) + 12px)
+            calc(env(safe-area-inset-left) + 14px);
+        }
+
+        .fps-panel {
+          width: 100%;
+          max-width: 860px;
+          max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 22px);
+          padding: 14px;
+        }
+
+        .fps-shop-columns {
+          grid-template-columns: 1fr;
+        }
+
+        .fps-shop-header {
+          position: sticky;
+          top: -2px;
+          z-index: 4;
+          padding: 4px 0 8px;
+          background: linear-gradient(180deg, rgba(9, 14, 16, 0.96), rgba(9, 14, 16, 0.72));
+          backdrop-filter: blur(2px);
+        }
+
+        .fps-shop-exit-top {
+          min-width: 82px;
+          padding: 8px 10px;
+          font-size: 13px;
+        }
+
+        .fps-avatar-stage {
+          height: 180px;
+        }
+
+        .fps-player-avatar {
+          width: 112px;
+          height: 166px;
+        }
+
+        .fps-player-avatar .avatar-shadow {
+          left: 20px;
+          width: 72px;
+          height: 13px;
+        }
+
+        .fps-player-avatar .avatar-neck {
+          top: 43px;
+          left: 49px;
+          width: 14px;
+          height: 14px;
+        }
+
+        .fps-player-avatar .avatar-head {
+          top: 10px;
+          left: 37px;
+          width: 36px;
+          height: 40px;
+        }
+
+        .fps-player-avatar .avatar-hair {
+          width: 31px;
+          height: 15px;
+        }
+
+        .fps-player-avatar .avatar-ear {
+          top: 18px;
+          width: 6px;
+          height: 9px;
+        }
+
+        .fps-player-avatar .avatar-eye {
+          top: 16px;
+          width: 6px;
+          height: 4px;
+        }
+
+        .fps-player-avatar .avatar-eye.left {
+          left: 8px;
+        }
+
+        .fps-player-avatar .avatar-eye.right {
+          right: 8px;
+        }
+
+        .fps-player-avatar .avatar-eye::after {
+          left: 2px;
+          width: 2px;
+          height: 2px;
+        }
+
+        .fps-player-avatar .avatar-nose {
+          top: 21px;
+          left: 16px;
+          width: 4px;
+          height: 6px;
+        }
+
+        .fps-player-avatar .avatar-mouth {
+          top: 29px;
+          left: 12px;
+          width: 12px;
+          height: 4px;
+        }
+
+        .fps-player-avatar .avatar-mouth::after {
+          width: 12px;
+        }
+
+        .fps-player-avatar .avatar-torso {
+          top: 48px;
+          left: 31px;
+          width: 50px;
+          height: 68px;
+        }
+
+        .fps-player-avatar .avatar-arm {
+          top: 58px;
+          width: 15px;
+          height: 56px;
+        }
+
+        .fps-player-avatar .avatar-arm.left {
+          left: 13px;
+        }
+
+        .fps-player-avatar .avatar-arm.right {
+          right: 13px;
+        }
+
+        .fps-player-avatar .avatar-arm::after {
+          left: 1px;
+          width: 11px;
+          height: 12px;
+        }
+
+        .fps-player-avatar .avatar-leg {
+          top: 108px;
+          width: 19px;
+          height: 56px;
+        }
+
+        .fps-player-avatar .avatar-leg.left {
+          left: 36px;
+        }
+
+        .fps-player-avatar .avatar-leg.right {
+          right: 36px;
+        }
+
+        .fps-player-avatar .avatar-leg::after {
+          width: 19px;
+          height: 10px;
+        }
+
+        .fps-hud {
+          font-size: 13px;
+          gap: 3px;
+          max-width: min(96vw, 460px);
+        }
+
+        .fps-hud-health {
+          grid-template-columns: repeat(3, minmax(84px, 1fr));
+          gap: 5px;
+          max-width: min(96vw, 460px);
+        }
+
+        .fps-hud-health-label {
+          font-size: 10px;
+        }
+
+        .fps-hud-health-track {
+          height: 8px;
+        }
+
+        .fps-hud-summary {
+          gap: 4px;
+        }
+
+        .fps-hud-chip {
+          font-size: 11px;
+          padding: 4px 7px;
+          min-height: 18px;
+        }
+
+        .fps-hud-line {
+          max-width: min(96vw, 460px);
+          font-size: 12px;
+          line-height: 1.2;
+        }
+
+        .fps-raid-actions .fps-quick-btn {
+          min-width: 94px;
+          font-size: 13px;
+          padding: 8px 8px;
+        }
+
+        .fps-raid-actions .fps-help-quick {
+          min-width: 40px;
+          width: 40px;
+          font-size: 20px;
+          padding: 8px 0;
+        }
+
+        .fps-hud-line.fps-controls {
+          max-width: min(96vw, 460px);
+          font-size: 12px;
+          line-height: 1.2;
+        }
+
+        .fps-minimap-panel {
+          width: 150px;
+          top: calc(env(safe-area-inset-top) + 64px);
+          padding: 6px;
+        }
+
+        .fps-minimap-header {
+          font-size: 10px;
+          margin-bottom: 4px;
+        }
+
+        .fps-minimap-legend {
+          font-size: 9px;
+          margin-top: 4px;
+          gap: 2px 6px;
+        }
+
+        .fps-weapon-indicator {
+          bottom: calc(env(safe-area-inset-bottom) + 10px);
+        }
+
+        .fps-weapon-indicator-card {
+          min-width: min(88vw, 300px);
+          padding: 8px 10px;
+          gap: 8px;
+        }
+
+        .fps-weapon-indicator-glyph {
+          width: 50px;
+          height: 34px;
+          font-size: 14px;
+        }
+
+        .fps-weapon-indicator-name {
+          font-size: 16px;
+        }
+
+        .fps-weapon-indicator-style {
+          font-size: 11px;
+        }
+
+        .fps-stick-zone {
+          width: var(--stick-size);
+          height: var(--stick-size);
+        }
+
+        .fps-stick-knob {
+          width: 46px;
+          height: 46px;
+        }
+
+        .fps-mobile-button {
+          font-size: 11px;
+        }
+
+        .fps-panel.menu {
+          width: min(94vw, 560px);
+          max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px);
+          padding: 10px;
+        }
+
+        .fps-panel.menu h1 {
+          margin-bottom: 6px;
+          font-size: clamp(1.12rem, 4.2vw, 1.45rem);
+          line-height: 1.1;
+          letter-spacing: 0.02em;
+        }
+
+        .fps-menu-tagline {
+          margin: 4px 0 8px;
+          font-size: clamp(0.77rem, 2.9vw, 0.86rem);
+          line-height: 1.16;
+        }
+
+        .fps-menu-help {
+          margin-top: 8px;
+          border-radius: 9px;
+        }
+
+        .fps-menu-help summary {
+          padding: 7px 10px;
+          font-size: 0.78rem;
+        }
+
+        .fps-menu-help p {
+          margin: 6px 0;
+          padding: 0 10px;
+          font-size: 0.74rem;
+          line-height: 1.18;
+        }
+
+        .fps-menu-help p:last-child {
+          padding-bottom: 8px;
+        }
+
+        .fps-panel.menu .fps-menu-actions {
+          position: sticky;
+          bottom: 0;
+          margin-top: 8px;
+          padding-top: 6px;
+          background: linear-gradient(180deg, rgba(8, 12, 18, 0), rgba(8, 12, 18, 0.92) 30%);
+        }
+
+        .fps-panel.menu .fps-menu-actions button {
+          font-size: 11px;
+          padding: 7px 9px;
+        }
+
+        .fps-interact-prompt {
+          bottom: calc(env(safe-area-inset-bottom) + 102px);
+          padding: 7px 10px;
+          gap: 8px;
+        }
+
+        .fps-interact-key {
+          min-width: 24px;
+          height: 24px;
+          font-size: 12px;
+        }
+
+        .fps-interact-text {
+          font-size: 13px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="rotate-prompt">Rotate your phone to landscape to play Zombie Invasion FPS.</div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "pistolUnlockWave": 1,
+  "pistolAutoEquipOnUnlock": true,
+  "grenadePacks": [
+    { "id": "grenade_pack_small", "label": "Grenade Pack (+2)", "amount": 2, "cost": 120 },
+    { "id": "grenade_pack_large", "label": "Grenade Pack (+5)", "amount": 5, "cost": 260 }
+  ],
+  "c4Packs": [
+    { "id": "c4_single", "label": "C4 Charge (+1)", "amount": 1, "cost": 340, "unlockWave": 4 },
+    { "id": "c4_bundle", "label": "C4 Bundle (+3)", "amount": 3, "cost": 900, "unlockWave": 6 }
+  ],
+  "nukePacks": [
+    { "id": "nuke_single", "label": "Nuke Device (+1)", "amount": 1, "cost": 1000, "unlockWave": 10 }
+  ],
+  "medKit": {
+    "label": "Med Kit (Full Heal)",
+    "cost": 20
+  },
+  "villagerRewards": {
+    "coinMin": 20,
+    "coinMax": 70,
+    "grenadeBonusChance": 0.33,
+    "grenadeBonusAmount": 1
+  },
+  "villageUpgrade": {
+    "label": "Town Defenses",
+    "maxLevel": 8,
+    "hpPerLevel": 0.08,
+    "baseCost": 180,
+    "costGrowth": 1.45
+  },
+  "armorUpgrades": [
+    { "id": "cloth", "label": "Cloth Jacket", "cost": 0, "damageReduction": 0, "style": "Starter outfit" },
+    { "id": "leather", "label": "Leather Armor", "cost": 140, "damageReduction": 0.08, "style": "Light zombie-hide armor" },
+    { "id": "kevlar", "label": "Kevlar Vest", "cost": 360, "damageReduction": 0.16, "style": "Ballistic chest rig" },
+    { "id": "reinforced", "label": "Reinforced Plate", "cost": 680, "damageReduction": 0.24, "style": "Heavy shock-absorbing armor" },
+    { "id": "chainmail", "label": "Chainmail Lining", "cost": 900, "damageReduction": 0.29, "style": "Linked steel mesh underlayer" },
+    { "id": "tactical", "label": "Tactical Carrier", "cost": 1250, "damageReduction": 0.34, "style": "Layered ceramic insert rig" },
+    { "id": "hazmat", "label": "Hazmat Shell", "cost": 1700, "damageReduction": 0.4, "style": "Sealed anti-corrosion plating" },
+    { "id": "juggernaut", "label": "Juggernaut Suit", "cost": 2400, "damageReduction": 0.5, "style": "Full-body assault armor frame" }
+  ]
+}

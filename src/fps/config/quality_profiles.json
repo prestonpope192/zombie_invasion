@@ -1,0 +1,29 @@
+{
+  "mobile_low": {
+    "renderScale": 0.8,
+    "shadows": false,
+    "bloom": false,
+    "ssao": false,
+    "maxVisibleEnemies": 16,
+    "maxRagdolls": 6,
+    "maxParticles": 90
+  },
+  "mobile_high": {
+    "renderScale": 0.9,
+    "shadows": true,
+    "bloom": true,
+    "ssao": false,
+    "maxVisibleEnemies": 24,
+    "maxRagdolls": 10,
+    "maxParticles": 160
+  },
+  "desktop_high": {
+    "renderScale": 1,
+    "shadows": true,
+    "bloom": true,
+    "ssao": true,
+    "maxVisibleEnemies": 36,
+    "maxRagdolls": 16,
+    "maxParticles": 260
+  }
+}
