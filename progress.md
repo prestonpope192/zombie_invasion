@@ -1,6 +1,11 @@
 Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
 
 ## Progress log
+- Mobile/frame-fit pass (current):
+  - moved FPS viewport sizing to shared runtime metrics based on `visualViewport`
+  - updated HUD, overlays, minimap, crosshair, prompts, weapon card, and mobile controls to anchor to the measured game frame instead of raw `100vw/100vh`
+  - added raid fullscreen toggle button with graceful fallback when the browser blocks or lacks the Fullscreen API
+  - stacked the right-side mobile action rail vertically to prevent clipping on narrow screens
 - Migrated previous Phaser 2D implementation into `src/legacy2d` for reference.
 - Replaced runtime with Three.js + Rapier FPS architecture under `src/fps`.
 - Added FPS systems:
@@ -213,6 +218,54 @@ Original prompt: build this game and deploy it to a docker container and spin it
     - Screenshot: `/Users/preston/Code/zombie_invasion/output/fps-window-reactivity-strafe/shot-0.png`
 - Night readability lighting pass (slightly lighter):
   - Increased tone-mapping exposure in `src/fps/systems/renderPipeline.js` from `1.55` to `1.8`.
+- Enemy realism pass (procedural models):
+  - Reworked `src/fps/scenes/RaidScene3D.js` creature builders to use rounded organic primitives instead of mostly flat box stacks.
+  - Human zombies now use fuller torso/head shapes, softer limb geometry, subtler outline shells, and more grounded material response.
+  - Animal zombies now have more species-specific silhouettes and details:
+    - pig snout plate
+    - horse mane + tail tuft
+    - cow horns + hide spots
+    - chicken beak/comb/wing/tail-feather shapes
+  - Added extra secondary motion in `src/fps/systems/enemyAi3D.js` for body lean and animal tail sway.
+  - Tuned the scene lighting and post-processing for less gamey bloom and slightly more realistic moonlit contrast in:
+    - `src/fps/scenes/RaidScene3D.js`
+    - `src/fps/systems/renderPipeline.js`
+- Validation:
+  - `npm test` pass (21 files, 64 tests).
+  - `npm run build` pass.
+  - Visual verification artifacts:
+    - in-scene gallery state: `/Users/preston/Code/zombie_invasion/output/fps-realism-custom/state-field-gallery.json`
+    - canvas-only mesh gallery shot: `/Users/preston/Code/zombie_invasion/output/fps-realism-custom/shot-mesh-gallery.png`
+- Expanded store weapon roster:
+  - Added new purchasable weapons in `src/fps/config/weapons_fps.json`:
+    - `revolver`
+    - `machine_pistol`
+    - `battle_rifle`
+    - `lmg`
+    - `sniper`
+    - `grenade_launcher`
+  - Updated slot bindings in `src/fps/systems/weaponSlots.js`:
+    - `1 pistol`
+    - `2 revolver`
+    - `3 machine pistol`
+    - `4 smg`
+    - `5 rifle`
+    - `6 battle rifle`
+    - `7 shotgun`
+    - `8 dmr`
+    - `9 sniper`
+    - `0 lmg`
+    - `- rpg`
+    - `= grenade launcher`
+    - `` ` pipe ``
+  - Wired new weapons through:
+    - shop labels (`src/fps/scenes/ShopScene3D.js`)
+    - weapon feel / HUD indicator / crosshair / muzzle-FX / viewmodel definitions (`src/fps/scenes/RaidScene3D.js`)
+    - procedural audio palette (`src/fps/systems/audio3d.js`)
+    - menu/control copy (`src/fps/scenes/MenuScene3D.js`, `src/fps/scenes/RaidScene3D.js`)
+- Validation:
+  - `npm test` pass (21 files, 64 tests).
+  - `npm run build` pass.
   - Updated raid lighting/fog in `src/fps/scenes/RaidScene3D.js`:
     - Brighter night sky/fog colors
     - Reduced fog density (`0.011 -> 0.0088`)
@@ -1370,3 +1423,82 @@ Original prompt: build this game and deploy it to a docker container and spin it
     - `/Users/preston/Code/zombie_invasion/output/fps-minalive-ramp/shot-0.png`
     - `/Users/preston/Code/zombie_invasion/output/fps-minalive-ramp/state-0.json`
     - no `errors-*.json` generated.
+- Endless survival wave pass:
+  - Extended `src/fps/systems/waveDirector3D.js` so authored waves roll into synthesized endless waves with scaling budget, min-alive pressure, spawn cadence, mega count, and periodic boss flags.
+  - Updated `src/fps/scenes/RaidScene3D.js` to stop ending the run at wave 12, keep summary/shop flow between clears, and show the HUD as `Wave N` instead of `Wave N/12`.
+  - Removed the save-layer `bestWave` cap in `src/fps/systems/saveFps.js` so high-wave runs persist correctly.
+  - Updated menu copy and tests for endless survival behavior.
+- Validation:
+  - `npm test -- test/wave_director_flow.test.js test/raids.test.js test/boss_phase.test.js test/save.test.js` pass (4 files, 15 tests).
+  - `npm test` pass (21 files, 66 tests).
+  - `npm run build` pass.
+  - Playwright smoke artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-endless-smoke/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-endless-smoke/state-0.json`
+    - no `errors-*.json` generated.
+- Start page cleanup + logo pass:
+  - Added a custom SVG logo at `public/zombie-invasion-logo.svg`.
+  - Reworked `src/fps/scenes/MenuScene3D.js` into a cleaner hero layout with logo, tagline, run stat chips, primary actions, and compact feature cards.
+  - Added menu-specific layout/styling in `index.html` for desktop and mobile so the start page reads like a game front-end instead of a plain settings panel.
+- Validation:
+  - `npm test` pass (21 files, 66 tests).
+  - `npm run build` pass.
+  - Playwright visual check:
+    - `/Users/preston/Code/zombie_invasion/output/fps-menu-logo-pass/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-menu-logo-pass/state-0.json`
+    - no `errors-*.json` generated.
+- Arsenal realism + silhouette pass:
+  - Replaced generic shop/config weapon names with specific real firearm platforms in `src/fps/config/weapons_fps.json`.
+  - Updated `src/fps/scenes/ShopScene3D.js` and `src/fps/scenes/RaidScene3D.js` so shop blurbs, weapon feel text, and HUD indicator glyphs reflect the new real-gun lineup.
+  - Reworked several first-person viewmodels in `src/fps/scenes/RaidScene3D.js` to reduce overlap:
+    - revolver now reads as a wheelgun instead of a semiauto pistol
+    - machine pistol uses a compact pistol silhouette instead of another SMG shape
+    - AKM gets a curved-mag silhouette
+    - M249 adds ammo-box/bipod cues
+    - M24 gets bolt-handle/bipod cues
+    - M79 and M2 no longer share the same rocket-launcher look
+- Validation:
+  - `npm test` pass (22 files, 69 tests).
+  - `npm run build` pass.
+  - Playwright/client raid smoke:
+    - `/Users/preston/Code/zombie_invasion/output/fps-arsenal-raid/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-arsenal-raid/state-0.json`
+    - no `errors-0.json` generated.
+  - Browser verification artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-arsenal-check/result.json`
+    - `/Users/preston/Code/zombie_invasion/output/fps-arsenal-check/shop.png`
+    - shop names, blurbs, and sampled HUD/mesh swaps all matched the new real-gun roster with no console errors.
+- Weapon identity pass (feel/audio/VFX):
+  - Expanded `src/fps/systems/audio3d.js` weapon sounds from simple two-tone beeps into layered per-weapon signatures with distinct frequency sweeps and tails.
+  - Added explicit per-weapon presentation tuning in `src/fps/scenes/RaidScene3D.js` for fire kick, kick decay, bob speed/amplitude, and slide/bolt/pump travel so weapons animate differently in first person.
+  - Split muzzle/crosshair language further so the magnum, machine pistol, battle rifle, LMG, sniper, launchers, and flamethrower each read differently on screen.
+  - Added `test/audio3d.test.js` to lock in layered playback and keep similar weapon classes acoustically distinct.
+- Validation:
+  - `npm test` pass (23 files, 71 tests).
+  - `npm run build` pass.
+  - Browser screenshot artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-identity/summary.json`
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-identity/01-revolver.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-identity/04-lmg.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-weapon-identity/06-flamethrower.png`
+    - sampled weapons showed distinct crosshair sizes/rotation, HUD styling, and viewmodel silhouettes with no console errors.
+- Wave music escalation pass:
+  - Reworked `src/fps/systems/audio3d.js` from a single repeating raid loop into low-volume layered wave themes with unique note sets, tempo, pad voicings, shimmer/sub layers, and a per-wave start cue.
+  - Early waves now stay sparse and calm while later waves add pulse and tension gradually without pushing gains into distracting levels.
+  - Updated `src/fps/scenes/RaidScene3D.js` and `src/fps/app/FpsGame.js` so raid music starts with the active wave profile and correctly switches back from summary/shop to the current wave soundtrack.
+  - Added regression coverage in `test/audio3d.test.js` for wave-profile escalation/uniqueness and `test/fps_game_audio.test.js` for restoring raid music after intermission.
+- Validation:
+  - `npm test` pass (24 files, 74 tests).
+  - `npm run build` pass.
+- Armor silhouette pass:
+  - Reworked the shop survivor avatar in `src/fps/scenes/ShopScene3D.js` and `index.html` so armor tiers are no longer simple recolors of one body template.
+  - Added dedicated gear layers for coats, scarves, hoods, helmets, visors, respirators, pauldrons, chest rigs, belts, pouches, knee pads, and canisters, then mapped those into distinct per-armor silhouettes.
+  - Updated armor copy in `src/fps/config/economy_fps.json` so the shop descriptions match the new visual identity of each loadout.
+  - Added `test/shop_scene_avatar.test.js` to lock in equipped armor class/caption sync.
+- Validation:
+  - `npm test` pass (25 files, 75 tests).
+  - `npm run build` pass.
+  - Visual verification artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-armor-avatar-pass/gallery.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-armor-avatar-pass/summary.json`
+  - Note: full in-app headless browser verification was blocked by WebGL context creation in this environment, so avatar silhouette review used a standalone gallery generated from the same shop CSS and markup.

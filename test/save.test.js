@@ -27,6 +27,9 @@ describe("fps save schema", () => {
     save.coins = 444;
     save.equippedWeaponId = "pipe";
     save.grenades = 9;
+    save.grenadeInventory.frag = 9;
+    save.grenadeInventory.breacher = 2;
+    save.activeGrenadeId = "breacher";
 
     persistFpsSave(save, storage);
     const loaded = loadFpsSave(storage);
@@ -36,6 +39,9 @@ describe("fps save schema", () => {
     expect(loaded.coins).toBe(444);
     expect(loaded.ownedWeapons).toContain("pipe");
     expect(loaded.grenades).toBe(9);
+    expect(loaded.grenadeInventory.frag).toBe(9);
+    expect(loaded.grenadeInventory.breacher).toBe(2);
+    expect(loaded.activeGrenadeId).toBe("breacher");
     expect(loaded.pistolUnlocked).toBe(false);
     expect(loaded.deadVillagers).toEqual([]);
     expect(loaded.villageLevel).toBe(1);
@@ -111,5 +117,17 @@ describe("fps save schema", () => {
   it("clamps villageLevel to at least 1", () => {
     const loaded = sanitizeFpsSave({ villageLevel: 0 });
     expect(loaded.villageLevel).toBe(1);
+  });
+
+  it("migrates legacy grenade count into typed inventory", () => {
+    const loaded = sanitizeFpsSave({ grenades: 7, activeGrenadeId: "not_real" });
+    expect(loaded.grenadeInventory.frag).toBe(7);
+    expect(loaded.grenadeInventory.breacher).toBe(0);
+    expect(loaded.activeGrenadeId).toBe("frag");
+  });
+
+  it("preserves bestWave beyond the authored campaign length", () => {
+    const loaded = sanitizeFpsSave({ bestWave: 37 });
+    expect(loaded.bestWave).toBe(37);
   });
 });

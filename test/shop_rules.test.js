@@ -6,6 +6,7 @@ import {
   applyVillageUpgradePurchase,
   applyWeaponBuyOrEquip,
   getArmorShopState,
+  getGrenadePackShopState,
   getMedKitShopState,
   getVillageLevelHpMultiplier,
   getVillageUpgradeState,
@@ -13,6 +14,7 @@ import {
 } from "../src/fps/systems/shopRules";
 
 function makeSave(overrides = {}) {
+  const fragCount = overrides.grenades ?? 5;
   return {
     coins: 300,
     ownedWeapons: ["pipe"],
@@ -22,7 +24,9 @@ function makeSave(overrides = {}) {
     equippedArmorId: "cloth",
     villageLevel: 1,
     pistolUnlocked: false,
-    grenades: 5,
+    grenades: fragCount,
+    grenadeInventory: { frag: fragCount, breacher: 0, nova: 0 },
+    activeGrenadeId: "frag",
     ...overrides,
   };
 }
@@ -74,6 +78,27 @@ describe("shop rules", () => {
     expect(blocked).toEqual({ changed: false });
     expect(save.coins).toBe(30);
     expect(save.grenades).toBe(3);
+  });
+
+  it("wave-locks premium grenade packs and auto-equips bought heavy grenades", () => {
+    const save = makeSave({ coins: 400, grenades: 5 });
+    const locked = getGrenadePackShopState({
+      pack: { grenadeTypeId: "breacher", amount: 1, cost: 280, unlockWave: 4 },
+      waveNumber: 3,
+      save,
+    });
+    expect(locked.waveLocked).toBe(true);
+    expect(locked.status).toBe("Unlocks Wave 4");
+
+    const purchased = applyGrenadePackBuy({
+      pack: { grenadeTypeId: "breacher", amount: 1, cost: 280, unlockWave: 4 },
+      waveNumber: 4,
+      save,
+    });
+    expect(purchased).toEqual({ changed: true });
+    expect(save.coins).toBe(120);
+    expect(save.grenadeInventory.breacher).toBe(1);
+    expect(save.activeGrenadeId).toBe("breacher");
   });
 
   it("uses med kit to fully heal for 20 coins", () => {

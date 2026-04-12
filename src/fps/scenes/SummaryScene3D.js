@@ -4,6 +4,8 @@ export class SummaryScene3D {
   constructor(game) {
     this.game = game;
     this.root = null;
+    this.nextButton = null;
+    this.onKeyDown = null;
   }
 
   enter(summary) {
@@ -21,12 +23,22 @@ export class SummaryScene3D {
         <p>Kills: ${escapeHtml(kills)}</p>
         <p>Coins earned: ${escapeHtml(coins)}</p>
         <p>Village HP: ${escapeHtml(villageHp)}</p>
+        <p>Click Next Wave, press Space, or press Enter to keep the run moving.</p>
         <div class="fps-shop-actions">
-          <button data-action="next">Next Wave</button>
-          <button data-action="shop">Open Shop</button>
+          <button type="button" data-action="next">Next Wave</button>
+          <button type="button" data-action="shop">Open Shop</button>
         </div>
       </div>
     `;
+    this.nextButton = this.root.querySelector('[data-action="next"]');
+
+    if (document.pointerLockElement && typeof document.exitPointerLock === "function") {
+      try {
+        document.exitPointerLock();
+      } catch {
+        // Ignore environments where pointer lock is unavailable or already closing.
+      }
+    }
 
     this.root.addEventListener("click", (event) => {
       const button = event.target.closest("button");
@@ -41,13 +53,24 @@ export class SummaryScene3D {
         this.game.openShop();
       }
     });
+    this.onKeyDown = (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter") {
+        event.preventDefault();
+        this.game.resumeAfterIntermission();
+      }
+    };
 
     document.body.appendChild(this.root);
+    window.addEventListener("keydown", this.onKeyDown);
     requestAnimationFrame(() => {
       if (!this.root) {
         return;
       }
       this.root.classList.add("is-visible");
+      this.nextButton?.focus();
     });
   }
 
@@ -56,6 +79,11 @@ export class SummaryScene3D {
       this.root.remove();
       this.root = null;
     }
+    if (this.onKeyDown) {
+      window.removeEventListener("keydown", this.onKeyDown);
+      this.onKeyDown = null;
+    }
+    this.nextButton = null;
   }
 
   renderGameToText() {

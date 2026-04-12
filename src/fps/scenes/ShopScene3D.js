@@ -6,10 +6,12 @@ import {
   applyVillageUpgradePurchase,
   applyWeaponBuyOrEquip,
   getArmorShopState,
+  getGrenadePackShopState,
   getMedKitShopState,
   getVillageUpgradeState,
   getWeaponShopState,
 } from "../systems/shopRules";
+import { getActiveGrenadeId, getGrenadeCount } from "../systems/grenadeLoadout";
 import { escapeHtml } from "../systems/safeHtml";
 import { computeDiscountedCost, getVillagerPerkModifiers } from "../systems/villagerEscortRules";
 
@@ -38,33 +40,56 @@ export class ShopScene3D {
           <div class="fps-shop-main">
             <h3>Weapons</h3>
             <div class="fps-shop-list" data-bind="weapons"></div>
+            <h3>Ordnance</h3>
+            <div class="fps-shop-list" data-bind="ordnance"></div>
             <h3>Armor</h3>
             <div class="fps-shop-list" data-bind="armors"></div>
             <h3>Village</h3>
             <div class="fps-shop-list" data-bind="village-upgrade"></div>
           </div>
-          <aside class="fps-shop-avatar-panel">
-            <h3>Survivor</h3>
-            <div class="fps-avatar-stage" data-bind="avatar-stage">
-              <div class="fps-player-avatar armor-cloth" data-bind="avatar">
-                <div class="avatar-shadow"></div>
-                <div class="avatar-neck"></div>
-                <div class="avatar-head">
-                  <div class="avatar-hair"></div>
-                  <div class="avatar-ear left"></div>
-                  <div class="avatar-ear right"></div>
-                  <div class="avatar-eye left"></div>
-                  <div class="avatar-eye right"></div>
-                  <div class="avatar-nose"></div>
-                  <div class="avatar-mouth"></div>
-                </div>
-                <div class="avatar-torso"></div>
-                <div class="avatar-arm left"></div>
-                <div class="avatar-arm right"></div>
-                <div class="avatar-leg left"></div>
-                <div class="avatar-leg right"></div>
-              </div>
-            </div>
+	          <aside class="fps-shop-avatar-panel">
+	            <h3>Survivor</h3>
+	            <div class="fps-avatar-stage" data-bind="avatar-stage">
+	              <div class="fps-player-avatar armor-cloth" data-bind="avatar">
+	                <div class="avatar-shadow"></div>
+	                <div class="avatar-coat-tail"></div>
+	                <div class="avatar-neck"></div>
+	                <div class="avatar-collar"></div>
+	                <div class="avatar-hood"></div>
+	                <div class="avatar-helmet-shell"></div>
+	                <div class="avatar-helmet-rim"></div>
+	                <div class="avatar-visor"></div>
+	                <div class="avatar-headset left"></div>
+	                <div class="avatar-headset right"></div>
+	                <div class="avatar-mask"></div>
+	                <div class="avatar-respirator"></div>
+	                <div class="avatar-canister left"></div>
+	                <div class="avatar-canister right"></div>
+	                <div class="avatar-head">
+	                  <div class="avatar-hair"></div>
+	                  <div class="avatar-ear left"></div>
+	                  <div class="avatar-ear right"></div>
+	                  <div class="avatar-eye left"></div>
+	                  <div class="avatar-eye right"></div>
+	                  <div class="avatar-nose"></div>
+	                  <div class="avatar-mouth"></div>
+	                </div>
+	                <div class="avatar-shoulder left"></div>
+	                <div class="avatar-shoulder right"></div>
+	                <div class="avatar-chain-overlay"></div>
+	                <div class="avatar-chest-rig"></div>
+	                <div class="avatar-torso"></div>
+	                <div class="avatar-belt"></div>
+	                <div class="avatar-pouch left"></div>
+	                <div class="avatar-pouch right"></div>
+	                <div class="avatar-arm left"></div>
+	                <div class="avatar-arm right"></div>
+	                <div class="avatar-kneepad left"></div>
+	                <div class="avatar-kneepad right"></div>
+	                <div class="avatar-leg left"></div>
+	                <div class="avatar-leg right"></div>
+	              </div>
+	            </div>
             <div class="fps-avatar-controls">
               <button type="button" data-action="avatar-left">Rotate Left</button>
               <button type="button" data-action="avatar-right">Rotate Right</button>
@@ -165,6 +190,7 @@ export class ShopScene3D {
     const pack = (this.game.economy?.grenadePacks ?? []).find((entry) => entry.id === packId);
     const result = applyGrenadePackBuy({
       pack,
+      waveNumber: this.waveNumber,
       save: this.game.save,
       costMultiplier: this.getShopCostMultiplier(),
     });
@@ -217,13 +243,20 @@ export class ShopScene3D {
 
   weaponStyleLabel(weaponId) {
     const labels = {
-      pipe: "Melee starter",
-      pistol: "Balanced sidearm",
-      smg: "Close spray",
-      rifle: "Mid-range power",
-      shotgun: "Heavy burst",
-      dmr: "Precision shot",
-      rpg: "Explosive launcher",
+      pipe: "Improvised melee",
+      pistol: "15-round 9mm service pistol",
+      revolver: ".357 magnum wheelgun",
+      smg: "Compact 9mm roller-delay SMG",
+      machine_pistol: "Select-fire auto sidearm",
+      rifle: "Stamped 7.62 assault rifle",
+      battle_rifle: "Full-power 7.62 NATO rifle",
+      shotgun: "12-gauge pump bruiser",
+      lmg: "Belt-fed support weapon",
+      dmr: "Scoped 7.62 marksman rifle",
+      sniper: "Bolt-action precision rifle",
+      rpg: "Reusable anti-armor launcher",
+      grenade_launcher: "Single-shot 40mm lobber",
+      flamethrower: "Backpack fuel projector",
     };
     return labels[weaponId] ?? "General use";
   }
@@ -231,6 +264,34 @@ export class ShopScene3D {
   weaponStatLabel(weapon) {
     const spread = Number(weapon.spreadMoa).toFixed(1);
     return `DMG ${weapon.damage} | RPM ${weapon.rpm} | Spread ${spread}`;
+  }
+
+  grenadeInventorySummary() {
+    const activeGrenadeId = getActiveGrenadeId(this.game.save);
+    return this.game.grenadeTypes
+      .map((grenade) => {
+        const count = getGrenadeCount(this.game.save, grenade.id);
+        const active = grenade.id === activeGrenadeId ? "*" : "";
+        return `${grenade.shortLabel}${active} ${count}`;
+      })
+      .join(" · ");
+  }
+
+  grenadePackDescription(pack) {
+    const grenadeTypeId = pack.grenadeTypeId ?? "frag";
+    const grenade = this.game.grenadeTypeMap.get(grenadeTypeId);
+    const count = getGrenadeCount(this.game.save, grenadeTypeId);
+    const active = getActiveGrenadeId(this.game.save) === grenadeTypeId;
+    const parts = [
+      grenade?.description ?? "Consumable explosive",
+      `DMG ${Math.round(Number(grenade?.damage ?? 0))}`,
+      `Blast ${Number(grenade?.radius ?? 0).toFixed(1)}m`,
+      `Carrying ${count}`,
+    ];
+    if (active) {
+      parts.push("Active");
+    }
+    return parts.join(" · ");
   }
 
   rotateAvatar(deltaDegrees) {
@@ -280,10 +341,12 @@ export class ShopScene3D {
     const armorDefs = this.getArmorDefs();
     const equippedArmor = armorDefs.find((entry) => entry.id === this.game.save.equippedArmorId) ?? armorDefs[0];
     avatar.className = `fps-player-avatar armor-${equippedArmor.id}`;
+    avatar.dataset.armorId = equippedArmor.id;
     const caption = this.root.querySelector('[data-bind="armor-caption"]');
     if (caption) {
       const reduction = Math.round((Number(equippedArmor.damageReduction ?? 0) || 0) * 100);
-      caption.textContent = `Armor: ${equippedArmor.label} (${reduction}% damage resist)`;
+      const style = equippedArmor.style ? ` · ${equippedArmor.style}` : "";
+      caption.textContent = `Armor: ${equippedArmor.label} (${reduction}% damage resist)${style}`;
     }
   }
 
@@ -291,10 +354,11 @@ export class ShopScene3D {
     const coinsEl = this.root.querySelector('[data-bind="coins"]');
     const grenadesEl = this.root.querySelector('[data-bind="grenades"]');
     const weaponsEl = this.root.querySelector('[data-bind="weapons"]');
+    const ordnanceEl = this.root.querySelector('[data-bind="ordnance"]');
     const armorsEl = this.root.querySelector('[data-bind="armors"]');
     const villageUpgradeEl = this.root.querySelector('[data-bind="village-upgrade"]');
     coinsEl.textContent = String(this.game.save.coins);
-    grenadesEl.textContent = String(this.game.save.grenades ?? 0);
+    grenadesEl.textContent = this.grenadeInventorySummary();
 
     const costMultiplier = this.getShopCostMultiplier();
 
@@ -342,22 +406,27 @@ export class ShopScene3D {
     `;
     weaponsEl.prepend(pipeRow);
 
+    ordnanceEl.innerHTML = "";
     for (const pack of this.game.economy?.grenadePacks ?? []) {
       const packRow = document.createElement("div");
       packRow.className = "fps-shop-row";
-      const packCost = computeDiscountedCost(pack.cost, costMultiplier);
-      const cannotAffordPack = this.game.save.coins < packCost;
-      if (cannotAffordPack) {
+      const state = getGrenadePackShopState({
+        pack,
+        waveNumber: this.waveNumber,
+        save: this.game.save,
+        costMultiplier,
+      });
+      if (state.disabled) {
         packRow.classList.add("is-unavailable");
       }
       packRow.innerHTML = `
         <span class="fps-shop-weapon-meta">
           <strong>${escapeHtml(pack.label)}</strong>
-          <small>Consumable explosive</small>
+          <small>${escapeHtml(this.grenadePackDescription(pack))}</small>
         </span>
-        <button data-pack="${escapeHtml(pack.id)}" ${cannotAffordPack ? "disabled" : ""}>${escapeHtml(`${packCost} coins`)}</button>
+        <button data-pack="${escapeHtml(pack.id)}" ${state.disabled ? "disabled" : ""}>${escapeHtml(state.status)}</button>
       `;
-      weaponsEl.appendChild(packRow);
+      ordnanceEl.appendChild(packRow);
     }
 
     const medKit = this.getMedKitDef();
@@ -379,7 +448,7 @@ export class ShopScene3D {
       </span>
       <button data-medkit="1" ${medKitState.disabled ? "disabled" : ""}>${escapeHtml(medKitState.status)}</button>
     `;
-    weaponsEl.appendChild(medKitRow);
+    ordnanceEl.appendChild(medKitRow);
 
     armorsEl.innerHTML = "";
     for (const armor of this.getArmorDefs()) {

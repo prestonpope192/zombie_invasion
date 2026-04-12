@@ -27,6 +27,7 @@ export function randomSpreadDirection(forward, spreadMoa, adsScale = 1) {
 export function createProjectile({ weapon, position, direction }) {
   const speed = weapon.muzzleVelocityMps;
   const velocity = direction.clone().multiplyScalar(speed);
+  const configuredLifeSec = Number(weapon.lifeSec);
   return {
     id: `proj_${Math.random().toString(36).slice(2, 11)}`,
     weaponId: weapon.id,
@@ -37,7 +38,7 @@ export function createProjectile({ weapon, position, direction }) {
     remainingEnergyJ: speedToEnergyJ(weapon.massGrams, speed),
     alive: true,
     traveled: 0,
-    lifeSec: weapon.category === "explosive" ? 5 : 2.8,
+    lifeSec: Number.isFinite(configuredLifeSec) && configuredLifeSec > 0 ? configuredLifeSec : weapon.category === "explosive" ? 5 : 2.8,
   };
 }
 

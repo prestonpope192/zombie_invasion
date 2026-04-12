@@ -1,14 +1,30 @@
 import { describe, expect, it } from "vitest";
 import waves from "../src/fps/config/waves_fps.json";
-import { WaveDirector3D } from "../src/fps/systems/waveDirector3D";
+import { createWaveDefForIndex, WaveDirector3D } from "../src/fps/systems/waveDirector3D";
 import { computeWaveDifficultyScalars } from "../src/fps/systems/enemyAi3D";
 
 describe("wave budget/composition", () => {
-  it("contains 12 escalating waves", () => {
+  it("contains 12 escalating authored base waves", () => {
     expect(waves).toHaveLength(12);
     expect(waves[0].wave).toBe(1);
     expect(waves.at(-1).wave).toBe(12);
     expect(waves.at(-1).budget).toBeGreaterThan(waves[0].budget);
+  });
+
+  it("synthesizes harder endless waves beyond the authored list", () => {
+    const authoredFinal = waves.at(-1);
+    const wave13 = createWaveDefForIndex(waves, waves.length);
+    const wave18 = createWaveDefForIndex(waves, waves.length + 5);
+
+    expect(wave13.wave).toBe(13);
+    expect(wave13.budget).toBeGreaterThan(authoredFinal.budget);
+    expect(wave13.minAlive).toBeGreaterThanOrEqual(authoredFinal.minAlive);
+    expect(wave13.spawnIntervalSec).toBeLessThan(authoredFinal.spawnIntervalSec);
+    expect(wave13.spawnIntervalSec).toBeGreaterThanOrEqual(0.42);
+
+    expect(wave18.wave).toBe(18);
+    expect(wave18.boss).toBe(true);
+    expect(wave18.budget).toBeGreaterThan(wave13.budget);
   });
 
   it("spawns up to budget over time", () => {

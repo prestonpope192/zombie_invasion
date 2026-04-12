@@ -1,4 +1,10 @@
 import { computeDiscountedCost } from "./villagerEscortRules";
+import {
+  DEFAULT_GRENADE_TYPE_ID,
+  addGrenadeCount,
+  getGrenadeCount,
+  setActiveGrenadeId,
+} from "./grenadeLoadout";
 
 export function getWeaponShopState({ weapon, waveNumber, save, costMultiplier = 1 }) {
   const owned = save.ownedWeapons.includes(weapon.id);
@@ -59,16 +65,45 @@ export function applyWeaponBuyOrEquip({ weapon, waveNumber, save, costMultiplier
   return { changed: true, action: "buy" };
 }
 
-export function applyGrenadePackBuy({ pack, save, costMultiplier = 1 }) {
+export function getGrenadePackShopState({ pack, waveNumber = 1, save, costMultiplier = 1 }) {
   if (!pack) {
-    return { changed: false };
+    return {
+      grenadeTypeId: DEFAULT_GRENADE_TYPE_ID,
+      cost: 0,
+      ownedCount: 0,
+      waveLocked: false,
+      cannotAfford: false,
+      disabled: true,
+      status: "Unavailable",
+    };
   }
+  const grenadeTypeId = pack.grenadeTypeId ?? DEFAULT_GRENADE_TYPE_ID;
   const cost = computeDiscountedCost(pack.cost, costMultiplier);
-  if (save.coins < cost) {
+  const unlockWave = Math.max(0, Math.round(Number(pack.unlockWave ?? 0)));
+  const waveLocked = unlockWave > 0 && waveNumber < unlockWave;
+  const cannotAfford = (save?.coins ?? 0) < cost;
+  return {
+    grenadeTypeId,
+    cost,
+    unlockWave,
+    ownedCount: getGrenadeCount(save, grenadeTypeId),
+    waveLocked,
+    cannotAfford,
+    disabled: waveLocked || cannotAfford,
+    status: waveLocked ? `Unlocks Wave ${unlockWave}` : `${cost} coins`,
+  };
+}
+
+export function applyGrenadePackBuy({ pack, waveNumber = 1, save, costMultiplier = 1 }) {
+  const state = getGrenadePackShopState({ pack, waveNumber, save, costMultiplier });
+  if (state.disabled) {
     return { changed: false };
   }
-  save.coins -= cost;
-  save.grenades = Math.max(0, (save.grenades ?? 0) + pack.amount);
+  save.coins -= state.cost;
+  addGrenadeCount(save, state.grenadeTypeId, pack.amount);
+  if (state.grenadeTypeId !== DEFAULT_GRENADE_TYPE_ID) {
+    setActiveGrenadeId(save, state.grenadeTypeId);
+  }
   return { changed: true };
 }
 

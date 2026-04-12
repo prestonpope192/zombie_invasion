@@ -1,3 +1,10 @@
+import {
+  DEFAULT_GRENADE_TYPE_ID,
+  defaultGrenadeInventory,
+  normalizeGrenadeInventory,
+  syncLegacyGrenadeCount,
+} from "./grenadeLoadout";
+
 export const FPS_SAVE_KEY = "zombie_invasion_fps_save_v2";
 export const LEGACY_FPS_SAVE_KEY = "zombie_invasion_fps_save_v1";
 const FPS_SAVE_VERSION = 2;
@@ -9,6 +16,8 @@ export function defaultFpsSave() {
     coins: 0,
     bestWave: 0,
     grenades: 5,
+    grenadeInventory: defaultGrenadeInventory(),
+    activeGrenadeId: DEFAULT_GRENADE_TYPE_ID,
     c4Charges: 0,
     nukes: 0,
     unlockedWeapons: ["pipe"],
@@ -54,10 +63,15 @@ export function sanitizeFpsSave(raw) {
   safe.version = FPS_SAVE_VERSION;
   safe.profileType = "fps_house_v2";
   safe.coins = Math.max(0, int(safe.coins));
-  safe.grenades = Math.max(0, int(safe.grenades, 5));
+  safe.grenadeInventory = normalizeGrenadeInventory(raw.grenadeInventory, safe.grenades ?? 5);
+  safe.activeGrenadeId = typeof safe.activeGrenadeId === "string" ? safe.activeGrenadeId : DEFAULT_GRENADE_TYPE_ID;
+  if (!(safe.activeGrenadeId in safe.grenadeInventory)) {
+    safe.activeGrenadeId = DEFAULT_GRENADE_TYPE_ID;
+  }
+  syncLegacyGrenadeCount(safe);
   safe.c4Charges = Math.max(0, int(safe.c4Charges, 0));
   safe.nukes = Math.max(0, int(safe.nukes, 0));
-  safe.bestWave = Math.max(0, Math.min(12, int(safe.bestWave)));
+  safe.bestWave = Math.max(0, int(safe.bestWave));
   safe.unlockedWeapons = normalizeStrings(safe.unlockedWeapons, ["pipe"]);
   safe.ownedWeapons = normalizeStrings(safe.ownedWeapons, ["pipe"]);
   safe.equippedWeaponId = typeof safe.equippedWeaponId === "string" ? safe.equippedWeaponId : "pipe";

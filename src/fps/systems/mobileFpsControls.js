@@ -1,12 +1,24 @@
+import { Bomb, ChevronsDown, ChevronsUp, createElement, Flame, Hand, Map as MapIcon, Rabbit } from "lucide";
+
 const BUTTONS = [
-  { key: "fire", label: "FIRE", hold: true },
-  { key: "grenade", label: "GRENADE", hold: false },
-  { key: "map", label: "MAP", hold: false },
-  { key: "ads", label: "ADS", hold: true },
-  { key: "jump", label: "JUMP", hold: false },
-  { key: "crouch", label: "CROUCH", hold: false, toggle: true },
-  { key: "interact", label: "USE", hold: false },
+  { key: "fire", label: "FIRE", icon: Flame, hold: true },
+  { key: "grenade", label: "GRENADE", icon: Bomb, hold: false },
+  { key: "map", label: "MAP", icon: MapIcon, hold: false },
+  { key: "sprint", label: "SPRINT", icon: Rabbit, hold: true },
+  { key: "jump", label: "JUMP", icon: ChevronsUp, hold: false },
+  { key: "crouch", label: "CROUCH", icon: ChevronsDown, hold: false, toggle: true },
+  { key: "interact", label: "USE", icon: Hand, hold: false },
 ];
+
+function createIconNode(icon) {
+  return createElement(icon, {
+    width: 20,
+    height: 20,
+    strokeWidth: 2.25,
+    "aria-hidden": "true",
+    focusable: "false",
+  });
+}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -33,6 +45,7 @@ export class MobileFpsControls {
       lookY: 0,
       fire: false,
       ads: false,
+      sprint: false,
       crouch: false,
       jump: false,
       interact: false,
@@ -76,13 +89,20 @@ export class MobileFpsControls {
     zone.className = `fps-stick-zone ${side}`;
     const knob = document.createElement("div");
     knob.className = "fps-stick-knob";
+    if (side === "right") {
+      const hint = document.createElement("div");
+      hint.className = "fps-stick-knob-icon";
+      hint.setAttribute("aria-hidden", "true");
+      hint.appendChild(createIconNode(Flame));
+      knob.appendChild(hint);
+    }
     zone.appendChild(knob);
 
-    const pointer = { id: null, x: 0, y: 0 };
+    const pointer = { id: null, startedAt: 0, moved: false };
     const radius = 56;
     const response =
       side === "left"
-        ? { deadzone: 0.18, exponent: 1.35, gain: 0.88 }
+        ? { deadzone: 0.16, exponent: 1.28, gain: 0.96 }
         : { deadzone: 0.24, exponent: 1.75, gain: 0.62 };
 
     const center = () => {
@@ -120,6 +140,8 @@ export class MobileFpsControls {
 
     zone.addEventListener("pointerdown", (event) => {
       pointer.id = event.pointerId;
+      pointer.startedAt = performance.now();
+      pointer.moved = false;
       zone.setPointerCapture(event.pointerId);
       const c = center();
       setVector(event.clientX - c.x, event.clientY - c.y);
@@ -130,6 +152,9 @@ export class MobileFpsControls {
         return;
       }
       const c = center();
+      if (!pointer.moved && Math.hypot(event.clientX - c.x, event.clientY - c.y) > 12) {
+        pointer.moved = true;
+      }
       setVector(event.clientX - c.x, event.clientY - c.y);
     });
 
@@ -137,8 +162,15 @@ export class MobileFpsControls {
       if (event.pointerId !== pointer.id) {
         return;
       }
+      const tapDuration = performance.now() - pointer.startedAt;
+      const wasTap = !pointer.moved && tapDuration < 220;
       pointer.id = null;
+      pointer.startedAt = 0;
+      pointer.moved = false;
       setVector(0, 0);
+      if (side === "right" && wasTap) {
+        this.fireBufferedFrames = Math.max(this.fireBufferedFrames, 8);
+      }
     };
 
     zone.addEventListener("pointerup", onUp);
@@ -153,7 +185,7 @@ export class MobileFpsControls {
     button.type = "button";
     button.dataset.key = config.key;
     button.setAttribute("aria-label", config.label);
-    button.textContent = config.label;
+    button.appendChild(createIconNode(config.icon));
 
     const setActive = (active) => {
       button.classList.toggle("active", active);

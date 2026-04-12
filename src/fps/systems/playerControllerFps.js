@@ -38,6 +38,7 @@ export class PlayerControllerFps {
       reload: false,
       interact: false,
       grenade: false,
+      cycleGrenade: false,
       jumpQueued: false,
       sprint: false,
       jumpHeldLast: false,
@@ -134,6 +135,7 @@ export class PlayerControllerFps {
       reload: down("KeyR"),
       interact: down("KeyE"),
       grenade: down("KeyG"),
+      cycleGrenade: down("KeyH"),
     };
   }
 
@@ -182,6 +184,7 @@ export class PlayerControllerFps {
       reload: false,
       interact: false,
       grenade: false,
+      cycleGrenade: false,
     };
 
     if (window.matchMedia("(pointer: coarse)").matches) {
@@ -201,6 +204,7 @@ export class PlayerControllerFps {
       reload: mobile.reload || desktop.reload,
       interact: mobile.interact || desktop.interact,
       grenade: mobile.grenade || desktop.grenade,
+      cycleGrenade: desktop.cycleGrenade,
     };
 
     const moveDirection = this.computeMovementVector(combined);
@@ -213,6 +217,7 @@ export class PlayerControllerFps {
     this.state.reload = combined.reload;
     this.state.interact = combined.interact;
     this.state.grenade = combined.grenade;
+    this.state.cycleGrenade = combined.cycleGrenade;
     this.state.sprint = sprintAllowed;
 
     if (sprintAllowed) {

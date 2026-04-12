@@ -17,6 +17,7 @@ import { Audio3D } from "../systems/audio3d";
 import { MobileFpsControls } from "../systems/mobileFpsControls";
 import { PhysicsWorld } from "../systems/physicsWorld";
 import { chooseGraphicsPreset, RenderPipeline } from "../systems/renderPipeline";
+import { getGrenadeTypeDefs } from "../systems/grenadeLoadout";
 import { defaultFpsSave, loadFpsSave, persistFpsSave } from "../systems/saveFps";
 
 const FIXED_DT = 1 / 60;
@@ -35,6 +36,8 @@ export class FpsGame {
     this.waveDefs = waves;
     this.buildingDefs = buildings;
     this.economy = economy;
+    this.grenadeTypes = getGrenadeTypeDefs();
+    this.grenadeTypeMap = new Map(this.grenadeTypes.map((grenade) => [grenade.id, grenade]));
     this.bossDef = boss;
     this.materialDefs = new Map(materials.map((item) => [item.material, item]));
     this.qualityProfiles = qualityProfiles;
@@ -44,15 +47,18 @@ export class FpsGame {
 
     this.qualityPreset = this.save.graphicsPreset in qualityProfiles ? this.save.graphicsPreset : chooseGraphicsPreset(qualityProfiles);
     this.qualityProfile = qualityProfiles[this.qualityPreset];
+    this.version = window.__zombieInvasionVersion || "dev";
+    this.viewportMetrics = this.getViewportMetrics();
 
     this.scene3d = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 180);
+    this.camera = new THREE.PerspectiveCamera(72, this.viewportMetrics.width / this.viewportMetrics.height, 0.1, 180);
     this.scene3d.add(this.camera);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(this.viewportMetrics.width, this.viewportMetrics.height, false);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityProfile.renderScale);
     this.root.innerHTML = "";
+    this.root.classList.add("fps-root");
     this.root.appendChild(this.renderer.domElement);
 
     this.physics = new PhysicsWorld();
@@ -84,23 +90,120 @@ export class FpsGame {
 
   attachGlobalHandlers() {
     window.addEventListener("contextmenu", (event) => event.preventDefault());
+    const preventGesture = (event) => event.preventDefault();
+    let lastTouchEndAt = 0;
+    window.addEventListener("gesturestart", preventGesture, { passive: false });
+    window.addEventListener("gesturechange", preventGesture, { passive: false });
+    window.addEventListener("gestureend", preventGesture, { passive: false });
+    window.addEventListener("dblclick", preventGesture, { passive: false });
+    window.addEventListener(
+      "touchend",
+      (event) => {
+        const now = performance.now();
+        if (now - lastTouchEndAt < 320) {
+          event.preventDefault();
+        }
+        lastTouchEndAt = now;
+      },
+      { passive: false },
+    );
 
-    window.addEventListener("resize", () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityProfile.renderScale);
-      this.renderPipeline.resize(window.innerWidth, window.innerHeight);
-      this.applyOrientationClass();
-    });
+    const syncViewport = () => this.updateViewportMetrics();
+
+    window.addEventListener("resize", syncViewport);
+    window.addEventListener("orientationchange", syncViewport);
+    window.addEventListener("fullscreenchange", syncViewport);
+    window.addEventListener("webkitfullscreenchange", syncViewport);
+    window.visualViewport?.addEventListener("resize", syncViewport);
+    window.visualViewport?.addEventListener("scroll", syncViewport);
 
     document.body.classList.toggle("touch-device", window.matchMedia("(pointer: coarse)").matches);
+    this.updateViewportMetrics();
     this.applyOrientationClass();
   }
 
   applyOrientationClass() {
     const portrait = window.matchMedia("(orientation: portrait)").matches;
     document.body.classList.toggle("portrait", portrait);
+  }
+
+  getViewportMetrics() {
+    const viewport = window.visualViewport;
+    const rawWidth = viewport?.width ?? window.innerWidth;
+    const rawHeight = viewport?.height ?? window.innerHeight;
+    const width = Math.max(1, Math.round(rawWidth));
+    const height = Math.max(1, Math.round(rawHeight));
+    const left = Math.max(0, Math.round(viewport?.offsetLeft ?? 0));
+    const top = Math.max(0, Math.round(viewport?.offsetTop ?? 0));
+    const right = Math.max(0, window.innerWidth - left - width);
+    const bottom = Math.max(0, window.innerHeight - top - height);
+
+    return { width, height, left, top, right, bottom };
+  }
+
+  updateViewportMetrics() {
+    this.viewportMetrics = this.getViewportMetrics();
+    const { width, height, left, top, right, bottom } = this.viewportMetrics;
+    const rootStyle = document.documentElement.style;
+
+    rootStyle.setProperty("--game-left", `${left}px`);
+    rootStyle.setProperty("--game-top", `${top}px`);
+    rootStyle.setProperty("--game-right", `${right}px`);
+    rootStyle.setProperty("--game-bottom", `${bottom}px`);
+    rootStyle.setProperty("--game-width", `${width}px`);
+    rootStyle.setProperty("--game-height", `${height}px`);
+
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height, false);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityProfile.renderScale);
+    this.renderPipeline.resize(width, height);
+    this.applyOrientationClass();
+    this.syncFullscreenState();
+  }
+
+  isFullscreenSupported() {
+    return Boolean(
+      document.fullscreenEnabled ||
+        document.webkitFullscreenEnabled ||
+        document.documentElement.requestFullscreen ||
+        document.documentElement.webkitRequestFullscreen
+    );
+  }
+
+  isFullscreenActive() {
+    return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
+  syncFullscreenState() {
+    const supported = this.isFullscreenSupported();
+    const active = this.isFullscreenActive();
+    document.body.classList.toggle("fullscreen-supported", supported);
+    document.body.classList.toggle("fullscreen-active", active);
+    if (this.raidScene?.syncFullscreenButtonState) {
+      this.raidScene.syncFullscreenButtonState({ supported, active });
+    }
+  }
+
+  async toggleFullscreen() {
+    const root = document.documentElement;
+    try {
+      if (this.isFullscreenActive()) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      } else if (root.requestFullscreen) {
+        await root.requestFullscreen({ navigationUI: "hide" });
+      } else if (root.webkitRequestFullscreen) {
+        root.webkitRequestFullscreen();
+      }
+    } catch {
+      // Some mobile browsers reject fullscreen. The fit-to-frame viewport remains as fallback.
+    } finally {
+      this.updateViewportMetrics();
+    }
   }
 
   async start() {
@@ -148,6 +251,8 @@ export class FpsGame {
     this.clearOverlay();
     this.raidScene.resumeAfterIntermission();
     this.mode = "raid";
+    this.audio.stopMusic();
+    this.audio.startMusic("raid", { waveNumber: this.raidScene.waveDirector.waveNumber });
     this.mobileControls.show();
   }
 

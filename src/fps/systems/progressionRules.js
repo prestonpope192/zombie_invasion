@@ -27,5 +27,8 @@ export function buyGrenadePack({ coins, grenades, pack }) {
 }
 
 export function shouldTriggerSecretBossPhase(clearedWave, totalWaves, alreadyTriggered) {
-  return Boolean(!alreadyTriggered && clearedWave >= totalWaves);
+  void clearedWave;
+  void totalWaves;
+  void alreadyTriggered;
+  return false;
 }

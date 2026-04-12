@@ -123,10 +123,16 @@ function animateZombiePose(enemy, currentTime) {
 
     parts.headPivot.rotation.x = 0.06 + bob * 0.08 + attackBlend * 0.14;
     parts.headPivot.rotation.y = Math.sin(time * 0.28) * 0.08;
+    parts.headPivot.rotation.z = stride * 0.04 * moveBlend;
     parts.jawPivot.rotation.x = 0.15 + bob * 0.14 + attackBlend * 0.16;
     parts.bodyRoot.position.y = parts.baseBodyY + bob * 0.02;
     parts.bodyRoot.rotation.x = 0.04 + bob * 0.02;
     parts.bodyRoot.rotation.y = torsoTwist * 0.45;
+    parts.bodyRoot.rotation.z = stride * 0.025 * moveBlend;
+    if (parts.tailPivot) {
+      parts.tailPivot.rotation.x = -0.22 + Math.abs(stride) * 0.24 + attackBlend * 0.12;
+      parts.tailPivot.rotation.y = Math.sin(time * 0.8) * 0.14;
+    }
 
     parts.eyeMat.emissiveIntensity = 1.02 + bob * 0.38 + attackBlend * 0.4;
     if (parts.chestGlow?.material) {
@@ -149,10 +155,12 @@ function animateZombiePose(enemy, currentTime) {
 
   parts.headPivot.rotation.x = 0.06 + bob * 0.1 + attackBlend * 0.07;
   parts.headPivot.rotation.y = Math.sin(time * 0.25) * 0.055;
+  parts.headPivot.rotation.z = stride * 0.018 * moveBlend;
   parts.jawPivot.rotation.x = 0.22 + bob * 0.18 + attackBlend * 0.26;
   parts.bodyRoot.position.y = parts.baseBodyY + bob * 0.03;
   parts.bodyRoot.rotation.x = -0.06 + bob * 0.035;
   parts.bodyRoot.rotation.y = torsoTwist * moveBlend;
+  parts.bodyRoot.rotation.z = stride * 0.02 * moveBlend;
 
   if (parts.variant === "crawler") {
     parts.bodyRoot.position.y = parts.baseBodyY - 0.22 + bob * 0.015;

@@ -22,18 +22,15 @@ describe("wave director flow", () => {
     expect(director.update(0.5).spawnCount).toBeGreaterThan(0);
   });
 
-  it("advances waves and marks mission complete at the end", () => {
+  it("advances waves past authored content into endless survival", () => {
     const director = new WaveDirector3D(waves);
     director.startWave(0);
     expect(director.advanceWave()).toEqual({ finished: false, waveNumber: 2 });
     expect(director.isIntermission()).toBe(true);
 
-    const final = director.advanceWave();
-    expect(final).toEqual({ finished: true, waveNumber: 2 });
-    expect(director.update(0.1)).toEqual({
-      spawnCount: 0,
-      waveEnded: false,
-      missionComplete: true,
-    });
+    const next = director.advanceWave();
+    expect(next).toEqual({ finished: false, waveNumber: 3 });
+    expect(director.currentWave?.wave).toBe(3);
+    expect(director.update(0.1).missionComplete).toBe(false);
   });
 });

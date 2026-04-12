@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
@@ -12,11 +12,17 @@
       :root {
         --font-heading: "Palatino Linotype", "Book Antiqua", Georgia, serif;
         --font-body: "Trebuchet MS", "Segoe UI", sans-serif;
+        --game-left: 0px;
+        --game-top: 0px;
+        --game-right: 0px;
+        --game-bottom: 0px;
+        --game-width: 100vw;
+        --game-height: 100dvh;
         --ink: #f1f9f0;
         --ink-dim: #b5c6b2;
         --accent: #b8f272;
         --accent-strong: #d5ff89;
-        --accent-blood: #ff7158;
+        --accent-alert: #ffb26a;
         --panel: rgba(9, 15, 18, 0.88);
         --panel-border: rgba(184, 242, 114, 0.5);
         --line: rgba(176, 242, 129, 0.24);
@@ -58,22 +64,22 @@
 
       #app {
         position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100svh;
-        height: 100dvh;
+        left: var(--game-left);
+        top: var(--game-top);
+        width: var(--game-width);
+        height: var(--game-height);
+        overflow: hidden;
       }
 
       canvas {
         display: block;
-        width: 100vw;
-        height: 100svh;
-        height: 100dvh;
+        width: 100%;
+        height: 100%;
       }
 
       #rotate-prompt {
         position: fixed;
-        inset: 0;
+        inset: var(--game-top) var(--game-right) var(--game-bottom) var(--game-left);
         z-index: 300;
         display: none;
         align-items: center;
@@ -87,12 +93,12 @@
       }
 
       body.portrait.touch-device #rotate-prompt {
-        display: flex;
+        display: none;
       }
 
       .fps-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--game-top) var(--game-right) var(--game-bottom) var(--game-left);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -111,7 +117,7 @@
 
       .fps-panel {
         width: min(860px, 100%);
-        max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
+        max-height: calc(var(--game-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
         border: 1px solid var(--panel-border);
         background:
           linear-gradient(180deg, rgba(18, 28, 25, 0.9), var(--panel)),
@@ -161,6 +167,42 @@
         width: min(760px, 100%);
       }
 
+      .fps-menu-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(250px, 0.8fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .fps-menu-brand,
+      .fps-menu-side {
+        position: relative;
+        min-width: 0;
+      }
+
+      .fps-menu-brand {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .fps-menu-kicker {
+        margin: 0;
+        color: var(--accent-strong);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .fps-menu-logo {
+        display: block;
+        width: min(100%, 700px);
+        height: auto;
+        margin: 0 -6px;
+        filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.34));
+      }
+
       .fps-overlay.summary {
         opacity: 0;
         transition: opacity 280ms ease;
@@ -184,11 +226,117 @@
       }
 
       .fps-menu-tagline {
-        margin: 4px 0 10px;
+        margin: 0;
+        max-width: 56ch;
+        color: var(--ink);
+        font-size: 1.03rem;
+        line-height: 1.5;
+      }
+
+      .fps-menu-mobile-brief {
+        display: none;
+      }
+
+      .fps-menu-mobile-brief p {
+        margin: 0;
+        color: var(--ink);
+        font-size: 0.9rem;
+        line-height: 1.28;
+      }
+
+      .fps-menu-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .fps-menu-stat {
+        padding: 12px 12px 10px;
+        border: 1px solid rgba(184, 242, 114, 0.2);
+        border-radius: 12px;
+        background:
+          linear-gradient(180deg, rgba(13, 18, 21, 0.92), rgba(8, 12, 14, 0.92)),
+          radial-gradient(circle at 15% 0%, rgba(184, 242, 114, 0.12), transparent 60%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+
+      .fps-menu-stat-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+
+      .fps-menu-stat-label {
+        display: block;
+        color: var(--ink-dim);
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .fps-menu-stat-reset {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        padding: 0;
+        border-radius: 999px;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .fps-menu-stat strong {
+        display: block;
+        color: var(--accent-strong);
+        font-size: clamp(1.15rem, 2.4vw, 1.55rem);
+        line-height: 1;
+      }
+
+      .fps-menu-side {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+        padding: 14px;
+        border: 1px solid rgba(184, 242, 114, 0.18);
+        border-radius: 14px;
+        background:
+          linear-gradient(180deg, rgba(10, 14, 17, 0.9), rgba(8, 11, 14, 0.9)),
+          radial-gradient(circle at 80% -10%, rgba(255, 113, 88, 0.12), transparent 44%);
+      }
+
+      .fps-menu-highlights {
+        display: grid;
+        gap: 10px;
+      }
+
+      .fps-menu-highlight {
+        padding: 12px 12px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(184, 242, 114, 0.14);
+        background: linear-gradient(180deg, rgba(15, 20, 24, 0.82), rgba(11, 15, 18, 0.76));
+      }
+
+      .fps-menu-highlight h2 {
+        margin: 0 0 4px;
+        font-family: var(--font-heading);
+        font-size: 0.96rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .fps-menu-highlight p {
+        margin: 0;
+        color: var(--ink-dim);
+        font-size: 0.88rem;
+        line-height: 1.35;
       }
 
       .fps-menu-help {
-        margin-top: 10px;
+        margin-top: 16px;
         border: 1px solid rgba(184, 242, 114, 0.28);
         border-radius: 10px;
         background: linear-gradient(180deg, rgba(10, 14, 18, 0.72), rgba(8, 12, 16, 0.62));
@@ -239,7 +387,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
-        margin-top: 16px;
+        margin-top: 0;
       }
 
       button {
@@ -332,13 +480,19 @@
         --avatar-yaw: 0deg;
         --armor-primary: #687266;
         --armor-secondary: #566154;
+        --armor-accent: #98a58b;
+        --armor-trim: rgba(255, 255, 255, 0.14);
+        --gear-dark: #1b2328;
+        --gear-mid: #344049;
+        --visor-tint: rgba(154, 224, 255, 0.48);
+        --cloth-accent: #847957;
         --skin-light: #efcbad;
         --skin-mid: #d4ae8f;
         --skin-shadow: #b98e70;
         --hair-dark: #2a2626;
         --hair-light: #4b423f;
-        width: 136px;
-        height: 198px;
+        width: 148px;
+        height: 202px;
         position: relative;
         transform-style: preserve-3d;
         transform: rotateY(var(--avatar-yaw));
@@ -348,10 +502,10 @@
 
       .fps-player-avatar .avatar-shadow {
         position: absolute;
-        left: 24px;
+        left: 20px;
         bottom: 0;
-        width: 88px;
-        height: 16px;
+        width: 104px;
+        height: 18px;
         border-radius: 50%;
         background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0) 72%);
         filter: blur(1.2px);
@@ -359,8 +513,8 @@
 
       .fps-player-avatar .avatar-neck {
         position: absolute;
-        top: 50px;
-        left: 59px;
+        top: 52px;
+        left: 64px;
         width: 18px;
         height: 18px;
         border-radius: 8px;
@@ -372,10 +526,10 @@
 
       .fps-player-avatar .avatar-head {
         position: absolute;
-        top: 11px;
-        left: 46px;
-        width: 44px;
-        height: 50px;
+        top: 12px;
+        left: 50px;
+        width: 46px;
+        height: 52px;
         border-radius: 48% 48% 46% 46% / 45% 45% 55% 55%;
         background:
           radial-gradient(circle at 34% 32%, rgba(255, 236, 220, 0.82), rgba(0, 0, 0, 0) 38%),
@@ -389,7 +543,7 @@
       .fps-player-avatar .avatar-hair {
         position: absolute;
         top: -1px;
-        left: 3px;
+        left: 4px;
         width: 38px;
         height: 19px;
         border-radius: 12px 12px 8px 8px;
@@ -449,7 +603,7 @@
       .fps-player-avatar .avatar-nose {
         position: absolute;
         top: 25px;
-        left: 19px;
+        left: 20px;
         width: 6px;
         height: 9px;
         border-radius: 4px;
@@ -458,8 +612,8 @@
 
       .fps-player-avatar .avatar-mouth {
         position: absolute;
-        top: 35px;
-        left: 14px;
+        top: 36px;
+        left: 15px;
         width: 16px;
         height: 5px;
         border-radius: 0 0 8px 8px;
@@ -477,17 +631,276 @@
         background: rgba(36, 25, 23, 0.18);
       }
 
+      .fps-player-avatar .avatar-collar,
+      .fps-player-avatar .avatar-hood,
+      .fps-player-avatar .avatar-helmet-shell,
+      .fps-player-avatar .avatar-helmet-rim,
+      .fps-player-avatar .avatar-visor,
+      .fps-player-avatar .avatar-headset,
+      .fps-player-avatar .avatar-mask,
+      .fps-player-avatar .avatar-respirator,
+      .fps-player-avatar .avatar-canister,
+      .fps-player-avatar .avatar-shoulder,
+      .fps-player-avatar .avatar-chain-overlay,
+      .fps-player-avatar .avatar-chest-rig,
+      .fps-player-avatar .avatar-belt,
+      .fps-player-avatar .avatar-pouch,
+      .fps-player-avatar .avatar-kneepad,
+      .fps-player-avatar .avatar-coat-tail {
+        position: absolute;
+        display: none;
+      }
+
+      .fps-player-avatar .avatar-collar {
+        top: 56px;
+        left: 43px;
+        width: 60px;
+        height: 22px;
+        border-radius: 12px 12px 7px 7px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0) 48%),
+          repeating-linear-gradient(135deg, var(--cloth-accent) 0 7px, color-mix(in srgb, var(--cloth-accent) 72%, black) 7px 14px);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: inset 0 -5px 8px rgba(0, 0, 0, 0.24);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-hood {
+        top: 4px;
+        left: 43px;
+        width: 60px;
+        height: 62px;
+        border-radius: 22px 22px 18px 18px;
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-primary) 84%, white), var(--armor-secondary)),
+          radial-gradient(circle at 50% 25%, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0) 52%);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: inset 0 -8px 12px rgba(0, 0, 0, 0.28);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-helmet-shell {
+        top: 4px;
+        left: 45px;
+        width: 58px;
+        height: 31px;
+        border-radius: 19px 19px 12px 12px;
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 68%, white), var(--armor-primary) 54%, var(--gear-dark)),
+          repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 2px, rgba(0, 0, 0, 0) 2px 6px);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: inset 0 -7px 10px rgba(0, 0, 0, 0.3), 0 6px 12px rgba(0, 0, 0, 0.18);
+        z-index: 4;
+      }
+
+      .fps-player-avatar .avatar-helmet-rim {
+        top: 21px;
+        left: 43px;
+        width: 62px;
+        height: 12px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 32%, white), var(--gear-dark));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 -2px 5px rgba(0, 0, 0, 0.28);
+        z-index: 5;
+      }
+
+      .fps-player-avatar .avatar-visor {
+        top: 21px;
+        left: 54px;
+        width: 40px;
+        height: 16px;
+        border-radius: 8px 8px 10px 10px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 30%),
+          linear-gradient(180deg, var(--visor-tint), rgba(18, 43, 56, 0.74));
+        border: 1px solid rgba(210, 241, 255, 0.22);
+        box-shadow: inset 0 -4px 8px rgba(0, 0, 0, 0.22), 0 0 12px rgba(120, 200, 255, 0.08);
+        z-index: 6;
+      }
+
+      .fps-player-avatar .avatar-headset {
+        top: 20px;
+        width: 10px;
+        height: 28px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--gear-mid) 70%, white), var(--gear-dark));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 -4px 6px rgba(0, 0, 0, 0.22);
+        z-index: 6;
+      }
+
+      .fps-player-avatar .avatar-headset.left {
+        left: 40px;
+      }
+
+      .fps-player-avatar .avatar-headset.right {
+        right: 40px;
+      }
+
+      .fps-player-avatar .avatar-mask {
+        top: 31px;
+        left: 51px;
+        width: 44px;
+        height: 18px;
+        border-radius: 10px 10px 12px 12px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0) 30%),
+          linear-gradient(180deg, color-mix(in srgb, var(--gear-mid) 60%, white), var(--gear-dark));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 -4px 6px rgba(0, 0, 0, 0.22);
+        z-index: 6;
+      }
+
+      .fps-player-avatar .avatar-respirator {
+        top: 28px;
+        left: 57px;
+        width: 32px;
+        height: 24px;
+        border-radius: 12px;
+        background:
+          radial-gradient(circle at 50% 65%, rgba(24, 31, 36, 0.88) 0 22%, rgba(0, 0, 0, 0) 23%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0) 30%),
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 42%, white), var(--gear-mid));
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: inset 0 -4px 6px rgba(0, 0, 0, 0.22);
+        z-index: 7;
+      }
+
+      .fps-player-avatar .avatar-canister {
+        top: 83px;
+        width: 12px;
+        height: 36px;
+        border-radius: 7px;
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 60%, white), var(--armor-primary)),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0) 36%);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: inset 0 -6px 7px rgba(0, 0, 0, 0.24);
+        z-index: 1;
+      }
+
+      .fps-player-avatar .avatar-canister.left {
+        left: 26px;
+      }
+
+      .fps-player-avatar .avatar-canister.right {
+        right: 26px;
+      }
+
+      .fps-player-avatar .avatar-shoulder {
+        top: 70px;
+        width: 28px;
+        height: 22px;
+        border-radius: 12px 12px 10px 10px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0) 35%),
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 28%, white), var(--armor-primary));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 -4px 6px rgba(0, 0, 0, 0.24);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-shoulder.left {
+        left: 17px;
+        transform: rotate(10deg);
+      }
+
+      .fps-player-avatar .avatar-shoulder.right {
+        right: 17px;
+        transform: rotate(-10deg);
+      }
+
+      .fps-player-avatar .avatar-chain-overlay {
+        top: 67px;
+        left: 45px;
+        width: 58px;
+        height: 62px;
+        border-radius: 14px;
+        background:
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 2px, rgba(0, 0, 0, 0) 2px 8px),
+          repeating-linear-gradient(90deg, rgba(20, 24, 29, 0.3) 0 2px, rgba(0, 0, 0, 0) 2px 8px),
+          radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0) 55%),
+          linear-gradient(180deg, #8f978f, #676d66);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 -6px 8px rgba(0, 0, 0, 0.22);
+        z-index: 2;
+        opacity: 0.9;
+      }
+
+      .fps-player-avatar .avatar-chest-rig {
+        top: 74px;
+        left: 49px;
+        width: 50px;
+        height: 40px;
+        border-radius: 10px;
+        background:
+          repeating-linear-gradient(90deg, rgba(12, 18, 24, 0.3) 0 8px, rgba(255, 255, 255, 0.06) 8px 10px),
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 26%, white), var(--gear-mid));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 -7px 9px rgba(0, 0, 0, 0.24);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-belt {
+        top: 126px;
+        left: 46px;
+        width: 56px;
+        height: 10px;
+        border-radius: 999px;
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--gear-mid) 52%, white), var(--gear-dark)),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-pouch {
+        top: 117px;
+        width: 18px;
+        height: 26px;
+        border-radius: 9px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0) 30%),
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 22%, white), var(--armor-secondary));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 -5px 7px rgba(0, 0, 0, 0.22);
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-pouch.left {
+        left: 28px;
+      }
+
+      .fps-player-avatar .avatar-pouch.right {
+        right: 28px;
+      }
+
+      .fps-player-avatar .avatar-coat-tail {
+        top: 114px;
+        left: 33px;
+        width: 82px;
+        height: 50px;
+        border-radius: 10px 10px 18px 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0) 22%),
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-primary) 76%, white), var(--armor-secondary));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 -8px 10px rgba(0, 0, 0, 0.24);
+        z-index: 0;
+      }
+
       .fps-player-avatar .avatar-torso {
         position: absolute;
-        top: 61px;
-        left: 38px;
-        width: 60px;
-        height: 82px;
-        border-radius: 15px 15px 13px 13px;
+        top: 63px;
+        left: 42px;
+        width: 64px;
+        height: 84px;
+        border-radius: 16px 16px 14px 14px;
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0) 32%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0) 30%),
           linear-gradient(180deg, var(--armor-primary), var(--armor-secondary));
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        border: 1px solid var(--armor-trim);
         box-shadow: inset 0 6px 11px rgba(255, 255, 255, 0.08), inset 0 -10px 12px rgba(0, 0, 0, 0.25);
         z-index: 1;
       }
@@ -495,10 +908,10 @@
       .fps-player-avatar .avatar-torso::before {
         content: "";
         position: absolute;
-        left: 10px;
-        top: 11px;
-        width: 40px;
-        height: 26px;
+        left: 11px;
+        top: 10px;
+        width: 42px;
+        height: 28px;
         border-radius: 8px;
         background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(0, 0, 0, 0.2));
         border: 1px solid rgba(255, 255, 255, 0.14);
@@ -507,46 +920,47 @@
       .fps-player-avatar .avatar-torso::after {
         content: "";
         position: absolute;
-        left: 7px;
+        left: 10px;
         bottom: 10px;
-        width: 46px;
-        height: 7px;
+        width: 44px;
+        height: 8px;
         border-radius: 999px;
         background: rgba(12, 15, 19, 0.34);
       }
 
       .fps-player-avatar .avatar-arm,
-      .fps-player-avatar .avatar-leg {
+      .fps-player-avatar .avatar-leg,
+      .fps-player-avatar .avatar-kneepad {
         position: absolute;
         background: linear-gradient(180deg, var(--armor-primary), var(--armor-secondary));
-        border-radius: 10px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         box-shadow: inset 0 2px 6px rgba(255, 255, 255, 0.1), inset 0 -7px 10px rgba(0, 0, 0, 0.28);
       }
 
       .fps-player-avatar .avatar-arm {
-        top: 71px;
-        width: 18px;
-        height: 66px;
+        top: 72px;
+        width: 20px;
+        height: 68px;
+        border-radius: 11px;
         z-index: 0;
       }
 
       .fps-player-avatar .avatar-arm.left {
-        left: 18px;
+        left: 20px;
         transform: rotate(8deg);
       }
 
       .fps-player-avatar .avatar-arm.right {
-        right: 18px;
+        right: 20px;
         transform: rotate(-8deg);
       }
 
       .fps-player-avatar .avatar-arm::after {
         content: "";
         position: absolute;
-        left: 2px;
+        left: 3px;
         bottom: -8px;
-        width: 12px;
+        width: 13px;
         height: 14px;
         border-radius: 9px;
         background: linear-gradient(180deg, var(--skin-light), var(--skin-shadow));
@@ -554,18 +968,18 @@
       }
 
       .fps-player-avatar .avatar-leg {
-        top: 132px;
-        width: 24px;
-        height: 62px;
-        border-radius: 11px 11px 9px 9px;
+        top: 136px;
+        width: 25px;
+        height: 64px;
+        border-radius: 12px 12px 9px 9px;
       }
 
       .fps-player-avatar .avatar-leg.left {
-        left: 42px;
+        left: 45px;
       }
 
       .fps-player-avatar .avatar-leg.right {
-        right: 42px;
+        right: 45px;
       }
 
       .fps-player-avatar .avatar-leg::after {
@@ -573,51 +987,341 @@
         position: absolute;
         left: -1px;
         bottom: -7px;
-        width: 24px;
+        width: 25px;
         height: 12px;
         border-radius: 8px;
         background: linear-gradient(180deg, #222a33, #0f141a);
         border: 1px solid rgba(255, 255, 255, 0.08);
       }
 
+      .fps-player-avatar .avatar-kneepad {
+        top: 156px;
+        width: 22px;
+        height: 18px;
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0) 26%),
+          linear-gradient(180deg, color-mix(in srgb, var(--gear-mid) 44%, white), var(--gear-dark));
+        z-index: 2;
+      }
+
+      .fps-player-avatar .avatar-kneepad.left {
+        left: 46px;
+      }
+
+      .fps-player-avatar .avatar-kneepad.right {
+        right: 46px;
+      }
+
       .fps-player-avatar.armor-cloth {
         --armor-primary: #6f7765;
-        --armor-secondary: #5a6351;
+        --armor-secondary: #55604d;
+        --armor-accent: #b9bd91;
+        --cloth-accent: #958458;
+      }
+
+      .fps-player-avatar.armor-cloth .avatar-collar,
+      .fps-player-avatar.armor-cloth .avatar-coat-tail {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-cloth .avatar-torso {
+        border-radius: 15px 15px 18px 18px;
+      }
+
+      .fps-player-avatar.armor-cloth .avatar-torso::before {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0) 30%),
+          repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.12) 0 10px, rgba(255, 255, 255, 0.03) 10px 14px);
       }
 
       .fps-player-avatar.armor-leather {
         --armor-primary: #8a5f42;
-        --armor-secondary: #6f4932;
+        --armor-secondary: #633e2b;
+        --armor-accent: #c59a69;
+        --cloth-accent: #7c6144;
+      }
+
+      .fps-player-avatar.armor-leather .avatar-hood,
+      .fps-player-avatar.armor-leather .avatar-shoulder,
+      .fps-player-avatar.armor-leather .avatar-chest-rig,
+      .fps-player-avatar.armor-leather .avatar-belt,
+      .fps-player-avatar.armor-leather .avatar-pouch {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-leather .avatar-chest-rig {
+        background:
+          linear-gradient(120deg, rgba(30, 20, 15, 0.62) 0 18%, rgba(0, 0, 0, 0) 19% 40%, rgba(30, 20, 15, 0.68) 41% 59%, rgba(0, 0, 0, 0) 60%),
+          linear-gradient(180deg, color-mix(in srgb, var(--armor-accent) 30%, white), #4d2f20);
+      }
+
+      .fps-player-avatar.armor-leather .avatar-headset,
+      .fps-player-avatar.armor-leather .avatar-helmet-shell,
+      .fps-player-avatar.armor-leather .avatar-helmet-rim,
+      .fps-player-avatar.armor-leather .avatar-visor,
+      .fps-player-avatar.armor-leather .avatar-mask,
+      .fps-player-avatar.armor-leather .avatar-respirator {
+        display: none;
       }
 
       .fps-player-avatar.armor-kevlar {
         --armor-primary: #3f5c73;
-        --armor-secondary: #32475a;
+        --armor-secondary: #283f51;
+        --armor-accent: #7f9fb8;
+        --gear-mid: #445560;
+      }
+
+      .fps-player-avatar.armor-kevlar .avatar-helmet-shell,
+      .fps-player-avatar.armor-kevlar .avatar-helmet-rim,
+      .fps-player-avatar.armor-kevlar .avatar-chest-rig,
+      .fps-player-avatar.armor-kevlar .avatar-belt,
+      .fps-player-avatar.armor-kevlar .avatar-kneepad {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-kevlar .avatar-hair {
+        display: none;
+      }
+
+      .fps-player-avatar.armor-kevlar .avatar-torso {
+        left: 40px;
+        width: 68px;
       }
 
       .fps-player-avatar.armor-reinforced {
         --armor-primary: #6e7279;
-        --armor-secondary: #565a61;
+        --armor-secondary: #4e545d;
+        --armor-accent: #c0c7d0;
+        --gear-mid: #56606b;
+      }
+
+      .fps-player-avatar.armor-reinforced .avatar-helmet-shell,
+      .fps-player-avatar.armor-reinforced .avatar-helmet-rim,
+      .fps-player-avatar.armor-reinforced .avatar-visor,
+      .fps-player-avatar.armor-reinforced .avatar-shoulder,
+      .fps-player-avatar.armor-reinforced .avatar-chest-rig,
+      .fps-player-avatar.armor-reinforced .avatar-belt,
+      .fps-player-avatar.armor-reinforced .avatar-kneepad {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-reinforced .avatar-hair {
+        display: none;
+      }
+
+      .fps-player-avatar.armor-reinforced .avatar-torso {
+        left: 38px;
+        width: 72px;
+        height: 87px;
+        border-radius: 13px;
+      }
+
+      .fps-player-avatar.armor-reinforced .avatar-arm {
+        width: 22px;
+        height: 70px;
+        top: 71px;
+      }
+
+      .fps-player-avatar.armor-reinforced .avatar-leg {
+        width: 27px;
+        height: 66px;
       }
 
       .fps-player-avatar.armor-chainmail {
         --armor-primary: #7f857e;
-        --armor-secondary: #686e67;
+        --armor-secondary: #5c645d;
+        --armor-accent: #c8ccc5;
+        --cloth-accent: #6a6f63;
+      }
+
+      .fps-player-avatar.armor-chainmail .avatar-hood,
+      .fps-player-avatar.armor-chainmail .avatar-collar,
+      .fps-player-avatar.armor-chainmail .avatar-chain-overlay,
+      .fps-player-avatar.armor-chainmail .avatar-belt {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-chainmail .avatar-hair {
+        display: none;
+      }
+
+      .fps-player-avatar.armor-chainmail .avatar-hood {
+        background:
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 2px, rgba(0, 0, 0, 0) 2px 8px),
+          repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 2px, rgba(0, 0, 0, 0) 2px 8px),
+          linear-gradient(180deg, #9aa197, #6f756e);
+      }
+
+      .fps-player-avatar.armor-chainmail .avatar-arm,
+      .fps-player-avatar.armor-chainmail .avatar-leg {
+        background:
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0 2px, rgba(0, 0, 0, 0) 2px 8px),
+          repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.2) 0 2px, rgba(0, 0, 0, 0) 2px 8px),
+          linear-gradient(180deg, #909790, #666d66);
       }
 
       .fps-player-avatar.armor-tactical {
         --armor-primary: #4d5b66;
-        --armor-secondary: #3c4853;
+        --armor-secondary: #36424d;
+        --armor-accent: #9aa6ae;
+        --gear-mid: #3c4952;
+      }
+
+      .fps-player-avatar.armor-tactical .avatar-helmet-shell,
+      .fps-player-avatar.armor-tactical .avatar-helmet-rim,
+      .fps-player-avatar.armor-tactical .avatar-headset,
+      .fps-player-avatar.armor-tactical .avatar-chest-rig,
+      .fps-player-avatar.armor-tactical .avatar-belt,
+      .fps-player-avatar.armor-tactical .avatar-pouch,
+      .fps-player-avatar.armor-tactical .avatar-kneepad {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-tactical .avatar-hair {
+        display: none;
+      }
+
+      .fps-player-avatar.armor-tactical .avatar-helmet-shell {
+        height: 24px;
+        border-radius: 16px 16px 10px 10px;
+      }
+
+      .fps-player-avatar.armor-tactical .avatar-helmet-rim {
+        width: 54px;
+        left: 48px;
+        height: 9px;
+        transform: skewX(-14deg);
       }
 
       .fps-player-avatar.armor-hazmat {
-        --armor-primary: #5f6d4b;
-        --armor-secondary: #4c583d;
+        --armor-primary: #7a8b49;
+        --armor-secondary: #536032;
+        --armor-accent: #d7e383;
+        --gear-mid: #495334;
+        --visor-tint: rgba(255, 228, 124, 0.34);
+      }
+
+      .fps-player-avatar.armor-hazmat .avatar-hood,
+      .fps-player-avatar.armor-hazmat .avatar-visor,
+      .fps-player-avatar.armor-hazmat .avatar-respirator,
+      .fps-player-avatar.armor-hazmat .avatar-canister,
+      .fps-player-avatar.armor-hazmat .avatar-belt,
+      .fps-player-avatar.armor-hazmat .avatar-pouch {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-hazmat .avatar-head {
+        background: linear-gradient(180deg, #323b1f, #1d2612);
+        border-color: rgba(240, 255, 170, 0.12);
+      }
+
+      .fps-player-avatar.armor-hazmat .avatar-neck,
+      .fps-player-avatar.armor-hazmat .avatar-hair,
+      .fps-player-avatar.armor-hazmat .avatar-ear,
+      .fps-player-avatar.armor-hazmat .avatar-eye,
+      .fps-player-avatar.armor-hazmat .avatar-nose,
+      .fps-player-avatar.armor-hazmat .avatar-mouth {
+        display: none;
+      }
+
+      .fps-player-avatar.armor-hazmat .avatar-arm::after {
+        background: linear-gradient(180deg, #31371f, #161b0f);
+        border-color: rgba(255, 255, 255, 0.08);
+      }
+
+      .fps-player-avatar.armor-hazmat .avatar-arm,
+      .fps-player-avatar.armor-hazmat .avatar-leg {
+        width: 22px;
+      }
+
+      .fps-player-avatar.armor-hazmat .avatar-leg {
+        width: 27px;
       }
 
       .fps-player-avatar.armor-juggernaut {
         --armor-primary: #7b7f86;
-        --armor-secondary: #61656c;
+        --armor-secondary: #515660;
+        --armor-accent: #dde2ea;
+        --gear-mid: #5d6672;
+        --visor-tint: rgba(191, 231, 255, 0.3);
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-helmet-shell,
+      .fps-player-avatar.armor-juggernaut .avatar-helmet-rim,
+      .fps-player-avatar.armor-juggernaut .avatar-visor,
+      .fps-player-avatar.armor-juggernaut .avatar-shoulder,
+      .fps-player-avatar.armor-juggernaut .avatar-chest-rig,
+      .fps-player-avatar.armor-juggernaut .avatar-belt,
+      .fps-player-avatar.armor-juggernaut .avatar-kneepad {
+        display: block;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-head {
+        background: linear-gradient(180deg, #2b2f36, #181c22);
+        border-color: rgba(220, 230, 242, 0.12);
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-neck,
+      .fps-player-avatar.armor-juggernaut .avatar-hair,
+      .fps-player-avatar.armor-juggernaut .avatar-ear,
+      .fps-player-avatar.armor-juggernaut .avatar-eye,
+      .fps-player-avatar.armor-juggernaut .avatar-nose,
+      .fps-player-avatar.armor-juggernaut .avatar-mouth {
+        display: none;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-helmet-shell {
+        top: 2px;
+        left: 42px;
+        width: 64px;
+        height: 36px;
+        border-radius: 20px 20px 10px 10px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-helmet-rim {
+        top: 24px;
+        left: 40px;
+        width: 68px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-visor {
+        top: 24px;
+        left: 56px;
+        width: 36px;
+        height: 10px;
+        border-radius: 4px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-torso {
+        left: 36px;
+        width: 76px;
+        height: 90px;
+        border-radius: 12px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-arm {
+        top: 71px;
+        width: 24px;
+        height: 72px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-leg {
+        width: 28px;
+        height: 68px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-leg.left {
+        left: 44px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-leg.right {
+        right: 44px;
+      }
+
+      .fps-player-avatar.armor-juggernaut .avatar-arm::after {
+        background: linear-gradient(180deg, #2e343b, #181d23);
+        border-color: rgba(255, 255, 255, 0.08);
       }
 
       .fps-avatar-controls {
@@ -723,8 +1427,8 @@
       .fps-hud {
         --village-alert: 0;
         position: fixed;
-        left: calc(env(safe-area-inset-left) + 12px);
-        top: calc(env(safe-area-inset-top) + 12px);
+        left: calc(var(--game-left) + env(safe-area-inset-left) + 12px);
+        top: calc(var(--game-top) + env(safe-area-inset-top) + 12px);
         z-index: 150;
         display: grid;
         gap: 6px;
@@ -837,28 +1541,28 @@
 
       .fps-village-damage-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--game-top) var(--game-right) var(--game-bottom) var(--game-left);
         z-index: 120;
         pointer-events: none;
         opacity: 0;
         background:
-          radial-gradient(circle at 50% 58%, rgba(255, 160, 88, 0.08), rgba(0, 0, 0, 0) 42%),
-          radial-gradient(circle at 50% 58%, rgba(255, 72, 54, 0.12), rgba(0, 0, 0, 0) 72%);
+          radial-gradient(circle at 50% 58%, rgba(255, 196, 116, 0.08), rgba(0, 0, 0, 0) 42%),
+          radial-gradient(circle at 50% 58%, rgba(92, 78, 56, 0.16), rgba(0, 0, 0, 0) 72%);
         transition: opacity 90ms linear;
       }
 
       .fps-player-damage-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--game-top) var(--game-right) var(--game-bottom) var(--game-left);
         z-index: 121;
         pointer-events: none;
         opacity: 0;
         background:
-          linear-gradient(180deg, rgba(186, 26, 32, 0.32) 0%, rgba(186, 26, 32, 0) 18%),
-          linear-gradient(0deg, rgba(186, 26, 32, 0.32) 0%, rgba(186, 26, 32, 0) 18%),
-          linear-gradient(90deg, rgba(186, 26, 32, 0.26) 0%, rgba(186, 26, 32, 0) 12%),
-          linear-gradient(270deg, rgba(186, 26, 32, 0.26) 0%, rgba(186, 26, 32, 0) 12%);
-        box-shadow: inset 0 0 0 1px rgba(208, 46, 50, 0.4);
+          linear-gradient(180deg, rgba(255, 198, 112, 0.22) 0%, rgba(255, 198, 112, 0) 18%),
+          linear-gradient(0deg, rgba(255, 198, 112, 0.22) 0%, rgba(255, 198, 112, 0) 18%),
+          linear-gradient(90deg, rgba(70, 78, 92, 0.26) 0%, rgba(70, 78, 92, 0) 12%),
+          linear-gradient(270deg, rgba(70, 78, 92, 0.26) 0%, rgba(70, 78, 92, 0) 12%);
+        box-shadow: inset 0 0 0 1px rgba(255, 208, 132, 0.22);
         transition: opacity 80ms linear;
       }
 
@@ -876,22 +1580,40 @@
 
       .fps-raid-actions {
         position: fixed;
-        right: calc(env(safe-area-inset-right) + 12px);
-        top: calc(env(safe-area-inset-top) + 12px);
+        right: calc(var(--game-right) + env(safe-area-inset-right) + 8px);
+        top: calc(var(--game-top) + env(safe-area-inset-top) + 12px);
         z-index: 175;
         display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
         gap: 8px;
+        max-width: min(360px, calc(var(--game-width) - 24px));
       }
 
       .fps-raid-actions .fps-quick-btn {
-        min-width: 126px;
+        min-width: 96px;
         border: 1px solid rgba(184, 242, 114, 0.62);
         background: linear-gradient(180deg, rgba(22, 33, 22, 0.92), rgba(11, 17, 11, 0.92));
         color: var(--ink);
         box-shadow: 0 8px 22px rgba(0, 0, 0, 0.36);
       }
 
+      .fps-raid-actions .fps-fullscreen-quick {
+        min-width: 82px;
+      }
+
       .fps-raid-actions .fps-help-quick {
+        min-width: 44px;
+        width: 44px;
+        padding: 8px 0;
+        font-family: var(--font-heading);
+        font-size: 22px;
+        line-height: 1;
+        text-transform: none;
+      }
+
+      .fps-raid-actions .fps-tray-quick {
+        display: none;
         min-width: 44px;
         width: 44px;
         padding: 8px 0;
@@ -906,16 +1628,21 @@
         background: linear-gradient(180deg, rgba(56, 80, 44, 0.95), rgba(24, 36, 20, 0.95));
       }
 
+      .fps-raid-actions .fps-tray-quick.active {
+        border-color: rgba(221, 255, 147, 0.86);
+        background: linear-gradient(180deg, rgba(56, 80, 44, 0.95), rgba(24, 36, 20, 0.95));
+      }
+
       .fps-raid-actions .fps-quick-btn:hover {
         background: linear-gradient(180deg, rgba(40, 58, 34, 0.94), rgba(16, 25, 14, 0.94));
       }
 
       .fps-minimap-panel {
         position: fixed;
-        right: calc(env(safe-area-inset-right) + 12px);
-        top: calc(env(safe-area-inset-top) + 72px);
+        right: calc(var(--game-right) + env(safe-area-inset-right) + 12px);
+        top: calc(var(--game-top) + env(safe-area-inset-top) + 120px);
         z-index: 174;
-        width: 196px;
+        width: min(196px, calc(var(--game-width) - 24px));
         padding: 8px;
         border-radius: 12px;
         border: 1px solid rgba(184, 242, 114, 0.44);
@@ -995,8 +1722,8 @@
       .fps-weapon-indicator {
         --weapon-accent: #b8f26f;
         position: fixed;
-        left: 50%;
-        bottom: calc(env(safe-area-inset-bottom) + 14px);
+        left: calc(var(--game-left) + var(--game-width) * 0.5);
+        bottom: calc(var(--game-bottom) + env(safe-area-inset-bottom) + 14px);
         transform: translateX(-50%);
         z-index: 174;
         pointer-events: none;
@@ -1073,8 +1800,8 @@
 
       .fps-crosshair {
         position: fixed;
-        left: 50%;
-        top: 50%;
+        left: calc(var(--game-left) + var(--game-width) * 0.5);
+        top: calc(var(--game-top) + var(--game-height) * 0.5);
         width: 20px;
         height: 20px;
         margin-left: -10px;
@@ -1115,8 +1842,8 @@
 
       .fps-interact-prompt {
         position: fixed;
-        left: 50%;
-        bottom: calc(env(safe-area-inset-bottom) + 88px);
+        left: calc(var(--game-left) + var(--game-width) * 0.5);
+        bottom: calc(var(--game-bottom) + env(safe-area-inset-bottom) + 88px);
         transform: translateX(-50%) translateY(12px);
         z-index: 172;
         pointer-events: none;
@@ -1151,6 +1878,15 @@
         color: var(--accent-strong);
       }
 
+      .fps-interact-prompt.mobile {
+        gap: 0;
+        padding: 8px 12px;
+      }
+
+      .fps-interact-prompt.mobile .fps-interact-key {
+        display: none;
+      }
+
       .fps-interact-text {
         font-size: 15px;
         font-weight: 700;
@@ -1158,8 +1894,8 @@
 
       .fps-player-presence {
         position: fixed;
-        right: max(10px, env(safe-area-inset-right));
-        bottom: max(10px, env(safe-area-inset-bottom));
+        right: calc(var(--game-right) + max(10px, env(safe-area-inset-right)));
+        bottom: calc(var(--game-bottom) + max(10px, env(safe-area-inset-bottom)));
         width: min(36vw, 320px);
         height: min(30vh, 220px);
         z-index: 140;
@@ -1190,15 +1926,16 @@
       }
 
       .fps-mobile-controls {
-        --stick-size: 132px;
-        --btn-size: 64px;
-        --btn-gap: 10px;
-        --left-action-shift: -22px;
-        --left-stick-left: max(16px, env(safe-area-inset-left));
-        --right-stick-right: max(16px, env(safe-area-inset-right));
-        --stick-bottom: max(20px, env(safe-area-inset-bottom));
+        --stick-size: clamp(96px, calc(var(--game-width) * 0.2), 132px);
+        --btn-size: clamp(48px, calc(var(--game-width) * 0.095), 64px);
+        --btn-gap: clamp(6px, calc(var(--game-width) * 0.015), 10px);
+        --left-stick-left: calc(var(--game-left) + max(22px, env(safe-area-inset-left) + 6px));
+        --right-stick-right: calc(var(--game-right) + max(10px, env(safe-area-inset-right) + 2px));
+        --stick-bottom: calc(var(--game-bottom) + max(8px, env(safe-area-inset-bottom) + 2px));
+        --center-lane-left: calc(var(--game-left) + var(--game-width) * 0.5 - var(--btn-size) - var(--btn-gap) * 0.5);
+        --right-action-right: calc(var(--right-stick-right) + var(--stick-size) + var(--btn-gap) + 12px);
         position: fixed;
-        inset: 0;
+        inset: var(--game-top) var(--game-right) var(--game-bottom) var(--game-left);
         z-index: 170;
         pointer-events: none;
       }
@@ -1236,8 +1973,27 @@
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
         border-radius: 50%;
         background: radial-gradient(circle at 35% 35%, rgba(226, 255, 171, 0.96), rgba(147, 211, 86, 0.92));
+      }
+
+      .fps-stick-knob-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        color: rgba(14, 24, 12, 0.64);
+        pointer-events: none;
+      }
+
+      .fps-stick-knob-icon svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
       }
 
       .fps-mobile-buttons {
@@ -1250,6 +2006,10 @@
         position: absolute;
         width: var(--btn-size);
         height: var(--btn-size);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
         border-radius: 50%;
         border: 2px solid rgba(184, 242, 114, 0.35);
         background: rgba(11, 18, 14, 0.5);
@@ -1257,10 +2017,21 @@
         font-size: 12px;
         font-weight: 700;
         text-transform: uppercase;
-        touch-action: manipulation;
+        text-align: center;
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        touch-action: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
         pointer-events: auto;
+      }
+
+      .fps-mobile-button svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        flex: none;
       }
 
       .fps-mobile-button.active {
@@ -1275,48 +2046,52 @@
       }
 
       .fps-mobile-button-jump {
-        left: calc(50% + 12px);
+        left: calc(var(--center-lane-left) + var(--btn-size) + var(--btn-gap));
         bottom: calc(var(--stick-bottom) + 6px);
       }
 
       .fps-mobile-button-crouch {
-        left: calc(50% - var(--btn-size) - 12px);
+        left: var(--center-lane-left);
         bottom: calc(var(--stick-bottom) + 6px);
       }
 
       .fps-mobile-button-fire {
-        right: calc(var(--right-stick-right) + (var(--stick-size) - var(--btn-size)) / 2);
-        bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap));
+        right: var(--right-action-right);
+        bottom: calc(var(--stick-bottom) + var(--btn-size) + var(--btn-gap) * 1.2);
       }
 
       .fps-mobile-button-grenade {
-        right: calc(var(--right-stick-right) + (var(--stick-size) - var(--btn-size)) / 2 + var(--btn-size) + var(--btn-gap));
-        bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap));
+        right: var(--right-action-right);
+        bottom: calc(var(--stick-bottom) + var(--btn-size) * 2 + var(--btn-gap) * 2.1);
       }
 
       .fps-mobile-button-map {
         left: calc(var(--left-stick-left) + var(--stick-size) - var(--btn-size) * 0.18);
-        bottom: calc(var(--stick-bottom) + 4px);
+        bottom: calc(var(--stick-bottom) - 4px);
+      }
+
+      .fps-mobile-button-sprint {
+        display: none;
       }
 
       .fps-mobile-button-shop {
-        left: calc(50% - var(--btn-size) - 8px);
+        left: var(--center-lane-left);
         bottom: calc(var(--stick-bottom) + 6px);
       }
 
       .fps-mobile-button-swap {
-        left: calc(50% + 8px);
+        left: calc(var(--center-lane-left) + var(--btn-size) + var(--btn-gap));
         bottom: calc(var(--stick-bottom) + 6px);
       }
 
       .fps-mobile-button-interact {
-        left: calc(50% - var(--btn-size) / 2);
+        left: calc(var(--game-left) + var(--game-width) * 0.5 - var(--btn-size) * 0.5);
         bottom: calc(var(--stick-bottom) + var(--btn-size) * 2 + var(--btn-gap) + 14px);
       }
 
       .fps-mobile-button-ads {
-        right: var(--right-stick-right);
-        bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-size) + 16px);
+        right: var(--right-action-right);
+        bottom: calc(var(--stick-bottom) + 2px);
       }
 
       @media (pointer: fine) {
@@ -1344,10 +2119,9 @@
 
       @media (max-width: 900px) {
         .fps-mobile-controls {
-          --stick-size: 124px;
-          --btn-size: 60px;
-          --btn-gap: 8px;
-          --left-action-shift: -16px;
+          --stick-size: clamp(94px, calc(var(--game-width) * 0.22), 124px);
+          --btn-size: clamp(46px, calc(var(--game-width) * 0.1), 60px);
+          --btn-gap: clamp(5px, calc(var(--game-width) * 0.014), 8px);
         }
 
         .fps-overlay {
@@ -1362,7 +2136,7 @@
         .fps-panel {
           width: 100%;
           max-width: 860px;
-          max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 22px);
+          max-height: calc(var(--game-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 22px);
           padding: 14px;
         }
 
@@ -1551,11 +2325,25 @@
           padding: 8px 8px;
         }
 
+        .fps-raid-actions {
+          gap: 6px;
+          max-width: min(58vw, 260px);
+        }
+
+        .fps-raid-actions .fps-grenade-quick,
+        .fps-raid-actions .fps-fullscreen-quick {
+          display: none;
+        }
+
         .fps-raid-actions .fps-help-quick {
           min-width: 40px;
           width: 40px;
           font-size: 20px;
           padding: 8px 0;
+        }
+
+        .fps-raid-actions .fps-fullscreen-quick {
+          min-width: 72px;
         }
 
         .fps-hud-line.fps-controls {
@@ -1565,8 +2353,8 @@
         }
 
         .fps-minimap-panel {
-          width: 150px;
-          top: calc(env(safe-area-inset-top) + 64px);
+          width: min(150px, calc(var(--game-width) - 24px));
+          top: calc(var(--game-top) + env(safe-area-inset-top) + 104px);
           padding: 6px;
         }
 
@@ -1582,7 +2370,7 @@
         }
 
         .fps-weapon-indicator {
-          bottom: calc(env(safe-area-inset-bottom) + 10px);
+          bottom: calc(var(--game-bottom) + env(safe-area-inset-bottom) + 10px);
         }
 
         .fps-weapon-indicator-card {
@@ -1621,59 +2409,108 @@
 
         .fps-panel.menu {
           width: min(94vw, 560px);
-          max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px);
-          padding: 10px;
+          max-height: calc(var(--game-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px);
+          padding: 16px 10px 10px;
+          display: flex;
+          flex-direction: column;
+          overflow: auto;
         }
 
-        .fps-panel.menu h1 {
-          margin-bottom: 6px;
-          font-size: clamp(1.12rem, 4.2vw, 1.45rem);
-          line-height: 1.1;
-          letter-spacing: 0.02em;
+        .fps-menu-hero {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          flex: 1;
+          min-height: 100%;
+        }
+
+        .fps-menu-brand {
+          padding-top: 6px;
+        }
+
+        .fps-menu-kicker {
+          font-size: 0.68rem;
+          letter-spacing: 0.18em;
+        }
+
+        .fps-menu-logo {
+          width: min(100%, 390px);
+          margin: 0 auto;
         }
 
         .fps-menu-tagline {
-          margin: 4px 0 8px;
-          font-size: clamp(0.77rem, 2.9vw, 0.86rem);
-          line-height: 1.16;
+          display: none;
         }
 
-        .fps-menu-help {
-          margin-top: 8px;
-          border-radius: 9px;
+        .fps-menu-stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
         }
 
-        .fps-menu-help summary {
-          padding: 7px 10px;
-          font-size: 0.78rem;
+        .fps-menu-stat {
+          padding: 8px 8px 7px;
+          border-radius: 10px;
         }
 
-        .fps-menu-help p {
-          margin: 6px 0;
-          padding: 0 10px;
-          font-size: 0.74rem;
-          line-height: 1.18;
+        .fps-menu-stat-label {
+          font-size: 0.62rem;
         }
 
-        .fps-menu-help p:last-child {
-          padding-bottom: 8px;
+        .fps-menu-stat strong {
+          font-size: 1rem;
+        }
+
+        .fps-menu-side {
+          order: 2;
+          margin-top: auto;
+          gap: 8px;
+          padding: 10px;
+          border-radius: 12px;
         }
 
         .fps-panel.menu .fps-menu-actions {
-          position: sticky;
-          bottom: 0;
-          margin-top: 8px;
-          padding-top: 6px;
-          background: linear-gradient(180deg, rgba(8, 12, 18, 0), rgba(8, 12, 18, 0.92) 30%);
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          position: static;
+          margin-top: 0;
+          padding-top: 0;
+          padding-bottom: 0;
+          background: none;
+          gap: 6px;
+        }
+
+        .fps-menu-mobile-brief {
+          display: grid;
+          gap: 5px;
+          padding: 8px 9px;
+          border: 1px solid rgba(184, 242, 114, 0.18);
+          border-radius: 10px;
+          background: linear-gradient(180deg, rgba(12, 18, 20, 0.84), rgba(9, 14, 16, 0.78));
+        }
+
+        .fps-menu-stat[data-stat="coins"],
+        .fps-menu-stat[data-stat="villagers"],
+        .fps-menu-highlights,
+        .fps-menu-help {
+          display: none;
         }
 
         .fps-panel.menu .fps-menu-actions button {
-          font-size: 11px;
-          padding: 7px 9px;
+          width: 100%;
+          min-height: 56px;
+          font-size: 13px;
+          padding: 12px 14px;
+          border-radius: 12px;
+        }
+
+        .fps-panel.shop,
+        .fps-panel.summary,
+        .fps-panel.gameover {
+          padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
         }
 
         .fps-interact-prompt {
-          bottom: calc(env(safe-area-inset-bottom) + 102px);
+          bottom: calc(var(--game-bottom) + env(safe-area-inset-bottom) + 102px);
           padding: 7px 10px;
           gap: 8px;
         }
@@ -1686,6 +2523,374 @@
 
         .fps-interact-text {
           font-size: 13px;
+        }
+      }
+
+      @media (pointer: coarse) and (max-height: 500px) {
+        .fps-mobile-controls {
+          --stick-size: clamp(84px, calc(var(--game-width) * 0.17), 110px);
+          --btn-size: clamp(40px, calc(var(--game-width) * 0.078), 54px);
+          --btn-gap: clamp(4px, calc(var(--game-width) * 0.01), 6px);
+          --left-stick-left: calc(var(--game-left) + max(20px, env(safe-area-inset-left) + 10px));
+          --right-stick-right: calc(var(--game-right) + max(18px, env(safe-area-inset-right) + 6px));
+          --stick-bottom: calc(var(--game-bottom) + max(44px, env(safe-area-inset-bottom) + 28px));
+        }
+
+        .fps-raid-actions {
+          right: calc(var(--game-right) + env(safe-area-inset-right) + 6px);
+          gap: 6px;
+          max-width: min(312px, calc(var(--game-width) - 18px));
+        }
+
+        .fps-raid-actions .fps-quick-btn {
+          min-width: 84px;
+          font-size: 12px;
+          padding: 7px 7px;
+        }
+
+        .fps-raid-actions .fps-help-quick {
+          min-width: 36px;
+          width: 36px;
+          font-size: 18px;
+        }
+
+        .fps-raid-actions .fps-fullscreen-quick {
+          min-width: 60px;
+        }
+
+        .fps-hud {
+          max-width: min(52vw, 420px);
+        }
+
+        .fps-hud-health {
+          max-width: min(52vw, 420px);
+          grid-template-columns: repeat(3, minmax(72px, 1fr));
+        }
+
+        .fps-hud-line,
+        .fps-hud-line.fps-controls {
+          max-width: min(52vw, 420px);
+        }
+
+        .fps-minimap-panel {
+          display: none;
+        }
+
+        .fps-mobile-button {
+          font-size: 10px;
+        }
+
+        .fps-interact-prompt {
+          max-width: min(48vw, 320px);
+        }
+      }
+
+      @media (pointer: coarse) and (max-width: 900px) and (max-height: 760px) {
+        .fps-overlay {
+          padding:
+            calc(env(safe-area-inset-top) + 8px)
+            calc(env(safe-area-inset-right) + 12px)
+            calc(env(safe-area-inset-bottom) + 10px)
+            calc(env(safe-area-inset-left) + 12px);
+        }
+
+        .fps-panel {
+          padding: 11px;
+        }
+
+        .fps-panel.menu {
+          width: min(95vw, 540px);
+          padding: 9px;
+        }
+
+        .fps-menu-hero {
+          gap: 6px;
+        }
+
+        .fps-menu-kicker {
+          font-size: 0.62rem;
+          letter-spacing: 0.16em;
+        }
+
+        .fps-menu-logo {
+          width: min(100%, 280px);
+          margin: 0 auto;
+        }
+
+        .fps-menu-stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 5px;
+        }
+
+        .fps-menu-stat-label {
+          font-size: 0.58rem;
+        }
+
+        .fps-menu-stat strong {
+          font-size: 0.92rem;
+        }
+
+        .fps-menu-highlight h2 {
+          font-size: 0.7rem;
+        }
+
+        .fps-menu-highlight p {
+          font-size: 0.64rem;
+          line-height: 1.1;
+        }
+
+        .fps-menu-help summary {
+          font-size: 0.7rem;
+        }
+
+        .fps-menu-help p {
+          font-size: 0.66rem;
+          line-height: 1.08;
+        }
+
+        .fps-menu-mobile-brief {
+          gap: 4px;
+          padding: 7px 8px;
+        }
+
+        .fps-menu-mobile-brief p {
+          font-size: 0.78rem;
+          line-height: 1.2;
+        }
+
+        .fps-panel.menu .fps-menu-actions button {
+          min-height: 38px;
+          font-size: 10px;
+          padding: 7px 8px;
+        }
+
+        .fps-mobile-controls {
+          --left-stick-left: calc(var(--game-left) + max(18px, env(safe-area-inset-left) + 6px));
+          --right-stick-right: calc(var(--game-right) + max(8px, env(safe-area-inset-right) + 2px));
+          --stick-bottom: calc(var(--game-bottom) + max(8px, env(safe-area-inset-bottom) + 2px));
+        }
+
+        .fps-raid-actions {
+          right: calc(var(--game-right) + env(safe-area-inset-right) + 6px);
+        }
+      }
+
+      @media (pointer: coarse) and (orientation: portrait) {
+        .fps-overlay {
+          padding:
+            calc(env(safe-area-inset-top) + 10px)
+            calc(env(safe-area-inset-right) + 12px)
+            calc(env(safe-area-inset-bottom) + 12px)
+            calc(env(safe-area-inset-left) + 12px);
+        }
+
+        .fps-panel.menu {
+          width: min(94vw, 420px);
+          padding: 18px 12px 12px;
+        }
+
+        .fps-menu-logo {
+          width: min(100%, 300px);
+        }
+
+        .fps-menu-stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
+        }
+
+        .fps-mobile-controls {
+          --stick-size: clamp(86px, calc(var(--game-width) * 0.23), 108px);
+          --btn-size: clamp(40px, calc(var(--game-width) * 0.125), 52px);
+          --btn-gap: clamp(6px, calc(var(--game-width) * 0.018), 8px);
+          --left-stick-left: calc(var(--game-left) + max(12px, env(safe-area-inset-left) + 4px));
+          --right-stick-right: calc(var(--game-right) + max(24px, env(safe-area-inset-right) + 10px));
+          --stick-bottom: calc(var(--game-bottom) + max(16px, env(safe-area-inset-bottom) + 8px));
+          --center-lane-left: calc(var(--game-left) + var(--game-width) * 0.5 - var(--btn-size) - var(--btn-gap) * 0.5);
+          --jump-bar-left: calc(var(--left-stick-left) + var(--stick-size) + var(--btn-gap) * 2);
+          --jump-bar-right: calc(var(--right-stick-right) + var(--stick-size) + var(--btn-gap) * 2);
+        }
+
+        .fps-stick-knob {
+          width: 40px;
+          height: 40px;
+        }
+
+        .fps-mobile-button {
+          font-size: 10px;
+        }
+
+        .fps-mobile-button-map {
+          left: var(--left-stick-left);
+          bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap) + 8px);
+        }
+
+        .fps-mobile-button-sprint {
+          display: flex;
+          left: auto;
+          right: var(--jump-bar-right);
+          bottom: calc(var(--stick-bottom) + var(--btn-size) + var(--btn-gap) + 10px);
+        }
+
+        .fps-mobile-button-jump {
+          left: var(--jump-bar-left);
+          right: var(--jump-bar-right);
+          width: auto;
+          height: calc(var(--btn-size) - 4px);
+          border-radius: 999px;
+          bottom: calc(var(--stick-bottom) + 2px);
+        }
+
+        .fps-mobile-button-crouch {
+          left: var(--jump-bar-left);
+          right: auto;
+          bottom: calc(var(--stick-bottom) + var(--btn-size) + var(--btn-gap) + 10px);
+        }
+
+        .fps-mobile-button-interact {
+          left: calc(var(--game-left) + var(--game-width) * 0.5 - var(--btn-size) * 0.5);
+          bottom: calc(var(--game-bottom) + env(safe-area-inset-bottom) + 250px);
+        }
+
+        .fps-mobile-button-fire {
+          width: var(--btn-size);
+          height: var(--btn-size);
+          right: var(--right-stick-right);
+          bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap) + 8px);
+        }
+
+        .fps-mobile-button-grenade {
+          right: calc(var(--right-stick-right) + var(--btn-size) + var(--btn-gap));
+          bottom: calc(var(--stick-bottom) + var(--stick-size) + var(--btn-gap) + 8px);
+        }
+
+        .fps-mobile-button-ads {
+          display: none;
+        }
+
+        .fps-hud {
+          gap: 4px;
+          max-width: calc(var(--game-width) - 24px);
+        }
+
+        .fps-hud-health {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 4px;
+          max-width: min(94vw, 420px);
+        }
+
+        .fps-hud-health-item {
+          gap: 3px;
+          padding: 5px 6px;
+          border-radius: 9px;
+        }
+
+        .fps-hud-health-label {
+          font-size: 9px;
+        }
+
+        .fps-hud-health-track {
+          height: 7px;
+        }
+
+        .fps-hud-summary,
+        .fps-hud-line,
+        .fps-hud-line.fps-controls {
+          max-width: min(84vw, 320px);
+        }
+
+        .fps-hud-chip {
+          font-size: 10px;
+          padding: 4px 6px;
+        }
+
+        .fps-raid-actions {
+          right: calc(var(--game-right) + env(safe-area-inset-right) + 8px);
+          top: calc(var(--game-top) + env(safe-area-inset-top) + 10px);
+          gap: 6px;
+          max-width: min(44vw, 156px);
+          justify-content: flex-end;
+        }
+
+        .fps-raid-actions .fps-quick-btn {
+          min-width: 64px;
+          font-size: 10px;
+          padding: 7px 7px;
+        }
+
+        .fps-raid-actions.portrait-tray {
+          align-items: flex-start;
+        }
+
+        .fps-raid-actions.portrait-tray .fps-fullscreen-quick,
+        .fps-raid-actions.portrait-tray .fps-swap-quick,
+        .fps-raid-actions.portrait-tray .fps-shop-quick,
+        .fps-raid-actions.portrait-tray .fps-help-quick {
+          display: none;
+        }
+
+        .fps-raid-actions.portrait-tray .fps-tray-quick {
+          display: inline-flex;
+        }
+
+        .fps-raid-actions.portrait-tray.tray-open {
+          padding: 8px;
+          border: 1px solid rgba(184, 242, 114, 0.28);
+          border-radius: 14px;
+          background: linear-gradient(180deg, rgba(10, 16, 20, 0.9), rgba(8, 12, 16, 0.82));
+          box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+          backdrop-filter: blur(4px);
+        }
+
+        .fps-raid-actions.portrait-tray.tray-open .fps-swap-quick,
+        .fps-raid-actions.portrait-tray.tray-open .fps-fullscreen-quick,
+        .fps-raid-actions.portrait-tray.tray-open .fps-shop-quick,
+        .fps-raid-actions.portrait-tray.tray-open .fps-help-quick {
+          display: inline-flex;
+        }
+
+        .fps-raid-actions.portrait-tray .fps-tray-quick,
+        .fps-raid-actions.portrait-tray .fps-help-quick {
+          min-width: 36px;
+          width: 36px;
+          font-size: 18px;
+          padding: 7px 0;
+        }
+
+        .fps-weapon-indicator {
+          display: none !important;
+        }
+
+        .fps-minimap-panel {
+          left: 50%;
+          right: auto;
+          top: calc(var(--game-top) + env(safe-area-inset-top) + 108px);
+          transform: translateX(-50%);
+          z-index: 174;
+          width: min(72vw, 260px);
+          padding: 8px;
+          border-radius: 14px;
+          border: 1px solid rgba(184, 242, 114, 0.3);
+          background: linear-gradient(180deg, rgba(8, 12, 18, 0.72), rgba(6, 10, 14, 0.58));
+          box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
+          backdrop-filter: blur(6px);
+        }
+
+        .fps-minimap-header {
+          font-size: 10px;
+          margin-bottom: 5px;
+          text-align: center;
+        }
+
+        .fps-minimap-legend {
+          margin-top: 5px;
+          gap: 3px 6px;
+          font-size: 9px;
+        }
+
+        .fps-interact-prompt {
+          bottom: calc(var(--game-bottom) + env(safe-area-inset-bottom) + 204px);
+          max-width: min(74vw, 280px);
+          padding: 7px 10px;
         }
       }
     </style>
