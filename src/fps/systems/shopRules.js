@@ -107,6 +107,55 @@ export function applyGrenadePackBuy({ pack, waveNumber = 1, save, costMultiplier
   return { changed: true };
 }
 
+export function getGearShopState({ gear, waveNumber = 1, save, costMultiplier = 1 } = {}) {
+  if (!gear?.id) {
+    return {
+      owned: false,
+      cost: 0,
+      unlockWave: 1,
+      waveLocked: false,
+      cannotAfford: false,
+      disabled: true,
+      status: "Unavailable",
+    };
+  }
+  const ownedGear = Array.isArray(save?.ownedGear) ? save.ownedGear : [];
+  const owned = ownedGear.includes(gear.id);
+  const cost = computeDiscountedCost(gear.cost, costMultiplier);
+  const unlockWave = Math.max(1, Math.round(Number(gear.unlockWave ?? 1)));
+  const waveLocked = waveNumber < unlockWave;
+  const cannotAfford = !owned && (save?.coins ?? 0) < cost;
+  let status = `${cost} coins`;
+  if (owned) {
+    status = "Owned";
+  } else if (waveLocked) {
+    status = `Unlocks Wave ${unlockWave}`;
+  }
+  return {
+    owned,
+    cost,
+    unlockWave,
+    waveLocked,
+    cannotAfford,
+    disabled: !owned && (waveLocked || cannotAfford),
+    status,
+  };
+}
+
+export function applyGearBuy({ gear, waveNumber = 1, save, costMultiplier = 1 } = {}) {
+  const state = getGearShopState({ gear, waveNumber, save, costMultiplier });
+  if (state.owned || state.disabled) {
+    return { changed: false };
+  }
+  save.coins -= state.cost;
+  if (!Array.isArray(save.ownedGear)) {
+    save.ownedGear = [];
+  }
+  save.ownedGear.push(gear.id);
+  save.ownedGear = [...new Set(save.ownedGear)];
+  return { changed: true };
+}
+
 export function getArmorShopState({ armor, save, costMultiplier = 1 }) {
   const owned = save.ownedArmors.includes(armor.id);
   const equipped = save.equippedArmorId === armor.id;

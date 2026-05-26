@@ -23,6 +23,7 @@ export class PlayerControllerFps {
     this.keyState = new Map();
     this.pointerLocked = false;
     this.fireBufferedFrames = 0;
+    this.interactBufferedFrames = 0;
 
     this.state = {
       position: new THREE.Vector3(0, 1.7, 12),
@@ -39,6 +40,7 @@ export class PlayerControllerFps {
       interact: false,
       grenade: false,
       cycleGrenade: false,
+      useFlint: false,
       jumpQueued: false,
       sprint: false,
       jumpHeldLast: false,
@@ -56,6 +58,9 @@ export class PlayerControllerFps {
       this.keyState.set(key(event.code), true);
       if (event.code === "KeyF") {
         this.fireBufferedFrames = Math.max(this.fireBufferedFrames, 8);
+      }
+      if (event.code === "KeyE") {
+        this.interactBufferedFrames = Math.max(this.interactBufferedFrames, 8);
       }
     });
     window.addEventListener("keyup", (event) => this.keyState.set(key(event.code), false));
@@ -122,6 +127,10 @@ export class PlayerControllerFps {
     if (this.fireBufferedFrames > 0) {
       this.fireBufferedFrames -= 1;
     }
+    const interactBuffered = this.interactBufferedFrames > 0;
+    if (this.interactBufferedFrames > 0) {
+      this.interactBufferedFrames -= 1;
+    }
     return {
       moveX: (down("KeyD") || down("ArrowRight") ? 1 : 0) - (down("KeyA") || down("ArrowLeft") ? 1 : 0),
       moveY: (down("KeyW") || down("ArrowUp") ? 1 : 0) - (down("KeyS") || down("ArrowDown") ? 1 : 0),
@@ -133,9 +142,10 @@ export class PlayerControllerFps {
       crouch: down("ControlLeft") || down("KeyC"),
       sprint: down("ShiftLeft"),
       reload: down("KeyR"),
-      interact: down("KeyE"),
+      interact: down("KeyE") || interactBuffered,
       grenade: down("KeyG"),
       cycleGrenade: down("KeyH"),
+      useFlint: down("KeyT"),
     };
   }
 
@@ -185,6 +195,7 @@ export class PlayerControllerFps {
       interact: false,
       grenade: false,
       cycleGrenade: false,
+      useFlint: false,
     };
 
     if (window.matchMedia("(pointer: coarse)").matches) {
@@ -205,6 +216,7 @@ export class PlayerControllerFps {
       interact: mobile.interact || desktop.interact,
       grenade: mobile.grenade || desktop.grenade,
       cycleGrenade: desktop.cycleGrenade,
+      useFlint: desktop.useFlint,
     };
 
     const moveDirection = this.computeMovementVector(combined);
@@ -218,6 +230,7 @@ export class PlayerControllerFps {
     this.state.interact = combined.interact;
     this.state.grenade = combined.grenade;
     this.state.cycleGrenade = combined.cycleGrenade;
+    this.state.useFlint = combined.useFlint;
     this.state.sprint = sprintAllowed;
 
     if (sprintAllowed) {

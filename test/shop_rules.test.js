@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyArmorBuyOrEquip,
+  applyGearBuy,
   applyGrenadePackBuy,
   applyMedKitBuy,
   applyVillageUpgradePurchase,
   applyWeaponBuyOrEquip,
   getArmorShopState,
+  getGearShopState,
   getGrenadePackShopState,
   getMedKitShopState,
   getVillageLevelHpMultiplier,
@@ -22,6 +24,7 @@ function makeSave(overrides = {}) {
     equippedWeaponId: "pipe",
     ownedArmors: ["cloth"],
     equippedArmorId: "cloth",
+    ownedGear: [],
     villageLevel: 1,
     pistolUnlocked: false,
     grenades: fragCount,
@@ -120,6 +123,24 @@ describe("shop rules", () => {
     });
     expect(bought).toEqual({ changed: true, newHp: 100 });
     expect(save.coins).toBe(40);
+  });
+
+  it("unlocks purchasable gear after the first wave", () => {
+    const flashlight = { id: "flashlight", cost: 30, unlockWave: 2 };
+    const save = makeSave({ coins: 40 });
+
+    const locked = getGearShopState({ gear: flashlight, waveNumber: 1, save });
+    expect(locked.waveLocked).toBe(true);
+    expect(locked.status).toBe("Unlocks Wave 2");
+
+    const bought = applyGearBuy({ gear: flashlight, waveNumber: 2, save });
+    expect(bought).toEqual({ changed: true });
+    expect(save.coins).toBe(10);
+    expect(save.ownedGear).toContain("flashlight");
+
+    const duplicate = applyGearBuy({ gear: flashlight, waveNumber: 2, save });
+    expect(duplicate).toEqual({ changed: false });
+    expect(save.coins).toBe(10);
   });
 
   it("blocks med kit when already full health", () => {

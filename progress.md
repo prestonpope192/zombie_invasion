@@ -1502,3 +1502,140 @@ Original prompt: build this game and deploy it to a docker container and spin it
     - `/Users/preston/Code/zombie_invasion/output/fps-armor-avatar-pass/gallery.png`
     - `/Users/preston/Code/zombie_invasion/output/fps-armor-avatar-pass/summary.json`
   - Note: full in-app headless browser verification was blocked by WebGL context creation in this environment, so avatar silhouette review used a standalone gallery generated from the same shop CSS and markup.
+- Into-the-Dead-inspired visual pass:
+  - Shifted raid lighting/post-processing toward darker survival horror: lower bloom, stronger SSAO, denser night fog, colder moonlight, warmer practical lights, and a subtle player flashlight.
+  - Added grounded environmental detail in `src/fps/scenes/RaidScene3D.js`: grimy procedural ground texture, low fog sheets, wrecked vehicles, barricades, road debris, darker trees/creeks, and dirtier village materials.
+  - Improved silhouette/readability cues with stronger zombie outline shells, ground shadow blobs, transient muzzle flash lights, darker villager materials, and a more restrained raid HUD/minimap/weapon card treatment in `index.html`.
+- Validation:
+  - `npm run build` pass.
+  - `npm test` pass (26 files, 80 tests).
+  - Playwright/client smoke artifact:
+    - `/Users/preston/Code/zombie_invasion/output/fps-into-dead-client-check-2/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-into-dead-client-check-2/state-0.json`
+    - no `errors-*.json` generated.
+  - Additional screenshot checks:
+    - `/Users/preston/Code/zombie_invasion/output/fps-into-dead-village-v5.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-into-dead-safe-house-v5.png`
+- Purchasable survival gear pass:
+  - Added Wave 2 shop gear for Flashlight and Flint & Steel in `src/fps/config/economy_fps.json`, with persistent `ownedGear` save state.
+  - Added gear shop rules/UI so the flashlight is a cheap post-first-level purchase and flint/steel can be bought immediately after it if the player saved enough coins.
+  - Gated the first-person flashlight beam behind purchase instead of giving it on the opening level.
+  - Added flint/steel raid behavior: T or the Fire quick button lights a timed torch, spawns a warm ground fire light, burns nearby zombies, and adds fire damage to pipe hits while the torch is active.
+  - Updated HUD/context text and menu controls to expose the new Fire/T action.
+- Validation:
+  - `npm test -- test/shop_rules.test.js` pass (11 tests).
+  - `npm run build` pass.
+  - Playwright visual/state verification artifacts:
+    - `/Users/preston/Code/zombie_invasion/output/fps-gear-feature/shop-gear.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-gear-feature/raid-flashlight-fire-final.png`
+    - no console/page errors during seeded purchase and raid activation check.
+  - Follow-up flashlight check:
+    - Strengthened the purchased flashlight into a clear forward spot plus faint fog beam, still passive and gated only by owning `flashlight`.
+    - Added `flashlightVisible` to text-state output for runtime verification.
+    - Screenshot artifact: `/Users/preston/Code/zombie_invasion/output/fps-flashlight-check/with-flashlight.png`.
+- Fire performance pass:
+  - Reworked flint/torch fire patches in `src/fps/scenes/RaidScene3D.js` to avoid shadow-casting fire lights, replace multiple transparent meshes/smoke spheres with a small sprite-based flame cluster, and remove per-frame random flicker.
+  - Added fire merge/capping so nearby fire refreshes the same patch and the world holds at most 3 active fire lights.
+  - Throttled torch-hit ember fires so melee hits cannot spawn a burst of new lights every frame.
+- Validation:
+  - `npm test` pass (26 files, 81 tests).
+  - `npm run build` pass.
+  - Web game client smoke artifact: `/Users/preston/Code/zombie_invasion/output/fps-fire-performance-client/shot-0.png`.
+  - Playwright stress artifact: `/Users/preston/Code/zombie_invasion/output/fps-fire-performance-stress/fire-stress.png`; repeated flint activation stayed at 1 merged fire, direct multi-position fire stress capped at 3 fires, with no console/page errors.
+- Audio settings pass:
+  - Added persistent `musicEnabled` and `sfxEnabled` fields to the FPS save schema.
+  - Added a main-menu Settings block with independent Music and Sound Effects checkboxes.
+  - Wired `Audio3D` so music muting stops/prevents cue playback while SFX muting prevents generated effect tones without changing music state.
+  - Added tests for audio setting persistence plus separate music/SFX muting behavior.
+- Validation:
+  - `npm test` pass (26 files, 84 tests).
+  - `npm run build` pass.
+  - Web game client screenshot: `/Users/preston/Code/zombie_invasion/output/fps-audio-settings-client/shot-0.png`.
+  - Playwright settings check: `/Users/preston/Code/zombie_invasion/output/fps-audio-settings-check/settings-muted.png`; toggles persisted to localStorage and `render_game_to_text()` with no console/page errors.
+- Escape shop/pause shortcut:
+  - Mapped Escape to the existing raid shop shortcut path alongside Q.
+  - Clear Q/Escape key state when opening the shop so returning from the shop does not immediately reopen it.
+  - Updated desktop controls copy to show `Q/Esc shop pause`.
+- Validation:
+  - `npm test` pass (26 files, 84 tests).
+  - `npm run build` pass.
+  - Playwright Escape verification: `/Users/preston/Code/zombie_invasion/output/fps-escape-shop-check/escape-opened-shop.png`; active raid switched to `mode: "shop"` after pressing Escape with no console/page errors.
+  - Web game client smoke: `/Users/preston/Code/zombie_invasion/output/fps-escape-shop-client-smoke/shot-0.png`.
+- Outside start pass:
+  - New raids now spawn outdoors on the village approach instead of inside the safe house.
+  - Wave 1 starts immediately with the existing opening grace timer; buildings can still be entered normally later.
+  - Updated the main-menu copy from a safe-house/village start to the new outside start.
+- Validation:
+  - `npm test` pass (26 files, 84 tests).
+  - `npm run build` pass.
+  - Web game client screenshot: `/Users/preston/Code/zombie_invasion/output/fps-outside-start-client/shot-0.png`.
+- Shop survivor 3D preview pass:
+  - Replaced the flat CSS survivor avatar in `src/fps/scenes/ShopScene3D.js` with a small Three.js/WebGL preview canvas.
+  - Added a procedural 3D survivor model with head, torso, limbs, boots, armor attachments, visor, pouches, canisters, and per-armor material/visibility sync.
+  - Kept existing rotate buttons and pointer-drag yaw controls wired to the 3D model.
+  - Added `avatarPreview: "3d"` to shop text-state output and updated the avatar sync test for the canvas preview.
+- Validation:
+  - `npm run build` pass.
+  - `npm test` pass (26 files, 84 tests).
+  - Web game client smoke artifact: `/Users/preston/Code/zombie_invasion/output/fps-shop-avatar-3d-client/shot-0.png`.
+  - Focused shop visual check: `/Users/preston/Code/zombie_invasion/output/fps-shop-avatar-3d-direct/shop-3d.png`; avatar canvas probe reported nonblank pixels and no console/page errors.
+- Shop survivor realism pass:
+  - Refined the 3D shop survivor proportions and added face details (ears, pupils, brows, chin, nose bridge, lip), layered jacket panels, seams, cuffs, thumbs, boot toes, belt buckle, straps, and pants details.
+  - Kept the existing armor material/visibility sync so upgraded armor still changes the preview model.
+- Validation:
+  - `npm run build` pass.
+  - `npm test` pass (26 files, 84 tests).
+  - Web game client smoke artifact: `/Users/preston/Code/zombie_invasion/output/fps-realistic-avatar-client/shot-0.png`.
+  - Focused shop visual check: `/Users/preston/Code/zombie_invasion/output/fps-realistic-avatar-direct/shop-realistic.png`; avatar canvas probe reported nonblank pixels and no console/page errors.
+- Med kit shop pass:
+  - Upgraded the med kit from a plain text row to a first-aid bag row with a red cross icon, HP badge, current-health description, and purchase state in shop text output.
+  - Preserved existing med-kit behavior: buying it in the shop spends the configured cost and fully heals the player.
+- Validation:
+  - `npm run build` pass.
+  - `npm test` pass (26 files, 84 tests).
+  - Web game client smoke artifact: `/Users/preston/Code/zombie_invasion/output/fps-medkit-client/shot-0.png`.
+  - Focused shop visual checks:
+    - `/Users/preston/Code/zombie_invasion/output/fps-medkit-shop-direct/medkit-row.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-medkit-shop-direct/shop-medkit-scrolled.png`
+    - No console/page errors; shop text state reported med kit enabled at 47/100 HP for 20 coins.
+- Broad test-suite hardening pass:
+  - Added jsdom scene tests for menu, game-over, shop UI, mobile controls, and FpsGame mode lifecycle.
+  - Added raid contract tests for shop shortcut gating, grenade cycling, weapon fallback, armor resistance capping, and village-destruction state.
+  - Added active-game contract tests to prove the current entry point mounts the FPS runtime and that the configured gameplay inventory covers weapons, enemies, grenades, buildings, gear, armor, and village upgrades.
+- Validation:
+  - `npm test` pass (33 files, 109 tests).
+  - `npm run build` pass.
+  - Shared web-game client was attempted twice but hung during WebGL screenshot capture in this environment, so the client processes were stopped.
+  - Direct Playwright fallback smoke passed with no console/page errors:
+    - state: `/Users/preston/Code/zombie_invasion/output/fps-test-suite-smoke-direct/state-0.json`
+    - screenshot inspected: `/Users/preston/Code/zombie_invasion/output/fps-test-suite-smoke-direct/page-0.png`
+- First-session playability/enjoyment pass:
+  - Added `src/fps/systems/firstSessionRules.js` for reusable first-session guidance rules:
+    - enemy introduction copy
+    - next-wave threat preview
+    - shop purchase recommendations
+    - game-over next-goal motivation
+  - Tuned Wave 1 and Wave 2 pacing in `src/fps/config/waves_fps.json` so the first wave is a clearer one-threat-at-a-time teaching wave before pressure rises.
+  - Added a persistent first-session objective line to the raid HUD so desktop and mobile players know what to do in the opening seconds.
+  - Added center-screen combat cue feedback for hits/headshots/downed enemies.
+  - Added per-enemy-type introduction prompts the first time new threats appear in a run.
+  - Changed portrait mobile utility tray behavior so `+` opens a vertical right-side tray instead of jumping straight into shop, and adjusted portrait layout so the open tray does not overlap health/objective/prompt HUD elements.
+  - Added shop recommendation banner and per-row Recommended badges for the highest-value first-session purchase.
+  - Added summary-screen next-wave threat callouts and shop nudge text.
+  - Added game-over run recap and next-goal motivation to improve restart pull.
+- Validation:
+  - Focused tests passed: `npm test -- test/first_session_rules.test.js test/shop_scene_ui.test.js test/game_over_scene.test.js test/summary_scene.test.js test/raid_scene_contract.test.js`.
+  - Full suite passed: `npm test` (34 files, 113 tests).
+  - Production build passed: `npm run build`.
+  - `git diff --check` passed.
+  - Direct Playwright browser artifacts with no console/page errors:
+    - `/Users/preston/Code/zombie_invasion/output/fps-first-session-pass/desktop-raid-objective.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-first-session-pass/desktop-combat-cue.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-first-session-pass/desktop-shop-recommendation.png`
+    - `/Users/preston/Code/zombie_invasion/output/fps-first-session-pass-mobile-fix/mobile-tray-fixed.png`
+  - Mobile tray bounding-box verification reported no overlap between the open tray and health/objective/prompt HUD elements:
+    - `/Users/preston/Code/zombie_invasion/output/fps-first-session-pass-mobile-fix/summary.json`
+  - Shared web-game client was attempted against `http://127.0.0.1:5174` but repeated the known WebGL screenshot hang and was stopped; direct Playwright artifacts above are the browser evidence for this pass.
+- TODO / next agent notes:
+  - Do a longer human-feel playthrough through Wave 3 to tune whether the new enemy-intro prompts should last longer or yield to urgent combat prompts faster.
+  - Consider adding an authored visual marker in the world for the "village line" objective if players still drift during the first 10 seconds.

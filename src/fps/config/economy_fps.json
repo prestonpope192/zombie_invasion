@@ -20,6 +20,22 @@
     "label": "Med Kit (Full Heal)",
     "cost": 20
   },
+  "gearItems": [
+    {
+      "id": "flashlight",
+      "label": "Flashlight",
+      "cost": 30,
+      "unlockWave": 2,
+      "description": "Wide white beam that opens up the dark lane ahead."
+    },
+    {
+      "id": "flint_steel",
+      "label": "Flint & Steel",
+      "cost": 50,
+      "unlockWave": 2,
+      "description": "Ignites ground fires and a short-lived torch for melee attacks."
+    }
+  ],
   "villagerRewards": {
     "coinMin": 20,
     "coinMax": 70,

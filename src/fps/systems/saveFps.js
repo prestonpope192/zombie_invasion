@@ -30,8 +30,11 @@ export function defaultFpsSave() {
     villageLevel: 1,
     ownedArmors: ["cloth"],
     equippedArmorId: "cloth",
+    ownedGear: [],
     sensitivity: 0.18,
     graphicsPreset: "desktop_high",
+    musicEnabled: true,
+    sfxEnabled: true,
     lifetimeStats: {
       kills: 0,
       damageDealt: 0,
@@ -86,8 +89,11 @@ export function sanitizeFpsSave(raw) {
   }
   safe.ownedArmors = normalizeStrings(safe.ownedArmors, ["cloth"]);
   safe.equippedArmorId = typeof safe.equippedArmorId === "string" ? safe.equippedArmorId : "cloth";
+  safe.ownedGear = normalizeStrings(safe.ownedGear, []);
   safe.sensitivity = Math.max(0.05, Math.min(0.6, float(safe.sensitivity, 0.18)));
   safe.graphicsPreset = typeof safe.graphicsPreset === "string" ? safe.graphicsPreset : "desktop_high";
+  safe.musicEnabled = safe.musicEnabled !== false;
+  safe.sfxEnabled = safe.sfxEnabled !== false;
 
   const stats = safe.lifetimeStats && typeof safe.lifetimeStats === "object" ? safe.lifetimeStats : {};
   safe.lifetimeStats = {

@@ -36,6 +36,7 @@ import {
   getVillagerPerkModifiers,
   isVillagerAvailable,
 } from "../systems/villagerEscortRules";
+import { getEnemyIntroMessage } from "../systems/firstSessionRules";
 
 const VILLAGE_HP_BASE = 700;
 const FIXED_TICK = 1 / 60;
@@ -57,6 +58,14 @@ const VILLAGE_DAMAGE_RECENT_DECAY = 0.6;
 const PLAYER_DAMAGE_FLASH_DECAY = 3.6;
 const PLAYER_BITE_INTERVAL_SEC = 0.42;
 const PLAYER_BITE_MAX_DAMAGE_PER_PULSE = 9;
+const TORCH_BURN_SEC = 18;
+const FLINT_COOLDOWN_SEC = 0.85;
+const FIRE_PATCH_TTL_SEC = 18;
+const FIRE_PATCH_RADIUS = 3.6;
+const FIRE_PATCH_DPS = 11;
+const MAX_WORLD_FIRES = 3;
+const FIRE_PATCH_MERGE_DISTANCE = 2.4;
+const TORCH_HIT_FIRE_COOLDOWN_SEC = 0.32;
 const FRONT_SPAWN_X_HALF_EXTENT = 17;
 const FRONT_SPAWN_Z_OFFSET_MIN = 8;
 const FRONT_SPAWN_Z_OFFSET_MAX = 16;
@@ -68,6 +77,7 @@ const ESCORT_ZOMBIE_THREAT_RANGE = 2.2;
 const ESCORT_DAMAGE_PER_SEC = 13;
 const ESCORT_MAX_ATTACKERS = 3;
 const TOWN_HALL_DROPOFF_RADIUS = 3.1;
+const FIRST_WAVE_GRACE_SEC = 5.5;
 const HEADSHOT_MULTIPLIER = getDefaultHeadshotMultiplier();
 const GAME_PHASE = {
   HOUSE_INTRO: "house_intro",
@@ -75,10 +85,55 @@ const GAME_PHASE = {
   SECRET_BOSS: "secret_boss",
 };
 const ANIMAL_ZOMBIE_VARIANTS = new Set(["zombie_pig", "zombie_horse", "zombie_cow", "zombie_chicken"]);
+let fireSpriteTexture = null;
 
 function yawFromForward(forward) {
   // In this camera setup, yaw=0 faces toward -Z.
   return Math.atan2(forward.x, -forward.z);
+}
+
+function getFireSpriteTexture() {
+  if (fireSpriteTexture || typeof document === "undefined") {
+    return fireSpriteTexture;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  const glow = ctx.createRadialGradient(48, 92, 4, 48, 82, 54);
+  glow.addColorStop(0, "rgba(255, 238, 145, 0.95)");
+  glow.addColorStop(0.32, "rgba(255, 136, 42, 0.78)");
+  glow.addColorStop(0.68, "rgba(190, 38, 17, 0.34)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.moveTo(48, 118);
+  ctx.bezierCurveTo(14, 96, 33, 66, 43, 46);
+  ctx.bezierCurveTo(47, 29, 41, 16, 60, 5);
+  ctx.bezierCurveTo(56, 32, 82, 45, 75, 74);
+  ctx.bezierCurveTo(72, 98, 62, 111, 48, 118);
+  ctx.closePath();
+  ctx.fill();
+
+  const core = ctx.createRadialGradient(47, 89, 1, 47, 82, 30);
+  core.addColorStop(0, "rgba(255, 255, 214, 0.98)");
+  core.addColorStop(0.46, "rgba(255, 191, 73, 0.72)");
+  core.addColorStop(1, "rgba(255, 87, 28, 0)");
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.moveTo(48, 112);
+  ctx.bezierCurveTo(29, 92, 42, 69, 51, 50);
+  ctx.bezierCurveTo(58, 66, 69, 80, 61, 98);
+  ctx.bezierCurveTo(58, 106, 53, 111, 48, 112);
+  ctx.closePath();
+  ctx.fill();
+
+  fireSpriteTexture = new THREE.CanvasTexture(canvas);
+  fireSpriteTexture.needsUpdate = true;
+  return fireSpriteTexture;
 }
 const WEAPON_FEEL = {
   pipe: {
@@ -624,6 +679,44 @@ function makeCreatureMaterial({
   });
 }
 
+function createGrimyGroundTexture() {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#42473c";
+  ctx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 2200; i += 1) {
+    const value = 34 + Math.floor(Math.random() * 64);
+    const alpha = 0.055 + Math.random() * 0.12;
+    ctx.fillStyle = `rgba(${value}, ${Math.max(28, value - 6)}, ${Math.max(22, value - 14)}, ${alpha})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 8, 1 + Math.random() * 8);
+  }
+
+  for (let i = 0; i < 42; i += 1) {
+    ctx.strokeStyle = `rgba(18, 21, 19, ${0.1 + Math.random() * 0.16})`;
+    ctx.lineWidth = 1 + Math.random() * 2.4;
+    ctx.beginPath();
+    const startX = Math.random() * size;
+    const startY = Math.random() * size;
+    ctx.moveTo(startX, startY);
+    for (let j = 0; j < 4; j += 1) {
+      ctx.lineTo(startX + (Math.random() - 0.5) * 150, startY + (Math.random() - 0.5) * 150);
+    }
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(10, 10);
+  texture.anisotropy = 4;
+  return texture;
+}
+
 function addSpherePart(parent, material, position, scaleVec, segments = 18) {
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(0.5, segments, Math.max(12, Math.floor(segments * 0.72))),
@@ -1104,6 +1197,19 @@ function makeZombieAnimalMesh(scale = 1, variant = "zombie_pig", palette = null)
     }
   }
 
+  const shadowBlob = new THREE.Mesh(
+    new THREE.CircleGeometry((variant === "zombie_horse" || variant === "zombie_cow" ? 0.78 : 0.52) * scale, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0x030405,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+    }),
+  );
+  shadowBlob.rotation.x = -Math.PI * 0.5;
+  shadowBlob.position.y = 0.018;
+  group.add(shadowBlob);
+
   group.traverse((node) => {
     if (!node.isMesh) {
       return;
@@ -1327,7 +1433,7 @@ function makeZombieMesh(scale = 1, boss = false, variant = "walker") {
                 : 0x9bc278,
     side: THREE.BackSide,
     transparent: true,
-    opacity: 0.028,
+    opacity: boss || variant === "mega_zombie" ? 0.075 : 0.052,
     depthWrite: false,
   });
 
@@ -1797,6 +1903,19 @@ function makeZombieMesh(scale = 1, boss = false, variant = "walker") {
     rightLegPivot.position.y -= 0.03 * scale;
   }
 
+  const shadowBlob = new THREE.Mesh(
+    new THREE.CircleGeometry((bruteLike ? 0.78 : 0.55) * scale, 22),
+    new THREE.MeshBasicMaterial({
+      color: 0x030405,
+      transparent: true,
+      opacity: bruteLike ? 0.38 : 0.3,
+      depthWrite: false,
+    }),
+  );
+  shadowBlob.rotation.x = -Math.PI * 0.5;
+  shadowBlob.position.y = 0.018;
+  group.add(shadowBlob);
+
   group.traverse((node) => {
     if (!node.isMesh) {
       return;
@@ -1866,6 +1985,7 @@ export class RaidScene3D {
     this.shopQuickButtonEl = null;
     this.swapQuickButtonEl = null;
     this.grenadeQuickButtonEl = null;
+    this.fireQuickButtonEl = null;
     this.helpQuickButtonEl = null;
     this.trayQuickButtonEl = null;
     this.mobileInstructionsOpen = false;
@@ -1878,6 +1998,10 @@ export class RaidScene3D {
     this.lastKillRewardLabel = "";
     this.lastKillRewardTimer = 0;
     this.hitConfirmTimer = 0;
+    this.combatCueLabel = "";
+    this.combatCueTimer = 0;
+    this.lastThreatIntro = null;
+    this.introducedEnemyTypes = new Set(["walker", "crawler"]);
     this.weaponIndicatorEl = null;
     this.weaponIndicatorCurrentId = "";
     this.weaponIndicatorSwapTimeout = null;
@@ -1891,11 +2015,27 @@ export class RaidScene3D {
     this.interactLatch = false;
     this.grenadeLatch = false;
     this.grenadeCycleLatch = false;
+    this.flintLatch = false;
+    this.flintCooldown = 0;
+    this.torchBurnSec = 0;
+    this.torchHitFireCooldown = 0;
+    this.worldFires = [];
+    this.playerFlashlight = null;
+    this.flashlightBeam = null;
+    this.torchLight = null;
+    this.torchFlame = null;
     this.phase = GAME_PHASE.HOUSE_INTRO;
     this.startHouseExited = false;
     this.activeBuildingId = null;
     this.pendingPrompt = "";
     this.promptTimer = 0;
+    this.waveStartGraceSec = 0;
+    this.tutorialProgress = {
+      moved: false,
+      attacked: false,
+      threwGrenade: false,
+      openedShop: false,
+    };
     this.secretBossActive = false;
     this.secretBossSpawned = false;
     this.buildingState = [];
@@ -1928,14 +2068,14 @@ export class RaidScene3D {
       return;
     }
 
-    this.scene.background = new THREE.Color(0x243345);
-    this.scene.fog = new THREE.FogExp2(0x27384c, 0.0082);
+    this.scene.background = new THREE.Color(0x10161a);
+    this.scene.fog = new THREE.FogExp2(0x161f23, 0.014);
 
-    const hemi = new THREE.HemisphereLight(0xc7dcff, 0x394335, 1.2);
+    const hemi = new THREE.HemisphereLight(0xa8bfca, 0x30291f, 0.72);
     this.scene.add(hemi);
 
-    const moonLight = new THREE.DirectionalLight(0xe7f0ff, 2.85);
-    moonLight.position.set(10, 18, 6);
+    const moonLight = new THREE.DirectionalLight(0xb4cee2, 1.82);
+    moonLight.position.set(-9, 17, 12);
     moonLight.castShadow = true;
     moonLight.shadow.mapSize.set(this.game.qualityProfile.shadows ? 1536 : 1024, this.game.qualityProfile.shadows ? 1536 : 1024);
     moonLight.shadow.camera.near = 0.2;
@@ -1947,23 +2087,24 @@ export class RaidScene3D {
     moonLight.shadow.bias = -0.00018;
     this.scene.add(moonLight);
 
-    const rimLight = new THREE.DirectionalLight(0x7da7d8, 0.68);
-    rimLight.position.set(-14, 10, -12);
+    const rimLight = new THREE.DirectionalLight(0xd2e6f8, 0.9);
+    rimLight.position.set(16, 9, 22);
     this.scene.add(rimLight);
 
-    const fillLight = new THREE.PointLight(0xffbf7a, 52, 46, 1.9);
+    const fillLight = new THREE.PointLight(0xff8f55, 24, 38, 2.2);
     fillLight.position.set(0, 3, -19);
     fillLight.castShadow = this.game.qualityProfile.shadows;
     this.scene.add(fillLight);
 
-    const ambient = new THREE.AmbientLight(0xbecada, 0.34);
+    const ambient = new THREE.AmbientLight(0x75818a, 0.22);
     this.scene.add(ambient);
 
+    const groundTexture = createGrimyGroundTexture();
     const groundMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5d6552,
+      color: 0x4b4f43,
+      map: groundTexture,
       roughness: 0.97,
       metalness: 0.03,
-      normalScale: new THREE.Vector2(0.7, 0.7),
     });
     const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(84, 84), groundMaterial);
     groundMesh.rotation.x = -Math.PI / 2;
@@ -1980,6 +2121,7 @@ export class RaidScene3D {
     this.buildInteriors();
     this.buildPerimeter();
     this.buildProps();
+    this.buildAtmosphere();
 
     this.playerBody = this.physics.createPlayerCapsule(new THREE.Vector3(0, 1.2, 16));
     this.playerController = new PlayerControllerFps({
@@ -1999,6 +2141,23 @@ export class RaidScene3D {
     this.initialized = true;
   }
 
+  buildAtmosphere() {
+    const fogMat = new THREE.MeshBasicMaterial({
+      color: 0x9aa098,
+      transparent: true,
+      opacity: 0.055,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    for (let i = 0; i < 11; i += 1) {
+      const fog = new THREE.Mesh(new THREE.PlaneGeometry(26 + Math.random() * 22, 4 + Math.random() * 2.8), fogMat.clone());
+      fog.position.set(-28 + Math.random() * 56, 0.45 + Math.random() * 1.15, -34 + Math.random() * 68);
+      fog.rotation.set(-Math.PI * 0.5 + (Math.random() - 0.5) * 0.18, Math.random() * Math.PI, (Math.random() - 0.5) * 0.24);
+      fog.renderOrder = -1;
+      this.scene.add(fog);
+    }
+  }
+
   createViewModel() {
     if (this.viewModelRig) {
       return;
@@ -2012,7 +2171,52 @@ export class RaidScene3D {
     weaponRoot.position.set(0.06, -0.09, -0.04);
     const viewFill = new THREE.PointLight(0xffd8b8, 1.05, 2.4, 2.1);
     viewFill.position.set(0.04, 0.14, 0.2);
+    const flashlight = new THREE.SpotLight(0xe6f3dd, 5.6, 38, Math.PI * 0.16, 0.62, 1.45);
+    flashlight.position.set(0, 0.02, 0.06);
+    flashlight.target.position.set(0, -0.22, -10);
+    flashlight.castShadow = this.game.qualityProfile.shadows;
+    flashlight.shadow.mapSize.set(512, 512);
+    this.playerFlashlight = flashlight;
+
+    const flashlightBeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 4.1, 22, 18, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xd9ebcf,
+        transparent: true,
+        opacity: 0.075,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    flashlightBeam.rotation.x = Math.PI * 0.5;
+    flashlightBeam.position.set(0, -0.12, -11);
+    flashlightBeam.visible = false;
+    flashlightBeam.renderOrder = -2;
+    this.flashlightBeam = flashlightBeam;
+
+    const torchLight = new THREE.PointLight(0xff8b48, 0, 6.8, 2);
+    torchLight.position.set(-0.1, -0.12, -0.32);
+    torchLight.visible = false;
+    const torchFlame = new THREE.Mesh(
+      new THREE.SphereGeometry(0.035, 10, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffbc62,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    torchFlame.position.set(-0.1, -0.13, -0.38);
+    torchFlame.visible = false;
+    this.torchLight = torchLight;
+    this.torchFlame = torchFlame;
+
     rig.add(viewFill);
+    rig.add(flashlight, flashlight.target);
+    rig.add(flashlightBeam);
+    rig.add(torchLight, torchFlame);
     rig.add(weaponRoot);
 
     this.camera.add(rig);
@@ -2021,6 +2225,7 @@ export class RaidScene3D {
     this.viewWeaponRoot = weaponRoot;
     this.buildViewWeaponMeshes();
     this.refreshViewWeaponModel();
+    this.syncPurchasedGearVisuals();
   }
 
   buildViewWeaponMeshes() {
@@ -2520,19 +2725,31 @@ export class RaidScene3D {
     const villageGroup = new THREE.Group();
     this.scene.add(villageGroup);
 
-    const wallPlaster = new THREE.MeshStandardMaterial({ color: 0x8c8072, roughness: 0.92, metalness: 0.02 });
-    const wallStone = new THREE.MeshStandardMaterial({ color: 0x5d6570, roughness: 0.9, metalness: 0.08 });
-    const wallWood = new THREE.MeshStandardMaterial({ color: 0x6a4a35, roughness: 0.88, metalness: 0.04 });
-    const roofTile = new THREE.MeshStandardMaterial({ color: 0x7b3327, roughness: 0.78, metalness: 0.08 });
-    const roofSlate = new THREE.MeshStandardMaterial({ color: 0x4f5866, roughness: 0.86, metalness: 0.1 });
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x4b545d, roughness: 0.95, metalness: 0.06 });
+    const wallPlaster = new THREE.MeshStandardMaterial({ color: 0x6c655d, roughness: 0.95, metalness: 0.02 });
+    const wallStone = new THREE.MeshStandardMaterial({ color: 0x4d555d, roughness: 0.94, metalness: 0.08 });
+    const wallWood = new THREE.MeshStandardMaterial({ color: 0x4d392b, roughness: 0.92, metalness: 0.04 });
+    const roofTile = new THREE.MeshStandardMaterial({ color: 0x4f2b25, roughness: 0.86, metalness: 0.08 });
+    const roofSlate = new THREE.MeshStandardMaterial({ color: 0x373f48, roughness: 0.9, metalness: 0.1 });
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x34383b, roughness: 0.98, metalness: 0.04 });
     const windowMat = new THREE.MeshStandardMaterial({
       color: 0xf4d2a3,
       emissive: 0xffad5f,
-      emissiveIntensity: 0.45,
+      emissiveIntensity: 0.26,
       roughness: 0.35,
       metalness: 0.1,
     });
+    const stuccoMat = new THREE.MeshStandardMaterial({ color: 0x8b8172, roughness: 0.98, metalness: 0.01 });
+    const stuccoPatchMat = new THREE.MeshStandardMaterial({ color: 0x5f584f, roughness: 0.99, metalness: 0.01 });
+    const thatchMat = new THREE.MeshStandardMaterial({ color: 0x9a7a3f, roughness: 0.99, metalness: 0.01 });
+    const thatchDarkMat = new THREE.MeshStandardMaterial({ color: 0x5c4928, roughness: 1, metalness: 0.01 });
+    const agedWoodMat = new THREE.MeshStandardMaterial({ color: 0x65452d, roughness: 0.94, metalness: 0.03 });
+    const darkBeamMat = new THREE.MeshStandardMaterial({ color: 0x2f2118, roughness: 0.9, metalness: 0.02 });
+    const cutLogMat = new THREE.MeshStandardMaterial({ color: 0x8b6a43, roughness: 0.92, metalness: 0.02 });
+    const shutterMat = new THREE.MeshStandardMaterial({ color: 0x334452, roughness: 0.86, metalness: 0.04 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xb7aa91, roughness: 0.92, metalness: 0.02 });
+    const stoneStepMat = new THREE.MeshStandardMaterial({ color: 0x5a5f5d, roughness: 0.96, metalness: 0.04 });
+    const ironMat = new THREE.MeshStandardMaterial({ color: 0x22262a, roughness: 0.58, metalness: 0.55 });
+    const crackMat = new THREE.MeshStandardMaterial({ color: 0x151719, roughness: 0.74, metalness: 0.06 });
 
     const addShadow = (node) => {
       node.traverse((child) => {
@@ -2559,6 +2776,321 @@ export class RaidScene3D {
       });
     };
 
+    const buildingVisualVariant = (id, fallback = null) =>
+      this.game.buildingDefs?.find((entry) => entry.id === id)?.visualVariant ?? fallback;
+
+    const tintMaterial = (material, color, roughness = material.roughness) => {
+      const clone = material.clone();
+      clone.color = new THREE.Color(color);
+      clone.roughness = roughness;
+      return clone;
+    };
+
+    const addBox = (parent, size, localPos, material, rotation = null) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
+      mesh.position.copy(localPos);
+      if (rotation) {
+        mesh.rotation.set(rotation.x ?? 0, rotation.y ?? 0, rotation.z ?? 0);
+      }
+      parent.add(mesh);
+      return mesh;
+    };
+
+    const addCylinder = (parent, radiusTop, radiusBottom, height, localPos, material, rotation = null, segments = 10) => {
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radiusTop, radiusBottom, height, segments), material);
+      mesh.position.copy(localPos);
+      if (rotation) {
+        mesh.rotation.set(rotation.x ?? 0, rotation.y ?? 0, rotation.z ?? 0);
+      }
+      parent.add(mesh);
+      return mesh;
+    };
+
+    const addGableRoof = (root, position, size, material, style = "tile") => {
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(size.x, size.z) * 0.7, 1.8, 4), material);
+      roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.9, 0));
+      roof.rotation.y = Math.PI * 0.25;
+      root.add(roof);
+
+      if (style !== "thatch") {
+        return roof;
+      }
+
+      const layerCount = 9;
+      for (let i = 0; i < layerCount; i += 1) {
+        const t = i / Math.max(1, layerCount - 1);
+        const y = size.y + 0.23 + t * 1.45;
+        const width = size.x * (1.34 - t * 0.5);
+        const depth = size.z * (1.2 - t * 0.42);
+        const stripMat = i % 2 === 0 ? thatchMat : tintMaterial(thatchMat, 0x876a37, 1);
+        const frontStrip = addBox(
+          root,
+          new THREE.Vector3(width, 0.12, 0.16),
+          position.clone().add(new THREE.Vector3((i % 3 - 1) * 0.035, y, size.z * 0.52 - t * 0.52)),
+          stripMat,
+          { x: -0.42, y: 0, z: (i % 2 ? -0.02 : 0.02) },
+        );
+        const backStrip = frontStrip.clone();
+        backStrip.position.z = position.z - size.z * 0.52 + t * 0.52;
+        backStrip.rotation.x = 0.42;
+        root.add(backStrip);
+        if (i % 2 === 0) {
+          addBox(
+            root,
+            new THREE.Vector3(0.12, 0.1, depth),
+            position.clone().add(new THREE.Vector3(-size.x * 0.52 + t * 0.46, y - 0.02, (i % 4 - 1.5) * 0.03)),
+            thatchDarkMat,
+            { x: 0, y: 0, z: 0.34 },
+          );
+          addBox(
+            root,
+            new THREE.Vector3(0.12, 0.1, depth),
+            position.clone().add(new THREE.Vector3(size.x * 0.52 - t * 0.46, y - 0.02, (i % 4 - 1.5) * 0.03)),
+            thatchDarkMat,
+            { x: 0, y: 0, z: -0.34 },
+          );
+        }
+      }
+
+      addCylinder(
+        root,
+        0.13,
+        0.16,
+        size.x * 1.1,
+        position.clone().add(new THREE.Vector3(0, size.y + 1.78, 0)),
+        thatchDarkMat,
+        { x: 0, y: 0, z: Math.PI * 0.5 },
+        9,
+      );
+      return roof;
+    };
+
+    const addDecoratedDoor = (root, id, position, size, material = agedWoodMat) => {
+      const doorHeight = Math.max(1.1, size.y * 0.42);
+      const doorWidth = size.x * 0.22;
+      const door = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, doorHeight, 0.12), material);
+      door.position.copy(position).add(new THREE.Vector3(0, size.y * 0.22, size.z * 0.5 + 0.065));
+      door.userData = { buildingId: id };
+      root.add(door);
+      this.buildingDoorMeshes.set(id, door);
+
+      for (let i = -1; i <= 1; i += 1) {
+        addBox(door, new THREE.Vector3(0.035, doorHeight * 0.92, 0.025), new THREE.Vector3(i * doorWidth * 0.25, 0, 0.073), darkBeamMat);
+      }
+      addBox(door, new THREE.Vector3(doorWidth * 0.9, 0.055, 0.035), new THREE.Vector3(0, doorHeight * 0.22, 0.08), darkBeamMat);
+      addBox(door, new THREE.Vector3(doorWidth * 0.9, 0.055, 0.035), new THREE.Vector3(0, -doorHeight * 0.22, 0.08), darkBeamMat);
+      addCylinder(door, 0.035, 0.035, 0.025, new THREE.Vector3(doorWidth * 0.28, 0.02, 0.095), ironMat, { x: Math.PI * 0.5 }, 10);
+      return door;
+    };
+
+    const addWindowAssembly = (root, position, size, offset, options = {}) => {
+      const paneMat = options.paneMaterial ?? windowMat;
+      const width = options.width ?? 0.62;
+      const height = options.height ?? 0.58;
+      const depth = options.depth ?? 0.07;
+      const rotationY = options.side === "left" ? Math.PI * 0.5 : options.side === "right" ? -Math.PI * 0.5 : 0;
+      const frameDepth = depth + 0.035;
+      const base = position.clone().add(offset);
+      const paneOffsets = [
+        new THREE.Vector3(-width * 0.13, height * 0.13, 0),
+        new THREE.Vector3(width * 0.13, height * 0.13, 0),
+        new THREE.Vector3(-width * 0.13, -height * 0.13, 0),
+        new THREE.Vector3(width * 0.13, -height * 0.13, 0),
+      ];
+
+      const frame = new THREE.Group();
+      frame.position.copy(base);
+      frame.rotation.y = rotationY;
+      root.add(frame);
+
+      addBox(frame, new THREE.Vector3(width + 0.16, 0.08, frameDepth), new THREE.Vector3(0, height * 0.5 + 0.06, 0), trimMat);
+      addBox(frame, new THREE.Vector3(width + 0.16, 0.08, frameDepth), new THREE.Vector3(0, -height * 0.5 - 0.06, 0), trimMat);
+      addBox(frame, new THREE.Vector3(0.08, height + 0.16, frameDepth), new THREE.Vector3(-width * 0.5 - 0.06, 0, 0), trimMat);
+      addBox(frame, new THREE.Vector3(0.08, height + 0.16, frameDepth), new THREE.Vector3(width * 0.5 + 0.06, 0, 0), trimMat);
+      addBox(frame, new THREE.Vector3(0.045, height + 0.06, frameDepth + 0.01), new THREE.Vector3(0, 0, 0.01), darkBeamMat);
+      addBox(frame, new THREE.Vector3(width + 0.04, 0.045, frameDepth + 0.01), new THREE.Vector3(0, 0, 0.01), darkBeamMat);
+
+      for (const paneOffset of paneOffsets) {
+        const pane = addBox(frame, new THREE.Vector3(width * 0.22, height * 0.22, depth), paneOffset, paneMat.clone());
+        pane.userData.worldWindowProxy = true;
+        registerBreakableWindow(pane);
+      }
+
+      if (options.shutters) {
+        addBox(frame, new THREE.Vector3(0.15, height + 0.08, 0.075), new THREE.Vector3(-width * 0.74, 0, 0.015), shutterMat, {
+          x: 0,
+          y: 0.08,
+          z: 0,
+        });
+        addBox(frame, new THREE.Vector3(0.15, height + 0.08, 0.075), new THREE.Vector3(width * 0.74, 0, 0.015), shutterMat, {
+          x: 0,
+          y: -0.08,
+          z: 0,
+        });
+      }
+
+      if (options.cracked) {
+        addBox(frame, new THREE.Vector3(0.02, height * 0.45, 0.025), new THREE.Vector3(-width * 0.1, height * 0.08, depth * 0.7), crackMat, {
+          x: 0,
+          y: 0,
+          z: -0.45,
+        });
+        addBox(frame, new THREE.Vector3(0.018, height * 0.34, 0.025), new THREE.Vector3(width * 0.16, -height * 0.08, depth * 0.7), crackMat, {
+          x: 0,
+          y: 0,
+          z: 0.55,
+        });
+      }
+    };
+
+    const addHomeClutter = (root, position, size, variant) => {
+      addBox(root, new THREE.Vector3(size.x * 0.28, 0.18, 0.68), position.clone().add(new THREE.Vector3(0, 0.09, size.z * 0.5 + 0.45)), stoneStepMat);
+      addBox(root, new THREE.Vector3(size.x * 0.38, 0.12, 0.84), position.clone().add(new THREE.Vector3(0, 0.22, size.z * 0.5 + 0.33)), stoneStepMat);
+
+      const barrelX = variant === "log_cottage" ? size.x * 0.43 : -size.x * 0.45;
+      addCylinder(root, 0.22, 0.25, 0.7, position.clone().add(new THREE.Vector3(barrelX, 0.35, size.z * 0.52 + 0.42)), agedWoodMat, null, 12);
+      addCylinder(root, 0.225, 0.225, 0.035, position.clone().add(new THREE.Vector3(barrelX, 0.7, size.z * 0.52 + 0.42)), ironMat, null, 12);
+      addCylinder(root, 0.225, 0.225, 0.035, position.clone().add(new THREE.Vector3(barrelX, 0.16, size.z * 0.52 + 0.42)), ironMat, null, 12);
+
+      for (let i = 0; i < 5; i += 1) {
+        addCylinder(
+          root,
+          0.07,
+          0.08,
+          0.78 + i * 0.03,
+          position.clone().add(new THREE.Vector3(size.x * 0.52, 0.18 + i * 0.045, -size.z * 0.36 + i * 0.18)),
+          agedWoodMat,
+          { x: Math.PI * 0.5, y: 0.15 * i, z: Math.PI * 0.5 },
+          8,
+        );
+      }
+
+      const lantern = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.22, 0.12),
+        new THREE.MeshStandardMaterial({
+          color: 0xf2c57d,
+          emissive: 0xff9d49,
+          emissiveIntensity: 0.7,
+          roughness: 0.45,
+          metalness: 0.08,
+        }),
+      );
+      lantern.position.copy(position).add(new THREE.Vector3(-size.x * 0.31, size.y * 0.7, size.z * 0.5 + 0.12));
+      root.add(lantern);
+      const hook = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.008, 6, 14), ironMat);
+      hook.position.copy(lantern.position).add(new THREE.Vector3(0, 0.17, -0.02));
+      hook.rotation.x = Math.PI * 0.5;
+      root.add(hook);
+    };
+
+    const addStuccoThatchHome = (root, position, size, id) => {
+      const base = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), stuccoMat);
+      base.position.copy(position).add(new THREE.Vector3(0, size.y * 0.5, 0));
+      root.add(base);
+
+      const patchSpecs = [
+        [-0.41, 0.58, 0.515, 0.62, 0.38],
+        [0.39, 0.42, 0.516, 0.42, 0.28],
+        [-0.505, 0.38, -0.22, 0.08, 0.52],
+        [0.505, 0.66, 0.18, 0.08, 0.42],
+        [0.14, 0.78, -0.516, 0.7, 0.28],
+      ];
+      for (const [xNorm, yNorm, zNorm, patchW, patchH] of patchSpecs) {
+        addBox(
+          root,
+          new THREE.Vector3(Math.max(0.08, patchW), patchH, 0.035),
+          position.clone().add(new THREE.Vector3(xNorm * size.x, yNorm * size.y, zNorm * size.z)),
+          stuccoPatchMat,
+          { x: 0, y: Math.abs(zNorm) > 0.51 ? 0 : Math.PI * 0.5, z: xNorm * 0.05 },
+        );
+      }
+
+      for (const x of [-size.x * 0.5 - 0.04, size.x * 0.5 + 0.04]) {
+        addBox(root, new THREE.Vector3(0.16, size.y * 1.03, 0.18), position.clone().add(new THREE.Vector3(x, size.y * 0.51, size.z * 0.01)), darkBeamMat);
+      }
+      addBox(root, new THREE.Vector3(size.x * 1.04, 0.16, 0.18), position.clone().add(new THREE.Vector3(0, size.y * 0.98, size.z * 0.49)), darkBeamMat);
+      addBox(root, new THREE.Vector3(size.x * 1.04, 0.16, 0.18), position.clone().add(new THREE.Vector3(0, size.y * 0.98, -size.z * 0.49)), darkBeamMat);
+      addBox(root, new THREE.Vector3(0.16, size.y * 0.95, 0.18), position.clone().add(new THREE.Vector3(-size.x * 0.28, size.y * 0.49, size.z * 0.51)), darkBeamMat, {
+        x: 0,
+        y: 0,
+        z: -0.26,
+      });
+      addBox(root, new THREE.Vector3(0.16, size.y * 0.95, 0.18), position.clone().add(new THREE.Vector3(size.x * 0.28, size.y * 0.49, size.z * 0.51)), darkBeamMat, {
+        x: 0,
+        y: 0,
+        z: 0.26,
+      });
+
+      addGableRoof(root, position, size, thatchMat, "thatch");
+      addDecoratedDoor(root, id, position, size, agedWoodMat);
+      addWindowAssembly(root, position, size, new THREE.Vector3(-size.x * 0.28, size.y * 0.6, size.z * 0.5 + 0.09), {
+        shutters: true,
+        cracked: true,
+      });
+      addWindowAssembly(root, position, size, new THREE.Vector3(size.x * 0.28, size.y * 0.6, size.z * 0.5 + 0.09), {
+        shutters: true,
+      });
+      addWindowAssembly(root, position, size, new THREE.Vector3(-size.x * 0.5 - 0.09, size.y * 0.56, -size.z * 0.14), {
+        side: "left",
+        width: 0.52,
+        height: 0.5,
+        cracked: true,
+      });
+      addHomeClutter(root, position, size, "stucco_thatch");
+    };
+
+    const addLogCottageHome = (root, position, size, id) => {
+      const logRows = 8;
+      const logRadius = size.y / (logRows * 2.18);
+      for (let row = 0; row < logRows; row += 1) {
+        const y = logRadius + row * logRadius * 2.08;
+        const rowMat = row % 2 === 0 ? agedWoodMat : tintMaterial(agedWoodMat, 0x5a3b26, 0.96);
+        addCylinder(root, logRadius, logRadius * 1.08, size.x * 1.04, position.clone().add(new THREE.Vector3(0, y, size.z * 0.5)), rowMat, {
+          x: 0,
+          y: 0,
+          z: Math.PI * 0.5,
+        });
+        addCylinder(root, logRadius, logRadius * 1.08, size.x * 1.04, position.clone().add(new THREE.Vector3(0, y, -size.z * 0.5)), rowMat, {
+          x: 0,
+          y: 0,
+          z: Math.PI * 0.5,
+        });
+        addCylinder(root, logRadius, logRadius * 1.08, size.z * 1.04, position.clone().add(new THREE.Vector3(-size.x * 0.5, y + logRadius * 0.18, 0)), rowMat, {
+          x: Math.PI * 0.5,
+        });
+        addCylinder(root, logRadius, logRadius * 1.08, size.z * 1.04, position.clone().add(new THREE.Vector3(size.x * 0.5, y + logRadius * 0.18, 0)), rowMat, {
+          x: Math.PI * 0.5,
+        });
+      }
+
+      for (const x of [-size.x * 0.55, size.x * 0.55]) {
+        for (const z of [-size.z * 0.55, size.z * 0.55]) {
+          addCylinder(root, logRadius * 1.35, logRadius * 1.5, size.y * 1.04, position.clone().add(new THREE.Vector3(x, size.y * 0.52, z)), cutLogMat, null, 10);
+        }
+      }
+
+      addGableRoof(root, position, size, tintMaterial(roofSlate, 0x2e343b, 0.94));
+      addBox(root, new THREE.Vector3(size.x * 1.16, 0.16, 0.22), position.clone().add(new THREE.Vector3(0, size.y + 0.15, size.z * 0.52)), darkBeamMat);
+      addBox(root, new THREE.Vector3(size.x * 1.16, 0.16, 0.22), position.clone().add(new THREE.Vector3(0, size.y + 0.15, -size.z * 0.52)), darkBeamMat);
+      addDecoratedDoor(root, id, position, size, tintMaterial(agedWoodMat, 0x4b2e1d, 0.9));
+      addWindowAssembly(root, position, size, new THREE.Vector3(-size.x * 0.28, size.y * 0.58, size.z * 0.5 + 0.1), {
+        shutters: true,
+        paneMaterial: tintMaterial(windowMat, 0xe6c28e, 0.42),
+      });
+      addWindowAssembly(root, position, size, new THREE.Vector3(size.x * 0.28, size.y * 0.58, size.z * 0.5 + 0.1), {
+        shutters: true,
+        cracked: true,
+        paneMaterial: tintMaterial(windowMat, 0xe6c28e, 0.42),
+      });
+      addWindowAssembly(root, position, size, new THREE.Vector3(size.x * 0.5 + 0.1, size.y * 0.54, -size.z * 0.12), {
+        side: "right",
+        width: 0.52,
+        height: 0.5,
+        paneMaterial: tintMaterial(windowMat, 0xe6c28e, 0.42),
+      });
+      addHomeClutter(root, position, size, "log_cottage");
+    };
+
     const addLamp = (id, position) => {
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.11, 2.8, 10),
@@ -2580,48 +3112,41 @@ export class RaidScene3D {
       this.physics.createStaticBox(id, position.clone().add(new THREE.Vector3(0, 1.4, 0)), new THREE.Vector3(0.2, 2.8, 0.2), {
         material: "steel",
       });
-      const light = new THREE.PointLight(0xffb46a, 5.8, 11, 2.1);
+      const light = new THREE.PointLight(0xffa15e, 3.8, 9, 2.2);
       light.position.copy(position).add(new THREE.Vector3(0, 2.8, 0));
       villageGroup.add(light);
     };
 
-    const addBuilding = ({ id, position, size, wallMat, roofMat, roofStyle = "gable", towerHeight = 0, sign = false }) => {
+    const addBuilding = ({ id, position, size, wallMat, roofMat, roofStyle = "gable", towerHeight = 0, sign = false, visualVariant = null }) => {
       const root = new THREE.Group();
 
-      const base = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), wallMat);
-      base.position.copy(position).add(new THREE.Vector3(0, size.y * 0.5, 0));
-      root.add(base);
-
-      let roof;
-      if (roofStyle === "flat") {
-        roof = new THREE.Mesh(new THREE.BoxGeometry(size.x * 1.04, 0.28, size.z * 1.04), roofMat);
-        roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.14, 0));
-      } else if (roofStyle === "tower") {
-        roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(size.x, size.z) * 0.42, 1.4, 8), roofMat);
-        roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.7, 0));
+      if (visualVariant === "stucco_thatch") {
+        addStuccoThatchHome(root, position, size, id);
+      } else if (visualVariant === "log_cottage") {
+        addLogCottageHome(root, position, size, id);
       } else {
-        roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(size.x, size.z) * 0.7, 1.8, 4), roofMat);
-        roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.9, 0));
-        roof.rotation.y = Math.PI * 0.25;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), wallMat);
+        base.position.copy(position).add(new THREE.Vector3(0, size.y * 0.5, 0));
+        root.add(base);
+
+        let roof;
+        if (roofStyle === "flat") {
+          roof = new THREE.Mesh(new THREE.BoxGeometry(size.x * 1.04, 0.28, size.z * 1.04), roofMat);
+          roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.14, 0));
+        } else if (roofStyle === "tower") {
+          roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(size.x, size.z) * 0.42, 1.4, 8), roofMat);
+          roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.7, 0));
+        } else {
+          roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(size.x, size.z) * 0.7, 1.8, 4), roofMat);
+          roof.position.copy(position).add(new THREE.Vector3(0, size.y + 0.9, 0));
+          roof.rotation.y = Math.PI * 0.25;
+        }
+        root.add(roof);
+
+        addDecoratedDoor(root, id, position, size, new THREE.MeshStandardMaterial({ color: 0x3a261a, roughness: 0.86, metalness: 0.04 }));
+        addWindowAssembly(root, position, size, new THREE.Vector3(-size.x * 0.22, size.y * 0.58, size.z * 0.5 + 0.08));
+        addWindowAssembly(root, position, size, new THREE.Vector3(size.x * 0.22, size.y * 0.58, size.z * 0.5 + 0.08));
       }
-      root.add(roof);
-
-      const door = new THREE.Mesh(
-        new THREE.BoxGeometry(size.x * 0.2, Math.max(1.1, size.y * 0.42), 0.12),
-        new THREE.MeshStandardMaterial({ color: 0x3a261a, roughness: 0.86, metalness: 0.04 }),
-      );
-      door.position.copy(position).add(new THREE.Vector3(0, size.y * 0.22, size.z * 0.5 + 0.06));
-      door.userData = { buildingId: id };
-      root.add(door);
-      this.buildingDoorMeshes.set(id, door);
-
-      const windowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.56, 0.08), windowMat);
-      windowLeft.position.copy(position).add(new THREE.Vector3(-size.x * 0.22, size.y * 0.58, size.z * 0.5 + 0.08));
-      const windowRight = windowLeft.clone();
-      windowRight.position.x = position.x + size.x * 0.22;
-      root.add(windowLeft, windowRight);
-      registerBreakableWindow(windowLeft);
-      registerBreakableWindow(windowRight);
 
       if (towerHeight > 0) {
         const tower = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.35, towerHeight, size.z * 0.35), wallStone);
@@ -2709,6 +3234,7 @@ export class RaidScene3D {
       wallMat: wallPlaster,
       roofMat: roofTile,
       roofStyle: "gable",
+      visualVariant: buildingVisualVariant("village_house_a", "stucco_thatch"),
     });
     addBuilding({
       id: "village_house_b",
@@ -2717,9 +3243,10 @@ export class RaidScene3D {
       wallMat: wallPlaster,
       roofMat: roofSlate,
       roofStyle: "gable",
+      visualVariant: buildingVisualVariant("village_house_b", "log_cottage"),
     });
 
-    const fenceMat = new THREE.MeshStandardMaterial({ color: 0x5c4634, roughness: 0.88, metalness: 0.02 });
+    const fenceMat = new THREE.MeshStandardMaterial({ color: 0x45372c, roughness: 0.92, metalness: 0.02 });
     const fenceSegments = [
       { id: "fence_nw", pos: new THREE.Vector3(-20, 0.65, -6.5), size: new THREE.Vector3(10, 1.3, 0.25) },
       { id: "fence_ne", pos: new THREE.Vector3(20, 0.65, -6.5), size: new THREE.Vector3(10, 1.3, 0.25) },
@@ -2941,15 +3468,17 @@ export class RaidScene3D {
     const interiorsGroup = new THREE.Group();
     this.scene.add(interiorsGroup);
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x5b4e44, roughness: 0.88, metalness: 0.04 });
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x61513d, roughness: 0.9, metalness: 0.02 });
-    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.92, metalness: 0.02 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x463d36, roughness: 0.92, metalness: 0.04 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x40362b, roughness: 0.94, metalness: 0.02 });
+    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x302a26, roughness: 0.94, metalness: 0.02 });
     const beaconMat = new THREE.MeshStandardMaterial({
-      color: 0xc9f086,
-      emissive: 0xb3e86a,
-      emissiveIntensity: 0.85,
+      color: 0x5d3e2b,
+      emissive: 0x2d150b,
+      emissiveIntensity: 0.02,
       roughness: 0.4,
       metalness: 0.05,
+      transparent: true,
+      opacity: 0.18,
     });
 
     for (const def of this.game.buildingDefs) {
@@ -2977,10 +3506,10 @@ export class RaidScene3D {
       wallE.position.x = center.x + size.x * 0.5;
       roomRoot.add(floor, ceiling, wallN, wallS, wallW, wallE);
 
-      const roomLight = new THREE.PointLight(0xffcfa0, 18, 16, 2);
+      const roomLight = new THREE.PointLight(0xffb483, 7.5, 12, 2.2);
       roomLight.position.copy(center).add(new THREE.Vector3(0, Math.max(1.7, size.y - 0.45), 0));
       roomRoot.add(roomLight);
-      const roomFill = new THREE.PointLight(0xc4d9ff, 6.5, 14, 1.8);
+      const roomFill = new THREE.PointLight(0x8fa4b6, 1.4, 10, 2.1);
       roomFill.position.copy(center).add(new THREE.Vector3(0, 1, 0));
       roomRoot.add(roomFill);
 
@@ -3024,9 +3553,10 @@ export class RaidScene3D {
       );
 
       const doorInside = vec3From(interior.doorInside);
-      const insideMarker = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.16, 10), beaconMat);
+      const insideMarker = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.08, 10), beaconMat);
       insideMarker.position.copy(doorInside).add(new THREE.Vector3(0, -1.02, 0));
       insideMarker.userData = { buildingId: def.id };
+      insideMarker.visible = !def.startHouse;
       insideMarker.castShadow = true;
       interiorsGroup.add(insideMarker);
 
@@ -3034,20 +3564,23 @@ export class RaidScene3D {
       let startDoorLight = null;
       if (def.startHouse) {
         startDoorBeacon = new THREE.Mesh(
-          new THREE.TorusGeometry(0.35, 0.04, 10, 22),
+          new THREE.TorusGeometry(0.24, 0.022, 8, 18),
           new THREE.MeshStandardMaterial({
             color: 0xd9ff9d,
             emissive: 0xb7f26c,
-            emissiveIntensity: 1.15,
+            emissiveIntensity: 0.16,
             roughness: 0.25,
             metalness: 0.05,
+            transparent: true,
+            opacity: 0.46,
           }),
         );
         startDoorBeacon.rotation.x = Math.PI * 0.5;
         startDoorBeacon.position.copy(doorInside).add(new THREE.Vector3(0, -0.95, 0));
+        startDoorBeacon.visible = false;
         interiorsGroup.add(startDoorBeacon);
 
-        startDoorLight = new THREE.PointLight(0xd6ff97, 10, 6.8, 2.2);
+        startDoorLight = new THREE.PointLight(0xffb36d, 0.45, 2.6, 2.8);
         startDoorLight.position.copy(doorInside).add(new THREE.Vector3(0, 0.5, -0.12));
         interiorsGroup.add(startDoorLight);
       }
@@ -3072,19 +3605,19 @@ export class RaidScene3D {
         const body = new THREE.Mesh(
           new THREE.CapsuleGeometry(0.22, 0.68, 6, 12),
           new THREE.MeshStandardMaterial({
-            color: 0xaab5c3,
+            color: 0x737c86,
             roughness: 0.86,
             metalness: 0.03,
-            emissive: 0x0f1f2a,
-            emissiveIntensity: 0.24,
+            emissive: 0x070b0e,
+            emissiveIntensity: 0.04,
           }),
         );
         body.position.y = 0.62;
         const head = new THREE.Mesh(
           new THREE.SphereGeometry(0.16, 10, 10),
           new THREE.MeshStandardMaterial({
-            color: 0xe6c5aa,
-            roughness: 0.74,
+            color: 0x9e7f69,
+            roughness: 0.88,
             metalness: 0.02,
           }),
         );
@@ -3139,22 +3672,22 @@ export class RaidScene3D {
     const group = new THREE.Group();
     this.scene.add(group);
 
-    const terrainMat = new THREE.MeshStandardMaterial({ color: 0x4e5b49, roughness: 0.94, metalness: 0.02 });
-    const rockMat = new THREE.MeshStandardMaterial({ color: 0x5f686f, roughness: 0.88, metalness: 0.08 });
-    const bankMat = new THREE.MeshStandardMaterial({ color: 0x3d3224, roughness: 0.96, metalness: 0.02 });
+    const terrainMat = new THREE.MeshStandardMaterial({ color: 0x3f4a3d, roughness: 0.96, metalness: 0.02 });
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x4d5458, roughness: 0.9, metalness: 0.08 });
+    const bankMat = new THREE.MeshStandardMaterial({ color: 0x312a20, roughness: 0.97, metalness: 0.02 });
     const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x2b4f5e,
-      emissive: 0x1a3a44,
-      emissiveIntensity: 0.62,
+      color: 0x243b42,
+      emissive: 0x10252b,
+      emissiveIntensity: 0.28,
       roughness: 0.32,
       metalness: 0.18,
       transparent: true,
       opacity: 0.82,
     });
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4d3825, roughness: 0.86, metalness: 0.03 });
-    const foliageMat = new THREE.MeshStandardMaterial({ color: 0x2f5334, roughness: 0.88, metalness: 0.04 });
-    const deadFoliageMat = new THREE.MeshStandardMaterial({ color: 0x445144, roughness: 0.9, metalness: 0.03 });
-    const grassMat = new THREE.MeshStandardMaterial({ color: 0x60734f, roughness: 0.95, metalness: 0.01 });
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x34281f, roughness: 0.88, metalness: 0.03 });
+    const foliageMat = new THREE.MeshStandardMaterial({ color: 0x26392a, roughness: 0.9, metalness: 0.04 });
+    const deadFoliageMat = new THREE.MeshStandardMaterial({ color: 0x303732, roughness: 0.92, metalness: 0.03 });
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x4c5d43, roughness: 0.96, metalness: 0.01 });
 
     const markShadow = (node) => {
       node.traverse((child) => {
@@ -3408,10 +3941,13 @@ export class RaidScene3D {
   }
 
   buildProps() {
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x775b41, roughness: 0.84, metalness: 0.05 });
-    const ironMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.7, metalness: 0.42 });
-    const hayMat = new THREE.MeshStandardMaterial({ color: 0x9a8848, roughness: 0.92, metalness: 0.01 });
-    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x6f7680, roughness: 0.9, metalness: 0.08 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x5c4635, roughness: 0.88, metalness: 0.05 });
+    const ironMat = new THREE.MeshStandardMaterial({ color: 0x3f454b, roughness: 0.74, metalness: 0.42 });
+    const hayMat = new THREE.MeshStandardMaterial({ color: 0x74693d, roughness: 0.94, metalness: 0.01 });
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x555d64, roughness: 0.92, metalness: 0.08 });
+    const rubberMat = new THREE.MeshStandardMaterial({ color: 0x151719, roughness: 0.72, metalness: 0.08 });
+    const rustMat = new THREE.MeshStandardMaterial({ color: 0x6b3b26, roughness: 0.86, metalness: 0.18 });
+    const paintMat = new THREE.MeshStandardMaterial({ color: 0x4b5a5d, roughness: 0.82, metalness: 0.28 });
 
     const propDefs = [
       { id: "market_crate_a", type: "crate", pos: new THREE.Vector3(8, 0, -14.5), size: new THREE.Vector3(1.1, 0.9, 1.1), mass: 26 },
@@ -3426,6 +3962,10 @@ export class RaidScene3D {
       { id: "cart", type: "cart", pos: new THREE.Vector3(3.7, 0, -10.7), size: new THREE.Vector3(1.9, 0.9, 1.2), mass: 35 },
       { id: "crate_lane_a", type: "crate", pos: new THREE.Vector3(-7.5, 0, -7.4), size: new THREE.Vector3(1, 0.8, 1), mass: 22 },
       { id: "crate_lane_b", type: "crate", pos: new THREE.Vector3(-9.4, 0, -6.7), size: new THREE.Vector3(0.9, 0.78, 0.9), mass: 18 },
+      { id: "road_barricade_a", type: "barricade", pos: new THREE.Vector3(-3.2, 0, -5.6), size: new THREE.Vector3(2.7, 1.15, 0.72), mass: 42 },
+      { id: "road_barricade_b", type: "barricade", pos: new THREE.Vector3(5.4, 0, -7.8), size: new THREE.Vector3(2.4, 1.05, 0.64), mass: 38 },
+      { id: "burned_sedan", type: "car", pos: new THREE.Vector3(-13.5, 0, 4.6), size: new THREE.Vector3(2.2, 1.05, 4.1), mass: 120 },
+      { id: "pickup_wreck", type: "car", pos: new THREE.Vector3(15.8, 0, 3.8), size: new THREE.Vector3(2.3, 1.12, 4.3), mass: 130 },
     ];
 
     const markShadow = (node) => {
@@ -3478,6 +4018,52 @@ export class RaidScene3D {
         wheelC.position.set(-size.x * 0.42, -size.y * 0.2, size.z * 0.42);
         wheelD.position.set(size.x * 0.42, -size.y * 0.2, size.z * 0.42);
         mesh.add(bed, wheelA, wheelB, wheelC, wheelD);
+      } else if (prop.type === "barricade") {
+        mesh = new THREE.Group();
+        const railA = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y * 0.18, size.z * 0.16), woodMat);
+        const railB = railA.clone();
+        const railC = railA.clone();
+        railA.position.y = size.y * 0.22;
+        railB.position.y = size.y * 0.48;
+        railC.position.y = size.y * 0.75;
+        railB.rotation.z = -0.08;
+        const postGeo = new THREE.BoxGeometry(size.x * 0.08, size.y, size.z * 0.22);
+        const postA = new THREE.Mesh(postGeo, woodMat);
+        const postB = postA.clone();
+        postA.position.set(-size.x * 0.34, size.y * 0.43, 0);
+        postB.position.set(size.x * 0.34, size.y * 0.43, 0);
+        const warning = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.42, size.y * 0.18, size.z * 0.18), rustMat);
+        warning.position.set(0, size.y * 0.62, size.z * 0.12);
+        mesh.add(railA, railB, railC, postA, postB, warning);
+        mesh.rotation.y = prop.id.endsWith("_b") ? -0.34 : 0.28;
+      } else if (prop.type === "car") {
+        mesh = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y * 0.58, size.z), paintMat);
+        body.position.y = size.y * 0.34;
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.78, size.y * 0.5, size.z * 0.44), rustMat);
+        cabin.position.set(0, size.y * 0.82, -size.z * 0.04);
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.92, size.y * 0.18, size.z * 0.32), rustMat);
+        hood.position.set(0, size.y * 0.66, size.z * 0.34);
+        const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12);
+        const wheels = [
+          [-size.x * 0.54, size.y * 0.26, -size.z * 0.32],
+          [size.x * 0.54, size.y * 0.26, -size.z * 0.32],
+          [-size.x * 0.54, size.y * 0.26, size.z * 0.34],
+          [size.x * 0.54, size.y * 0.26, size.z * 0.34],
+        ].map(([x, y, z]) => {
+          const wheel = new THREE.Mesh(wheelGeo, rubberMat);
+          wheel.rotation.z = Math.PI * 0.5;
+          wheel.position.set(x, y, z);
+          return wheel;
+        });
+        const windshield = new THREE.Mesh(
+          new THREE.BoxGeometry(size.x * 0.64, size.y * 0.18, 0.06),
+          new THREE.MeshStandardMaterial({ color: 0x1b2428, roughness: 0.32, metalness: 0.12, transparent: true, opacity: 0.56 }),
+        );
+        windshield.position.set(0, size.y * 0.94, size.z * 0.2);
+        windshield.rotation.x = -0.32;
+        mesh.add(body, cabin, hood, windshield, ...wheels);
+        mesh.rotation.y = prop.id === "burned_sedan" ? -0.72 : 0.58;
       } else if (prop.type === "stone") {
         mesh = new THREE.Mesh(new THREE.CylinderGeometry(size.x * 0.48, size.x * 0.55, size.y, 10), stoneMat);
       } else {
@@ -3489,6 +4075,28 @@ export class RaidScene3D {
       this.scene.add(mesh);
       this.props.push({ id: `prop_${prop.id}`, entity, mesh, size, ttl: Infinity });
     }
+
+    const debrisMat = new THREE.MeshStandardMaterial({ color: 0x313333, roughness: 0.95, metalness: 0.06 });
+    const addStaticDebris = (center, count, radius) => {
+      for (let i = 0; i < count; i += 1) {
+        const chip = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.08 + Math.random() * 0.16, 0),
+          Math.random() > 0.68 ? rustMat : debrisMat,
+        );
+        chip.position.set(
+          center.x + (Math.random() - 0.5) * radius,
+          0.04 + Math.random() * 0.09,
+          center.z + (Math.random() - 0.5) * radius,
+        );
+        chip.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+        chip.castShadow = true;
+        chip.receiveShadow = true;
+        this.scene.add(chip);
+      }
+    };
+    addStaticDebris(new THREE.Vector3(-12.6, 0, 4.6), 34, 5.8);
+    addStaticDebris(new THREE.Vector3(15.2, 0, 3.7), 30, 5.4);
+    addStaticDebris(new THREE.Vector3(0, 0, -8), 26, 7.6);
   }
 
   createHud() {
@@ -3521,8 +4129,10 @@ export class RaidScene3D {
         <div class="fps-hud-chip" data-hud="enemies"></div>
         <div class="fps-hud-chip" data-hud="grenade"></div>
       </div>
+      <div class="fps-hud-line fps-objective" data-hud="objective"></div>
       <div class="fps-hud-line" data-hud="prompt"></div>
       <div class="fps-hud-line fps-controls" data-hud="controls"></div>
+      <div class="fps-combat-cue" data-hud="combat-cue"></div>
     `;
     document.body.appendChild(hud);
     this.createWeaponIndicator();
@@ -3533,6 +4143,7 @@ export class RaidScene3D {
       actions.className = "fps-raid-actions";
       actions.innerHTML = `
         <button class="fps-quick-btn fps-grenade-quick" type="button">Frag</button>
+        <button class="fps-quick-btn fps-fire-quick" type="button">Fire</button>
         <button class="fps-quick-btn fps-swap-quick" type="button">Swap</button>
         <button class="fps-quick-btn fps-shop-quick" type="button">Shop</button>
         <button class="fps-quick-btn fps-fullscreen-quick" type="button">Full</button>
@@ -3540,6 +4151,7 @@ export class RaidScene3D {
         <button class="fps-quick-btn fps-tray-quick" type="button" aria-label="Open utility tray">+</button>
       `;
       const grenadeButton = actions.querySelector(".fps-grenade-quick");
+      const fireButton = actions.querySelector(".fps-fire-quick");
       const swapButton = actions.querySelector(".fps-swap-quick");
       const button = actions.querySelector(".fps-shop-quick");
       const fullscreenButton = actions.querySelector(".fps-fullscreen-quick");
@@ -3551,6 +4163,15 @@ export class RaidScene3D {
             return;
           }
           this.cycleGrenadeType();
+        });
+      }
+      if (fireButton) {
+        fireButton.addEventListener("click", () => {
+          if (this.game.mode !== "raid") {
+            return;
+          }
+          this.activateFlintAndSteel();
+          this.mobileUtilityTrayOpen = false;
         });
       }
       if (swapButton) {
@@ -3589,12 +4210,6 @@ export class RaidScene3D {
           if (this.game.mode !== "raid") {
             return;
           }
-          if (this.game.mobileControls?.enabled && window.matchMedia("(orientation: portrait)").matches) {
-            this.mobileUtilityTrayOpen = false;
-            this.mobileInstructionsOpen = false;
-            this.openShopFromRaid();
-            return;
-          }
           this.mobileUtilityTrayOpen = !this.mobileUtilityTrayOpen;
           if (!this.mobileUtilityTrayOpen) {
             this.mobileInstructionsOpen = false;
@@ -3604,6 +4219,7 @@ export class RaidScene3D {
       document.body.appendChild(actions);
       this.shopActionsEl = actions;
       this.grenadeQuickButtonEl = grenadeButton;
+      this.fireQuickButtonEl = fireButton;
       this.shopQuickButtonEl = button;
       this.swapQuickButtonEl = swapButton;
       this.fullscreenQuickButtonEl = fullscreenButton;
@@ -4349,7 +4965,7 @@ export class RaidScene3D {
       this.playerDamageOverlayEl.style.display = "block";
     }
     this.game.audio.stopMusic();
-    this.game.audio.startMusic("raid", { waveNumber: this.waveDirector.waveNumber || 1 });
+    this.game.audio.startMusic("raid", this.getMusicSnapshot());
     this.game.mobileControls.show();
     this.minimapOpen = !this.game.mobileControls.enabled;
     this.updateMiniMapVisibility();
@@ -4460,26 +5076,35 @@ export class RaidScene3D {
   resetRun() {
     this.playerController.state.hp = 100;
     this.playerController.state.stamina = 100;
-    const startBuilding = this.buildingState.find((entry) => entry.id === this.startHouseId) ?? this.buildingState[0];
-    const startSpawn = startBuilding?.exteriorSpawn ?? new THREE.Vector3(0, 1.2, 16);
-    this.teleportPlayer(startSpawn);
+    const startSpawn = new THREE.Vector3(0, 1.2, 16);
+    const startLookTarget = this.villagePosition;
+    this.teleportPlayer(startSpawn, startLookTarget);
     this.playerController.state.velocity.set(0, 0, 0);
-    const facingVillage = this.villagePosition.clone().sub(startSpawn).setY(0);
-    const facingForward = facingVillage.lengthSq() > 0.0001 ? facingVillage.normalize() : new THREE.Vector3(0, 0, -1);
-    this.playerController.state.yaw = yawFromForward(facingForward);
     this.playerController.state.pitch = -0.05;
     this.startHouseExited = true;
     this.phase = GAME_PHASE.DEFENSE;
     this.activeBuildingId = null;
     this.secretBossActive = false;
     this.secretBossSpawned = false;
-    this.pendingPrompt = "Defend the village and escort survivors to safety.";
-    this.promptTimer = 0;
+    this.pendingPrompt = "Wave 1 started. Reach the village line.";
+    this.promptTimer = 3.5;
+    this.waveStartGraceSec = FIRST_WAVE_GRACE_SEC;
+    this.tutorialProgress = {
+      moved: false,
+      attacked: false,
+      threwGrenade: false,
+      openedShop: false,
+    };
+    this.combatCueLabel = "";
+    this.combatCueTimer = 0;
+    this.lastThreatIntro = null;
+    this.introducedEnemyTypes = new Set(["walker", "crawler"]);
 
     this.syncVillagerPerkModifiers({ applyVillageHealth: true, restoreFullVillageHp: true });
     this.configureEscortDropoff();
     this.clearActiveEscort();
 
+    this.waveDirector.reset();
     this.waveDirector.startWave(0);
     this.villageDamageStage = 0;
     this.villageDamageFlash = 0;
@@ -4526,6 +5151,12 @@ export class RaidScene3D {
     this.grenadeCooldown = 0;
     this.interactLatch = false;
     this.grenadeLatch = false;
+    this.grenadeCycleLatch = false;
+    this.flintLatch = false;
+    this.flintCooldown = 0;
+    this.torchBurnSec = 0;
+    this.torchHitFireCooldown = 0;
+    this.clearWorldFires();
 
     this.setupAmmo();
     if (!this.game.save.pistolUnlocked) {
@@ -4554,6 +5185,7 @@ export class RaidScene3D {
     this.reloadTime = 0;
     this.viewWeaponFireKick = 0;
     this.spawnTracker = null;
+    this.syncPurchasedGearVisuals();
   }
 
   restoreTransformableLandscape() {
@@ -4765,11 +5397,19 @@ export class RaidScene3D {
   }
 
   openShopFromRaid() {
+    this.playerController?.keyState?.set?.("keyq", false);
+    this.playerController?.keyState?.set?.("escape", false);
+    this.shopShortcutLatch = true;
+    if (this.phase === GAME_PHASE.HOUSE_INTRO) {
+      this.setPrompt("Leave the safe house before shopping.");
+      return;
+    }
     if (this.phase === GAME_PHASE.SECRET_BOSS) {
       this.setPrompt("Shop disabled during secret boss.");
       return;
     }
     this.pause();
+    this.tutorialProgress.openedShop = true;
     this.game.setMode("shop", { waveNumber: this.waveDirector.waveNumber + 1 });
   }
 
@@ -4941,9 +5581,7 @@ export class RaidScene3D {
       this.teleportPlayer(interiorBuilding.exteriorSpawn, interiorBuilding.exteriorDoor);
       this.activeBuildingId = null;
       if (!this.startHouseExited && interiorBuilding.startHouse) {
-        this.startHouseExited = true;
-        this.phase = GAME_PHASE.DEFENSE;
-        this.setPrompt("Wave 1 started. Defend the village.");
+        this.beginFirstWave();
       } else {
         this.setPrompt("Back outside.");
       }
@@ -4970,6 +5608,15 @@ export class RaidScene3D {
     return true;
   }
 
+  beginFirstWave() {
+    this.startHouseExited = true;
+    this.phase = GAME_PHASE.DEFENSE;
+    this.waveStartGraceSec = FIRST_WAVE_GRACE_SEC;
+    this.waveDirector.startWave(0);
+    this.game.audio.updateMusicState(this.getMusicSnapshot(), 0, { force: true });
+    this.setPrompt("Wave 1 started. Reach the village line.", 3.2);
+  }
+
   handleInteract(input) {
     if (!input.interact) {
       this.interactLatch = false;
@@ -4980,10 +5627,29 @@ export class RaidScene3D {
     }
     this.interactLatch = true;
     const pos = this.playerController.state.position;
+    if (!this.startHouseExited && this.activeBuildingId === this.startHouseId) {
+      this.interactWithDoor(pos);
+      return;
+    }
     if (this.interactWithVillager(pos)) {
       return;
     }
     this.interactWithDoor(pos);
+  }
+
+  updateTutorialProgress(input) {
+    if (!this.tutorialProgress) {
+      return;
+    }
+    if (Math.abs(input.moveX) > 0.05 || Math.abs(input.moveY) > 0.05) {
+      this.tutorialProgress.moved = true;
+    }
+    if (input.fire) {
+      this.tutorialProgress.attacked = true;
+    }
+    if (input.grenade) {
+      this.tutorialProgress.threwGrenade = true;
+    }
   }
 
   handleGrenade(input) {
@@ -5065,6 +5731,7 @@ export class RaidScene3D {
     this.playerHitCooldown = Math.max(0, this.playerHitCooldown - dt);
     this.lastKillRewardTimer = Math.max(0, this.lastKillRewardTimer - dt);
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - dt);
+    this.combatCueTimer = Math.max(0, this.combatCueTimer - dt);
     this.promptTimer = Math.max(0, this.promptTimer - dt);
     this.grenadeCooldown = Math.max(0, this.grenadeCooldown - dt);
 
@@ -5075,6 +5742,7 @@ export class RaidScene3D {
       physics: this.physics,
       playerBody: this.playerBody,
     });
+    this.updateTutorialProgress(input);
 
     this.handleInteract(input);
     this.updateEscort(dt);
@@ -5087,6 +5755,7 @@ export class RaidScene3D {
     this.handleReload();
     this.handleFire(input, dt);
     this.handleGrenade(input);
+    this.handleGearInput(input);
     this.updateViewModel(dt, input);
     this.updateDoorGuidance(dt);
 
@@ -5101,8 +5770,8 @@ export class RaidScene3D {
           waveEnded: false,
           missionComplete: false,
           bossWave: false,
-          budgetLeft: this.waveDirector.currentWave?.budget ?? 0,
-          wave: this.waveDirector.currentWave ?? null,
+          budgetLeft: 0,
+          wave: null,
         };
     this.spawnEnemiesFromWave(waveUpdate);
 
@@ -5118,7 +5787,10 @@ export class RaidScene3D {
       maxVisibleEnemies: this.game.qualityProfile.maxVisibleEnemies,
     });
 
-    if (enemyDamage.playerDamage > 0) {
+    this.waveStartGraceSec = Math.max(0, this.waveStartGraceSec - dt);
+    const damageGraceActive = this.waveStartGraceSec > 0;
+
+    if (enemyDamage.playerDamage > 0 && !damageGraceActive) {
       const armorReduction = this.getArmorDamageReduction();
       const dealt = enemyDamage.playerDamage * 0.34 * (1 - armorReduction);
       this.pendingPlayerBiteDamage += Math.max(0, dealt);
@@ -5133,7 +5805,7 @@ export class RaidScene3D {
       this.onPlayerDamaged(bite);
     }
 
-    if (enemyDamage.villageDamage > 0 && !this.villageDestroyed) {
+    if (enemyDamage.villageDamage > 0 && !this.villageDestroyed && !damageGraceActive) {
       const dealt = enemyDamage.villageDamage * 0.3;
       this.villageHp = Math.max(0, this.villageHp - dealt);
       this.game.save.lifetimeStats.villageDamageTaken += Math.round(dealt);
@@ -5151,6 +5823,7 @@ export class RaidScene3D {
     this.playerController.state.pitch -= this.recoil.pitchKick * 0.002;
     this.playerController.state.yaw += this.recoil.yawKick * 0.0015;
 
+    this.updateGearEffects(dt);
     this.cleanupEnemies();
     this.cleanupRagdolls(dt);
 
@@ -5162,11 +5835,15 @@ export class RaidScene3D {
     this.syncInteractPrompt();
     this.updatePlayerDamageEffects(dt);
     this.updateVillageDamageEffects(dt);
+    this.game.audio.updateMusicState(this.getMusicSnapshot(), dt);
     this.syncHud();
     this.checkRunEnd(waveUpdate);
   }
 
   handleDebugWaveSkip() {
+    if (this.phase !== GAME_PHASE.DEFENSE && this.phase !== GAME_PHASE.SECRET_BOSS) {
+      return;
+    }
     const pressed = this.playerController.keyState.get("keyb");
     if (!pressed) {
       this._debugSkipLatch = false;
@@ -5279,6 +5956,206 @@ export class RaidScene3D {
     this.cycleGrenadeType();
   }
 
+  hasGear(gearId) {
+    return Array.isArray(this.game.save.ownedGear) && this.game.save.ownedGear.includes(gearId);
+  }
+
+  syncPurchasedGearVisuals() {
+    if (this.playerFlashlight) {
+      const enabled = this.hasGear("flashlight");
+      this.playerFlashlight.visible = enabled;
+      this.playerFlashlight.intensity = enabled ? 5.6 : 0;
+    }
+    if (this.flashlightBeam) {
+      const enabled = this.hasGear("flashlight");
+      this.flashlightBeam.visible = enabled;
+      if (this.flashlightBeam.material) {
+        this.flashlightBeam.material.opacity = enabled ? 0.065 + Math.sin(performance.now() * 0.006) * 0.01 : 0;
+      }
+    }
+    const torchActive = this.hasGear("flint_steel") && this.torchBurnSec > 0;
+    if (this.torchLight) {
+      this.torchLight.visible = torchActive;
+      this.torchLight.intensity = torchActive ? 4.2 + Math.sin(performance.now() * 0.018) * 0.7 : 0;
+    }
+    if (this.torchFlame) {
+      this.torchFlame.visible = torchActive;
+      const pulse = torchActive ? 1 + Math.sin(performance.now() * 0.021) * 0.18 : 1;
+      this.torchFlame.scale.setScalar(pulse);
+    }
+  }
+
+  handleGearInput(input) {
+    if (!input?.useFlint) {
+      this.flintLatch = false;
+      return;
+    }
+    if (this.flintLatch) {
+      return;
+    }
+    this.flintLatch = true;
+    this.activateFlintAndSteel();
+  }
+
+  activateFlintAndSteel() {
+    if (!this.hasGear("flint_steel")) {
+      this.setPrompt("Buy flint and steel in the shop to make fire.");
+      return false;
+    }
+    if (this.flintCooldown > 0) {
+      return false;
+    }
+    this.flintCooldown = FLINT_COOLDOWN_SEC;
+    this.torchBurnSec = Math.max(this.torchBurnSec, TORCH_BURN_SEC);
+    const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation).normalize();
+    const hit = this.physics.castRay(this.camera.position, forward, 9.5);
+    const firePoint = hit?.point?.clone() ?? this.playerController.state.position.clone().addScaledVector(forward, 4.4);
+    firePoint.y = Math.max(0.05, Math.min(firePoint.y, 0.28));
+    this.spawnWorldFire(firePoint, {
+      ttl: FIRE_PATCH_TTL_SEC,
+      radius: FIRE_PATCH_RADIUS,
+      damagePerSecond: FIRE_PATCH_DPS,
+    });
+    this.setPrompt("Torch lit. Ground fire burning.", 1.6);
+    return true;
+  }
+
+  spawnWorldFire(position, { ttl = FIRE_PATCH_TTL_SEC, radius = FIRE_PATCH_RADIUS, damagePerSecond = FIRE_PATCH_DPS } = {}) {
+    const existing = this.worldFires.find((fire) => fire.root.position.distanceTo(position) <= FIRE_PATCH_MERGE_DISTANCE);
+    if (existing) {
+      existing.ttl = Math.max(existing.ttl, ttl);
+      existing.maxTtl = Math.max(existing.maxTtl, ttl);
+      existing.radius = Math.max(existing.radius, radius);
+      existing.damagePerSecond = Math.max(existing.damagePerSecond, damagePerSecond);
+      existing.light.distance = existing.radius * 2.8;
+      return existing;
+    }
+
+    while (this.worldFires.length >= MAX_WORLD_FIRES) {
+      const oldest = this.worldFires.shift();
+      oldest?.root?.removeFromParent();
+    }
+
+    const root = new THREE.Group();
+    root.position.copy(position);
+    root.position.y = Math.max(0.05, root.position.y);
+
+    const fireTexture = getFireSpriteTexture();
+    const flameMaterials = [];
+    for (let i = 0; i < 3; i += 1) {
+      const material = new THREE.SpriteMaterial({
+        color: 0xffffff,
+        map: fireTexture,
+        transparent: true,
+        opacity: 0.74 - i * 0.08,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const flame = new THREE.Sprite(material);
+      flame.position.set((i - 1) * radius * 0.09, 0.28 + i * 0.04, (Math.random() - 0.5) * radius * 0.14);
+      flame.scale.set(0.42 + i * 0.08, 0.78 + i * 0.12, 1);
+      root.add(flame);
+      flameMaterials.push(material);
+    }
+
+    const emberGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        color: 0xff6d22,
+        map: fireTexture,
+        transparent: true,
+        opacity: 0.18,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    emberGlow.position.set(0, 0.18, 0);
+    emberGlow.scale.set(radius * 0.62, radius * 0.42, 1);
+    root.add(emberGlow);
+
+    const scorch = new THREE.Mesh(
+      new THREE.CircleGeometry(radius * 0.34, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0x0f0a07,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+      }),
+    );
+    scorch.rotation.x = -Math.PI * 0.5;
+    scorch.position.y = 0.01;
+    root.add(scorch);
+
+    const light = new THREE.PointLight(0xff7a35, 5.2, radius * 2.8, 2);
+    light.position.set(0, 0.85, 0);
+    light.castShadow = false;
+    root.add(light);
+    this.scene.add(root);
+    const fire = {
+      root,
+      light,
+      flameMaterials,
+      ttl,
+      maxTtl: ttl,
+      radius,
+      damagePerSecond,
+      phase: Math.random() * Math.PI * 2,
+    };
+    this.worldFires.push(fire);
+    return fire;
+  }
+
+  clearWorldFires() {
+    for (const fire of this.worldFires) {
+      fire.root.removeFromParent();
+    }
+    this.worldFires = [];
+  }
+
+  updateGearEffects(dt) {
+    this.flintCooldown = Math.max(0, this.flintCooldown - dt);
+    this.torchBurnSec = Math.max(0, this.torchBurnSec - dt);
+    this.torchHitFireCooldown = Math.max(0, this.torchHitFireCooldown - dt);
+    this.syncPurchasedGearVisuals();
+
+    const now = performance.now();
+    for (let i = this.worldFires.length - 1; i >= 0; i -= 1) {
+      const fire = this.worldFires[i];
+      fire.ttl -= dt;
+      const lifeRatio = THREE.MathUtils.clamp(fire.ttl / Math.max(0.001, fire.maxTtl), 0, 1);
+      const flicker = 0.84 + Math.sin(now * 0.012 + fire.phase) * 0.14;
+      fire.light.intensity = 5.2 * lifeRatio * flicker;
+      fire.root.scale.setScalar(0.94 + flicker * 0.08);
+      if (Array.isArray(fire.flameMaterials)) {
+        for (let j = 0; j < fire.flameMaterials.length; j += 1) {
+          fire.flameMaterials[j].opacity = (0.68 - j * 0.08) * lifeRatio * (0.92 + Math.sin(now * 0.015 + fire.phase + j) * 0.08);
+        }
+      }
+
+      for (const enemy of this.enemies) {
+        if (!enemy || enemy.dead || enemy.hp <= 0) {
+          continue;
+        }
+        const distance = enemy.mesh.position.distanceTo(fire.root.position);
+        if (distance > fire.radius) {
+          continue;
+        }
+        const damage = fire.damagePerSecond * (1 - distance / fire.radius) * dt;
+        enemy.hp -= damage;
+        this.game.save.lifetimeStats.damageDealt += Math.round(damage);
+        enemy.hitFlashSec = Math.max(enemy.hitFlashSec ?? 0, 0.1);
+        enemy.damagePauseSec = Math.max(enemy.damagePauseSec ?? 0, ENEMY_HIT_DAMAGE_PAUSE_SEC * 0.55);
+        if (enemy.hp <= 0) {
+          enemy.dead = true;
+        }
+      }
+
+      if (fire.ttl <= 0) {
+        fire.root.removeFromParent();
+        this.worldFires.splice(i, 1);
+      }
+    }
+  }
+
   updateMiniMapVisibility() {
     if (this.minimapEl) {
       this.minimapEl.style.display = this.minimapOpen ? "block" : "none";
@@ -5307,7 +6184,7 @@ export class RaidScene3D {
   }
 
   handleShopShortcut() {
-    const pressed = this.playerController.keyState.get("keyq") === true;
+    const pressed = this.playerController.keyState.get("keyq") === true || this.playerController.keyState.get("escape") === true;
     if (!pressed) {
       this.shopShortcutLatch = false;
       return;
@@ -5446,6 +6323,15 @@ export class RaidScene3D {
     );
     glow.position.copy(muzzlePos).addScaledVector(forward, 0.11);
     this.createTransientVisual(glow, compactAuto ? 0.028 : 0.05, { fadeBase: 0.05 });
+
+    const flashLight = new THREE.PointLight(
+      feel.flashColor ?? 0xffcc8a,
+      Math.max(9, (feel.flashIntensity ?? 3) * 3.2),
+      Math.max(5, feel.flashRange ?? 5),
+      2.3,
+    );
+    flashLight.position.copy(muzzlePos).addScaledVector(forward, 0.2);
+    this.createTransientVisual(flashLight, compactAuto ? 0.035 : 0.065);
 
     if (weapon.id === "pistol") {
       const flashShard = new THREE.Mesh(
@@ -5817,7 +6703,23 @@ export class RaidScene3D {
     enemy.hitStunSec = Math.max(enemy.hitStunSec ?? 0, 0.16);
     enemy.hitFlashSec = Math.max(enemy.hitFlashSec ?? 0, 0.12);
     enemy.damagePauseSec = Math.max(enemy.damagePauseSec ?? 0, ENEMY_HIT_DAMAGE_PAUSE_SEC);
-    this.triggerHitConfirm(1.15);
+    if (this.hasGear("flint_steel") && this.torchBurnSec > 0) {
+      const burnDamage = 18 * (enemy.damageTakenMultiplier ?? 1);
+      enemy.hp -= burnDamage;
+      this.game.save.lifetimeStats.damageDealt += Math.round(burnDamage);
+      enemy.hitFlashSec = Math.max(enemy.hitFlashSec ?? 0, 0.22);
+      if (this.torchHitFireCooldown <= 0) {
+        this.torchHitFireCooldown = TORCH_HIT_FIRE_COOLDOWN_SEC;
+        const emberPoint = enemy.mesh.position.clone();
+        emberPoint.y = 0.08;
+        this.spawnWorldFire(emberPoint, { ttl: 1.35, radius: 1.25, damagePerSecond: 4 });
+      }
+      if (enemy.hp <= 0) {
+        enemy.dead = true;
+      }
+    }
+    const cue = enemy.hp <= 0 ? "DOWN" : `HIT ${Math.max(1, Math.ceil(enemy.hp))}`;
+    this.triggerCombatCue(cue, 1.15);
     this.spawnEnemyHitReaction(enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.9, 0)), dir, 0.92);
     return true;
   }
@@ -6066,11 +6968,13 @@ export class RaidScene3D {
 
   tryBreakWindowAt(point, shotDirection) {
     const maxDistSq = 1.05 * 1.05;
+    const windowWorldPosition = new THREE.Vector3();
     for (const pane of this.breakableWindows) {
       if (pane.broken || !pane.mesh.visible) {
         continue;
       }
-      if (pane.mesh.position.distanceToSquared(point) > maxDistSq) {
+      pane.mesh.getWorldPosition(windowWorldPosition);
+      if (windowWorldPosition.distanceToSquared(point) > maxDistSq) {
         continue;
       }
 
@@ -6289,6 +7193,14 @@ export class RaidScene3D {
     this.hitConfirmTimer = Math.max(this.hitConfirmTimer, 0.06 + Math.min(0.08, intensity * 0.03));
   }
 
+  triggerCombatCue(label, intensity = 1) {
+    if (label) {
+      this.combatCueLabel = label;
+      this.combatCueTimer = Math.max(this.combatCueTimer, 0.48 + Math.min(0.28, intensity * 0.04));
+    }
+    this.triggerHitConfirm(intensity);
+  }
+
   spawnEnemyHitReaction(point, direction, strength = 1) {
     const impactColor = 0x89a36e;
     const flash = new THREE.Mesh(
@@ -6384,7 +7296,11 @@ export class RaidScene3D {
         enemy.hitStunSec = Math.max(enemy.hitStunSec ?? 0, (0.1 + Math.min(0.22, rawDamage / 110)) * staggerResistance);
         enemy.hitFlashSec = Math.max(enemy.hitFlashSec ?? 0, 0.12);
         enemy.damagePauseSec = Math.max(enemy.damagePauseSec ?? 0, ENEMY_HIT_DAMAGE_PAUSE_SEC);
-        this.triggerHitConfirm((1 + damage * 0.01) * (projectile.hitConfirmScale ?? 1) * (isHeadshot ? 1.2 : 1));
+        const combatCue = enemy.hp <= 0 ? (isHeadshot ? "HEADSHOT DOWN" : "DOWN") : isHeadshot ? "HEADSHOT" : `HIT ${Math.max(1, Math.ceil(enemy.hp))}`;
+        this.triggerCombatCue(
+          combatCue,
+          (1 + damage * 0.01) * (projectile.hitConfirmScale ?? 1) * (isHeadshot ? 1.2 : 1),
+        );
         this.spawnEnemyHitReaction(hit.point, direction, knockbackStrength * 0.2 * (projectile.impactFxScale ?? 1));
 
         this.game.audio.playImpact("flesh", hit.point);
@@ -6625,10 +7541,14 @@ export class RaidScene3D {
     const budgetRemainingBefore = Math.max(0, wave.budget - this.spawnTracker.spawnedTotal);
     const scheduledSpawns = Math.min(Math.max(0, waveUpdate.spawnCount ?? 0), budgetRemainingBefore);
     const budgetRemainingAfterScheduled = Math.max(0, budgetRemainingBefore - scheduledSpawns);
-    const catchupSpawns = Math.min(
-      Math.max(0, minAliveTarget - aliveEnemies),
-      budgetRemainingAfterScheduled,
-    );
+    const catchupAllowed = scheduledSpawns > 0 || this.waveDirector.spawnedBudget > 0;
+    const projectedAlive = aliveEnemies + scheduledSpawns;
+    const catchupSpawns = catchupAllowed
+      ? Math.min(
+          Math.max(0, minAliveTarget - projectedAlive),
+          budgetRemainingAfterScheduled,
+        )
+      : 0;
     const spawnCount = scheduledSpawns + catchupSpawns;
 
     if (spawnCount <= 0) {
@@ -6845,6 +7765,28 @@ export class RaidScene3D {
 
     const enemy = createEnemyState(def, bodyEntity, mesh, performance.now(), waveNum);
     this.enemies.push(enemy);
+    this.maybeIntroduceEnemyType(def, waveNum);
+  }
+
+  maybeIntroduceEnemyType(def, waveNum) {
+    if (!def?.id) {
+      return;
+    }
+    if (!this.introducedEnemyTypes) {
+      this.introducedEnemyTypes = new Set(["walker", "crawler"]);
+    }
+    if (this.introducedEnemyTypes.has(def.id)) {
+      return;
+    }
+    this.introducedEnemyTypes.add(def.id);
+    const message = getEnemyIntroMessage(def.id, def.label);
+    this.lastThreatIntro = {
+      type: def.id,
+      label: def.label ?? def.id,
+      wave: waveNum,
+      message,
+    };
+    this.setPrompt(message, 4.2);
   }
 
   keepEnemiesOutOfStructures() {
@@ -7150,7 +8092,14 @@ export class RaidScene3D {
     if (this.playerController.state.hp <= 0) {
       this.paused = true;
       persistFpsSave(this.game.save);
-      this.game.setMode("game_over", { victory: false, reason: "You were overrun before dawn." });
+      this.game.setMode("game_over", {
+        victory: false,
+        reason: "You were overrun before dawn.",
+        waveReached: this.waveDirector.waveNumber,
+        kills: this.waveStats.kills,
+        coins: this.waveStats.coins,
+        villageHp: this.villageHp,
+      });
       return;
     }
 
@@ -7158,7 +8107,14 @@ export class RaidScene3D {
       this.secretBossActive = false;
       this.paused = true;
       persistFpsSave(this.game.save);
-      this.game.setMode("game_over", { victory: true, reason: "Secret boss defeated. The village survives the night." });
+      this.game.setMode("game_over", {
+        victory: true,
+        reason: "Secret boss defeated. The village survives the night.",
+        waveReached: this.waveDirector.waveNumber,
+        kills: this.waveStats.kills,
+        coins: this.waveStats.coins,
+        villageHp: this.villageHp,
+      });
       return;
     }
 
@@ -7189,6 +8145,8 @@ export class RaidScene3D {
     }
     this.waveDirector.inIntermission = false;
     this.waveDirector.intermissionSec = 0;
+    this.syncPurchasedGearVisuals();
+    this.game.audio.updateMusicState(this.getMusicSnapshot(), 0, { force: true });
   }
 
   syncHud() {
@@ -7236,7 +8194,10 @@ export class RaidScene3D {
     const isPortraitMobile = isMobile && window.matchMedia("(orientation: portrait)").matches;
     const waveChip = this.hud.querySelector('[data-hud="wave"]');
     if (waveChip) {
-      waveChip.textContent = `Wave ${wave}${this.waveDirector.isIntermission() ? " (Intermission)" : ""}`;
+      waveChip.textContent =
+        this.phase === GAME_PHASE.HOUSE_INTRO
+          ? "Wave 1 Ready"
+          : `Wave ${wave}${this.waveDirector.isIntermission() ? " (Intermission)" : ""}`;
       waveChip.style.display = isMobile ? "none" : "inline-flex";
     }
     const coinsChip = this.hud.querySelector('[data-hud="coins"]');
@@ -7262,12 +8223,23 @@ export class RaidScene3D {
       promptLine.textContent = prompt;
       promptLine.style.display = prompt ? "inline-block" : "none";
     }
+    const objectiveLine = this.hud.querySelector('[data-hud="objective"]');
+    if (objectiveLine) {
+      const objective = this.getFirstSessionObjectiveLine({ isMobile });
+      objectiveLine.textContent = objective;
+      objectiveLine.style.display = objective ? "inline-block" : "none";
+    }
     const controlsLine = this.hud.querySelector('[data-hud="controls"]');
     if (controlsLine) {
-      controlsLine.textContent = isMobile
-        ? "Controls: Left stick move from the lower-left corner, right stick look from the lower-right. FIRE sits above the look stick, GRENADE floats just above it, and tapping the look stick also fires. MAP, SPRINT, and CROUCH sit around the move stick. JUMP (+1 air jump) is the center bar, USE appears above nearby prompts, and the top-right + opens the shop."
-        : "Controls: WASD move, mouse look/aim, Click/F attack, G throw grenade, H cycle grenade, Shift sprint, Space jump (+1 air jump), E interact, Q shop, O cycle, 1-0 / - / = / ] direct weapon select, ` pipe, Esc unlock mouse.";
-      controlsLine.style.display = isMobile ? (this.mobileInstructionsOpen ? "inline-block" : "none") : "inline-block";
+      const hint = this.getContextHint({ isMobile });
+      controlsLine.textContent = hint;
+      controlsLine.style.display = hint ? "inline-block" : "none";
+    }
+    const combatCue = this.hud.querySelector('[data-hud="combat-cue"]');
+    if (combatCue) {
+      const label = this.combatCueTimer > 0 ? this.combatCueLabel : "";
+      combatCue.textContent = label;
+      combatCue.classList.toggle("is-visible", Boolean(label));
     }
     this.syncCrosshairVisual(weapon, this.playerController.state.ads, this.hitConfirmTimer > 0);
     this.drawMiniMap();
@@ -7283,6 +8255,14 @@ export class RaidScene3D {
         this.grenadeQuickButtonEl.textContent = `${activeGrenade.shortLabel} ${getGrenadeCount(this.game.save, activeGrenadeId)}`;
         this.grenadeQuickButtonEl.setAttribute("aria-label", `Cycle grenade type. Active: ${activeGrenade.label}`);
       }
+    }
+    if (this.fireQuickButtonEl) {
+      const flintOwned = this.hasGear("flint_steel");
+      this.fireQuickButtonEl.style.display = flintOwned ? "inline-flex" : "none";
+      this.fireQuickButtonEl.textContent = this.torchBurnSec > 0 ? `Torch ${Math.ceil(this.torchBurnSec)}` : "Fire";
+      this.fireQuickButtonEl.classList.toggle("active", this.torchBurnSec > 0);
+      this.fireQuickButtonEl.disabled = !flintOwned || this.flintCooldown > 0;
+      this.fireQuickButtonEl.setAttribute("aria-label", "Ignite torch and ground fire");
     }
     if (this.shopQuickButtonEl) {
       this.shopQuickButtonEl.textContent = isMobile ? "Shop" : `Shop (${this.game.save.coins})`;
@@ -7323,6 +8303,9 @@ export class RaidScene3D {
       return "Escort active: deliver villager to Town Hall courtyard.";
     }
     if (this.activeBuildingId) {
+      if (!this.startHouseExited && this.activeBuildingId === this.startHouseId) {
+        return "Press E to exit the safe house.";
+      }
       const villagerNearby = this.villagers.some(
         (villager) =>
           villager.state === "idle" &&
@@ -7342,9 +8325,6 @@ export class RaidScene3D {
       }
       return `Press E to enter ${nearDoor.label}.`;
     }
-    if (!this.startHouseExited) {
-      return "Start inside your house. Exit through the door with E.";
-    }
     if (!this.game.save.pistolUnlocked) {
       return "Clear Wave 1 to unlock the pistol.";
     }
@@ -7352,6 +8332,68 @@ export class RaidScene3D {
       return "Secret boss active. Hold the village line.";
     }
     return "";
+  }
+
+  getContextHint({ isMobile = false } = {}) {
+    if (isMobile) {
+      return this.mobileInstructionsOpen
+        ? "Use the movement stick, look stick, action buttons, and utility tray for the current wave."
+        : "";
+    }
+    if (this.phase === GAME_PHASE.HOUSE_INTRO) {
+      return "Objective: leave the safe house.";
+    }
+    if (this.waveStartGraceSec > 0) {
+      return `Opening grace: ${Math.ceil(this.waveStartGraceSec)} sec.`;
+    }
+    if (!this.tutorialProgress?.moved) {
+      return "Objective: move to the village line.";
+    }
+    if (this.enemies.length > 0 && !this.tutorialProgress?.attacked) {
+      return "Objective: stop the first zombie.";
+    }
+    const activeGrenadeCount = getGrenadeCount(this.game.save, getActiveGrenadeId(this.game.save));
+    if (this.enemies.length >= 3 && activeGrenadeCount > 0 && !this.tutorialProgress?.threwGrenade) {
+      return "Tip: grenades clear clustered threats.";
+    }
+    if (this.hasGear("flint_steel") && this.torchBurnSec <= 0) {
+      return isMobile ? "Tip: use Fire to ignite a torch and ground light." : "Tip: T ignites a torch and ground light.";
+    }
+    if (this.waveDirector.isIntermission() && !this.tutorialProgress?.openedShop) {
+      return "Objective: spend coins before the next wave.";
+    }
+    return "";
+  }
+
+  getFirstSessionObjectiveLine({ isMobile = false } = {}) {
+    if (this.phase === GAME_PHASE.SECRET_BOSS) {
+      return "Objective: defeat the boss and keep moving.";
+    }
+    if (this.waveDirector.isIntermission()) {
+      return isMobile ? "Intermission: Shop for the next wave." : "Intermission: open the shop, spend coins, then start the next wave.";
+    }
+    if (this.villageDestroyed) {
+      return "Village lost: survive as long as possible.";
+    }
+    const wave = Math.max(1, this.waveDirector.waveNumber || 1);
+    const livingEnemies = this.enemies.filter((enemy) => !enemy.dead && enemy.hp > 0);
+    const closestThreat = livingEnemies.reduce((min, enemy) => {
+      const playerDist = enemy.mesh.position.distanceTo(this.playerController.state.position);
+      const villageDist = enemy.mesh.position.distanceTo(this.villagePosition);
+      return Math.min(min, playerDist, villageDist);
+    }, Infinity);
+    if (wave === 1 && this.waveStartGraceSec > 0) {
+      return isMobile
+        ? `Wave 1: reach the lit village line. Grace ${Math.ceil(this.waveStartGraceSec)}s.`
+        : `Wave 1 objective: reach the lit village line before the first bite. Grace ${Math.ceil(this.waveStartGraceSec)}s.`;
+    }
+    if (wave === 1 && !this.tutorialProgress?.attacked) {
+      return "Wave 1 objective: stop the first zombie, then buy the pistol in the shop.";
+    }
+    if (Number.isFinite(closestThreat)) {
+      return `Wave ${wave}: ${livingEnemies.length} threat${livingEnemies.length === 1 ? "" : "s"} active. Closest danger ${Math.max(1, Math.round(closestThreat))}m.`;
+    }
+    return `Wave ${wave}: hold the village line.`;
   }
 
   renderGameToText(modeOverride = null) {
@@ -7420,6 +8462,10 @@ export class RaidScene3D {
         grenadeCounts: ensureGrenadeInventory(this.game.save),
         activeGrenadeId: getActiveGrenadeId(this.game.save),
         armor: this.game.save.equippedArmorId ?? "cloth",
+        gear: this.game.save.ownedGear ?? [],
+        flashlightActive: this.hasGear("flashlight"),
+        flashlightVisible: Boolean(this.playerFlashlight?.visible),
+        torchBurnSec: Number(this.torchBurnSec.toFixed(2)),
       },
       buildings: {
         openedCount: this.game.save.openedBuildings.length,
@@ -7446,6 +8492,7 @@ export class RaidScene3D {
         brokenWindows: this.breakableWindows.reduce((sum, pane) => sum + (pane.broken ? 1 : 0), 0),
         activeImpactFx: this.game.pendingVisualRemovals.length,
         landscapeZombified: this.landscapeZombifyEvents,
+        activeFires: this.worldFires.length,
       },
       miniMap: {
         enabled: Boolean(this.minimapCanvasEl) && this.minimapOpen,
@@ -7456,10 +8503,16 @@ export class RaidScene3D {
       },
       ui: {
         mobileInstructionsOpen: this.mobileInstructionsOpen,
+        objective: this.getFirstSessionObjectiveLine({ isMobile: Boolean(this.game.mobileControls?.enabled) }),
       },
       combatFeedback: {
         hitConfirmActive: this.hitConfirmTimer > 0,
+        cue: this.combatCueTimer > 0 ? this.combatCueLabel : "",
         enemiesInHitReact: this.enemies.filter((enemy) => !enemy.dead && (enemy.hitStunSec ?? 0) > 0).length,
+      },
+      firstSession: {
+        lastThreatIntro: this.lastThreatIntro,
+        introducedEnemyTypes: [...(this.introducedEnemyTypes ?? [])],
       },
       physics: {
         activeBodies: this.physics.activeBodies(),
@@ -7467,6 +8520,39 @@ export class RaidScene3D {
         tickRate: 60,
       },
     });
+  }
+
+  getMusicSnapshot() {
+    let closestThreatDistance = Infinity;
+    let aliveEnemies = 0;
+    let bossActive = this.secretBossActive || this.secretBossSpawned;
+    const playerPosition = this.playerController.state.position;
+
+    for (const enemy of this.enemies) {
+      if (!enemy || enemy.dead || enemy.hp <= 0) {
+        continue;
+      }
+      aliveEnemies += 1;
+      bossActive = bossActive || Boolean(enemy.boss);
+      const playerDistance = enemy.mesh.position.distanceTo(playerPosition);
+      const villageDistance = enemy.mesh.position.distanceTo(this.villagePosition);
+      closestThreatDistance = Math.min(closestThreatDistance, playerDistance, villageDistance);
+    }
+
+    return {
+      mode: "raid",
+      phase: this.phase,
+      waveNumber: this.waveDirector.waveNumber || 1,
+      aliveEnemies,
+      closestThreatDistance,
+      playerHp: this.playerController.state.hp,
+      villageHp: this.villageHp,
+      maxVillageHp: this.maxVillageHp,
+      villageDamageRecent: this.villageDamageRecent,
+      playerDamageRecent: this.playerDamageFlash,
+      bossActive,
+      bossWave: Boolean(this.waveDirector.currentWave?.boss),
+    };
   }
 
   closestThreatDistance() {

@@ -56,8 +56,9 @@ describe("wave budget/composition", () => {
     }
   });
 
-  it("defines rising minimum alive zombies per wave with 4-8 early floor", () => {
-    expect(waves[0].minAlive).toBeGreaterThanOrEqual(4);
+  it("defines rising minimum alive zombies after a teachable first wave", () => {
+    expect(waves[0].minAlive).toBeLessThanOrEqual(1);
+    expect(waves[1].minAlive).toBeGreaterThanOrEqual(2);
     expect(waves[4].minAlive).toBeGreaterThanOrEqual(8);
     for (let i = 1; i < waves.length; i += 1) {
       expect(waves[i].minAlive).toBeGreaterThan(waves[i - 1].minAlive);

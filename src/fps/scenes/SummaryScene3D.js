@@ -1,4 +1,5 @@
 import { escapeHtml } from "../systems/safeHtml";
+import { getNextWaveThreatBrief } from "../systems/firstSessionRules";
 
 export class SummaryScene3D {
   constructor(game) {
@@ -14,7 +15,20 @@ export class SummaryScene3D {
     const kills = Math.max(0, Number.parseInt(safeSummary.kills, 10) || 0);
     const coins = Math.max(0, Number.parseInt(safeSummary.coins, 10) || 0);
     const villageHp = Math.max(0, Math.round(Number(safeSummary.villageHp) || 0));
-    this.summary = { ...safeSummary, wave, kills, coins, villageHp };
+    const nextThreat = getNextWaveThreatBrief({
+      clearedWave: wave,
+      waveDefs: this.game.waveDefs,
+      enemyMap: this.game.enemyMap,
+    });
+    this.summary = { ...safeSummary, wave, kills, coins, villageHp, nextThreat };
+    const threatHtml = nextThreat
+      ? `
+        <div class="fps-summary-callout">
+          <strong>Next Wave: ${escapeHtml(nextThreat.label)}</strong>
+          <span>${escapeHtml(nextThreat.message)}</span>
+        </div>
+      `
+      : "";
     this.root = document.createElement("div");
     this.root.className = "fps-overlay summary";
     this.root.innerHTML = `
@@ -23,6 +37,8 @@ export class SummaryScene3D {
         <p>Kills: ${escapeHtml(kills)}</p>
         <p>Coins earned: ${escapeHtml(coins)}</p>
         <p>Village HP: ${escapeHtml(villageHp)}</p>
+        ${threatHtml}
+        <p class="fps-summary-shop-nudge">Open Shop first if you can afford a weapon, gear, or healing. Continue only when your loadout is ready.</p>
         <p>Click Next Wave, press Space, or press Enter to keep the run moving.</p>
         <div class="fps-shop-actions">
           <button type="button" data-action="next">Next Wave</button>
@@ -45,6 +61,7 @@ export class SummaryScene3D {
       if (!button) {
         return;
       }
+      this.game.audio?.unlockAudio?.();
       const action = button.dataset.action;
       if (action === "next") {
         this.game.resumeAfterIntermission();
@@ -59,6 +76,7 @@ export class SummaryScene3D {
       }
       if (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter") {
         event.preventDefault();
+        this.game.audio?.unlockAudio?.();
         this.game.resumeAfterIntermission();
       }
     };

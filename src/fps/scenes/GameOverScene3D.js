@@ -1,4 +1,5 @@
 import { escapeHtml } from "../systems/safeHtml";
+import { getRunMotivation } from "../systems/firstSessionRules";
 
 export class GameOverScene3D {
   constructor(game) {
@@ -11,14 +12,22 @@ export class GameOverScene3D {
     const victory = Boolean(safePayload.victory);
     const reason = typeof safePayload.reason === "string" ? safePayload.reason : "Mission ended.";
     const bestWave = Math.max(0, Number.parseInt(this.game.save.bestWave, 10) || 0);
-    this.payload = { ...safePayload, victory, reason };
+    const waveReached = Math.max(0, Number.parseInt(safePayload.waveReached, 10) || bestWave);
+    const kills = Math.max(0, Number.parseInt(safePayload.kills, 10) || 0);
+    const coins = Math.max(0, Number.parseInt(safePayload.coins, 10) || 0);
+    const nextGoal = getRunMotivation({ victory, waveReached, bestWave });
+    this.payload = { ...safePayload, victory, reason, waveReached, kills, coins, nextGoal };
     this.root = document.createElement("div");
     this.root.className = "fps-overlay gameover";
     this.root.innerHTML = `
       <div class="fps-panel gameover">
         <h2>${victory ? "Mission Complete" : "Mission Failed"}</h2>
         <p>${escapeHtml(reason)}</p>
+        <p>Run: Wave ${escapeHtml(waveReached)} · ${escapeHtml(kills)} kills · ${escapeHtml(coins)} coins earned</p>
         <p>Best Wave: ${escapeHtml(bestWave)}</p>
+        <div class="fps-summary-callout">
+          <strong>${escapeHtml(nextGoal)}</strong>
+        </div>
         <div class="fps-shop-actions">
           <button data-action="retry">Retry</button>
           <button data-action="menu">Back to Menu</button>
@@ -30,6 +39,7 @@ export class GameOverScene3D {
       if (!button) {
         return;
       }
+      this.game.audio?.unlockAudio?.();
       const action = button.dataset.action;
       if (action === "retry") {
         this.game.startRaidRun();

@@ -30,6 +30,8 @@ describe("fps save schema", () => {
     save.grenadeInventory.frag = 9;
     save.grenadeInventory.breacher = 2;
     save.activeGrenadeId = "breacher";
+    save.musicEnabled = false;
+    save.sfxEnabled = false;
 
     persistFpsSave(save, storage);
     const loaded = loadFpsSave(storage);
@@ -42,6 +44,8 @@ describe("fps save schema", () => {
     expect(loaded.grenadeInventory.frag).toBe(9);
     expect(loaded.grenadeInventory.breacher).toBe(2);
     expect(loaded.activeGrenadeId).toBe("breacher");
+    expect(loaded.musicEnabled).toBe(false);
+    expect(loaded.sfxEnabled).toBe(false);
     expect(loaded.pistolUnlocked).toBe(false);
     expect(loaded.deadVillagers).toEqual([]);
     expect(loaded.villageLevel).toBe(1);
@@ -129,5 +133,12 @@ describe("fps save schema", () => {
   it("preserves bestWave beyond the authored campaign length", () => {
     const loaded = sanitizeFpsSave({ bestWave: 37 });
     expect(loaded.bestWave).toBe(37);
+  });
+
+  it("defaults audio settings on unless explicitly disabled", () => {
+    expect(sanitizeFpsSave({}).musicEnabled).toBe(true);
+    expect(sanitizeFpsSave({}).sfxEnabled).toBe(true);
+    expect(sanitizeFpsSave({ musicEnabled: false, sfxEnabled: false }).musicEnabled).toBe(false);
+    expect(sanitizeFpsSave({ musicEnabled: false, sfxEnabled: false }).sfxEnabled).toBe(false);
   });
 });

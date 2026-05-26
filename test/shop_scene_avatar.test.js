@@ -23,7 +23,7 @@ describe("ShopScene3D avatar sync", () => {
 
     scene.root = document.createElement("div");
     scene.root.innerHTML = `
-      <div class="fps-player-avatar armor-cloth" data-bind="avatar"></div>
+      <canvas class="fps-player-avatar-3d armor-cloth" data-bind="avatar"></canvas>
       <p data-bind="armor-caption"></p>
     `;
 
@@ -31,10 +31,11 @@ describe("ShopScene3D avatar sync", () => {
 
     const avatar = scene.root.querySelector('[data-bind="avatar"]');
     const caption = scene.root.querySelector('[data-bind="armor-caption"]');
-    expect(avatar.className).toBe("fps-player-avatar armor-hazmat");
+    expect(avatar.className).toBe("fps-player-avatar-3d armor-hazmat");
     expect(avatar.dataset.armorId).toBe("hazmat");
     expect(caption.textContent).toContain("Hazmat Shell");
     expect(caption.textContent).toContain("40% damage resist");
     expect(caption.textContent).toContain("respirator tanks");
+    expect(JSON.parse(scene.renderGameToText()).avatarPreview).toBe("3d");
   });
 });

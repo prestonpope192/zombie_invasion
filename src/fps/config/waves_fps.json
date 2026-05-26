@@ -1,6 +1,6 @@
 [
-  {"wave":1,"durationSec":55,"budget":8,"spawnIntervalSec":2,"megaCount":0,"composition":{"walker":1,"crawler":0.24,"runner":0.16,"brute":0.06},"boss":false,"minAlive":4},
-  {"wave":2,"durationSec":58,"budget":10,"spawnIntervalSec":1.8,"megaCount":0,"composition":{"walker":1,"crawler":0.36,"runner":0.34,"brute":0.12},"boss":false,"minAlive":5},
+  {"wave":1,"durationSec":42,"budget":5,"spawnIntervalSec":3.05,"megaCount":0,"composition":{"walker":1,"crawler":0.1},"boss":false,"minAlive":1},
+  {"wave":2,"durationSec":52,"budget":7,"spawnIntervalSec":2.35,"megaCount":0,"composition":{"walker":1,"crawler":0.22,"runner":0.12},"boss":false,"minAlive":2},
   {"wave":3,"durationSec":62,"budget":12,"spawnIntervalSec":1.6,"megaCount":0,"composition":{"walker":1,"crawler":0.5,"runner":0.52,"skitter":0.12,"leaper":0.2,"brute":0.2},"boss":false,"minAlive":6},
   {"wave":4,"durationSec":65,"budget":14,"spawnIntervalSec":1.45,"megaCount":0,"composition":{"walker":1,"crawler":0.56,"runner":0.68,"skitter":0.2,"leaper":0.3,"brute":0.34},"boss":false,"minAlive":7},
   {"wave":5,"durationSec":68,"budget":16,"spawnIntervalSec":1.3,"megaCount":3,"composition":{"walker":1,"crawler":0.5,"runner":0.8,"skitter":0.3,"leaper":0.4,"pouncer":0.14,"brute":0.52,"armored":0},"boss":false,"minAlive":8},

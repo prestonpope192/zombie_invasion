@@ -1,3 +1,5 @@
+import { AdaptiveMusicDirector, MUSIC_CUES } from "./musicDirector";
+
 export const WEAPON_AUDIO_PROFILES = {
   pipe: {
     layers: [
@@ -187,10 +189,33 @@ export class Audio3D {
     this.musicTimers = [];
     this.musicTimeouts = [];
     this.activeMusicKey = "";
+    this.musicDirector = new AdaptiveMusicDirector();
+    this.musicElements = new Map();
+    this.currentMusicElement = null;
+    this.musicFadeFrames = new Set();
+    this.pendingMusicCueId = "";
+    this.audioUnlocked = false;
+    this.musicCrossfadeSec = 1.2;
+    this.musicEnabled = true;
+    this.sfxEnabled = true;
+  }
+
+  setMusicEnabled(enabled) {
+    this.musicEnabled = enabled !== false;
+    if (!this.musicEnabled) {
+      this.stopMusic();
+    }
+  }
+
+  setSfxEnabled(enabled) {
+    this.sfxEnabled = enabled !== false;
   }
 
   ensureContext() {
     if (this.ctx) {
+      if (this.ctx.state === "suspended") {
+        this.ctx.resume?.().catch?.(() => {});
+      }
       return;
     }
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -199,6 +224,19 @@ export class Audio3D {
     }
     this.ctx = new AudioCtx();
     this.listener = this.ctx.listener;
+  }
+
+  unlockAudio() {
+    this.audioUnlocked = true;
+    this.ensureContext();
+    if (this.ctx?.state === "suspended") {
+      this.ctx.resume?.().catch?.(() => {});
+    }
+    if (this.pendingMusicCueId) {
+      const cueId = this.pendingMusicCueId;
+      this.pendingMusicCueId = "";
+      this.playMusicCue(cueId, { forceRestart: false });
+    }
   }
 
   setListenerPosition(position) {
@@ -210,7 +248,10 @@ export class Audio3D {
     this.listener.positionZ.value = position.z;
   }
 
-  playTone({ freq = 220, freqEnd = freq, duration = 0.08, gain = 0.035, gainEnd = 0.0001, position = null, type = "square", attack = 0.002 }) {
+  playTone({ freq = 220, freqEnd = freq, duration = 0.08, gain = 0.035, gainEnd = 0.0001, position = null, type = "square", attack = 0.002, channel = "sfx" }) {
+    if ((channel === "music" && !this.musicEnabled) || (channel !== "music" && !this.sfxEnabled)) {
+      return;
+    }
     this.ensureContext();
     if (!this.ctx) {
       return;
@@ -247,7 +288,7 @@ export class Audio3D {
     osc.stop(now + duration);
   }
 
-  playChord({ notes = [], duration = 0.12, gain = 0.012, gainEnd = 0.0001, type = "sine", attack = 0.02, position = null }) {
+  playChord({ notes = [], duration = 0.12, gain = 0.012, gainEnd = 0.0001, type = "sine", attack = 0.02, position = null, channel = "sfx" }) {
     if (!Array.isArray(notes) || notes.length === 0) {
       return;
     }
@@ -261,6 +302,7 @@ export class Audio3D {
         position,
         type,
         attack,
+        channel,
       });
     }
   }
@@ -325,6 +367,7 @@ export class Audio3D {
       gainEnd: 0.0004,
       type: "triangle",
       attack: 0.02,
+      channel: "music",
     });
     this.playTone({
       freq: profile.startCue[1],
@@ -333,6 +376,7 @@ export class Audio3D {
       gainEnd: 0.0004,
       type: profile.bossWave ? "sawtooth" : "triangle",
       attack: 0.012,
+      channel: "music",
     });
     this.playTone({
       freq: profile.startCue[2],
@@ -341,6 +385,7 @@ export class Audio3D {
       gainEnd: 0.0003,
       type: "sine",
       attack: 0.024,
+      channel: "music",
     });
   }
 
@@ -376,6 +421,7 @@ export class Audio3D {
         gainEnd: 0.0003,
         type: "sine",
         attack: 0.04,
+        channel: "music",
       });
       padIndex += 1;
     });
@@ -388,6 +434,7 @@ export class Audio3D {
         gainEnd: 0.0004,
         type: "triangle",
         attack: 0.016,
+        channel: "music",
       });
       leadIndex += 1;
     }, 340);
@@ -407,6 +454,7 @@ export class Audio3D {
         gainEnd: 0.0003,
         type: profile.stage >= 2 ? "triangle" : "sine",
         attack: 0.035,
+        channel: "music",
       });
       padIndex += 1;
     });
@@ -422,6 +470,7 @@ export class Audio3D {
         gainEnd: 0.0005,
         type: profile.stage >= 3 ? "square" : "triangle",
         attack: 0.01,
+        channel: "music",
       });
       pulseIndex += 1;
     }, 260);
@@ -438,6 +487,7 @@ export class Audio3D {
           gainEnd: 0.0004,
           type: profile.bossWave ? "triangle" : "sine",
           attack: 0.008,
+          channel: "music",
         });
         shimmerIndex += 1;
       }, 520);
@@ -455,6 +505,7 @@ export class Audio3D {
           gainEnd: 0.0003,
           type: "sine",
           attack: 0.02,
+          channel: "music",
         });
         subIndex += 1;
       }, 110);
@@ -464,21 +515,117 @@ export class Audio3D {
   }
 
   startMusic(mode = "raid", options = {}) {
-    const waveNumber = Math.max(1, Math.round(Number(options.waveNumber) || 1));
-    const nextMusicKey = mode === "raid" ? `${mode}:${waveNumber}` : mode;
-    if (this.activeMusicKey === nextMusicKey) {
+    if (!this.musicEnabled) {
       return;
     }
-    this.stopMusic();
-    this.activeMusicKey = nextMusicKey;
-    if (mode === "menu") {
-      this.startMenuMusic();
-      return;
-    }
-    this.startRaidMusic(waveNumber);
+    this.updateMusicState({ ...options, mode }, 0, { force: true });
   }
 
-  stopMusic() {
+  updateMusicState(snapshot = {}, dt = 0, options = {}) {
+    if (!this.musicEnabled) {
+      return;
+    }
+    const cueId = this.musicDirector.update(snapshot, dt, options);
+    if (!cueId || !MUSIC_CUES[cueId]) {
+      return;
+    }
+    this.playMusicCue(cueId, { forceRestart: Boolean(options.forceRestart) });
+  }
+
+  getMusicElement(cueId) {
+    if (this.musicElements.has(cueId)) {
+      return this.musicElements.get(cueId);
+    }
+    const cue = MUSIC_CUES[cueId];
+    if (!cue || typeof Audio === "undefined") {
+      return null;
+    }
+    const element = new Audio(cue.src);
+    element.preload = "auto";
+    element.loop = Boolean(cue.loop);
+    element.volume = 0;
+    this.musicElements.set(cueId, element);
+    return element;
+  }
+
+  playMusicCue(cueId, { forceRestart = false } = {}) {
+    if (!this.musicEnabled) {
+      return;
+    }
+    const cue = MUSIC_CUES[cueId];
+    if (!cue) {
+      return;
+    }
+    if (this.activeMusicKey === cueId && this.currentMusicElement && !forceRestart && this.pendingMusicCueId !== cueId) {
+      return;
+    }
+
+    const nextElement = this.getMusicElement(cueId);
+    if (!nextElement) {
+      return;
+    }
+
+    this.stopProceduralMusic();
+    const previousElement = this.currentMusicElement;
+    this.activeMusicKey = cueId;
+    this.currentMusicElement = nextElement;
+    this.pendingMusicCueId = "";
+
+    if (forceRestart || !cue.loop) {
+      nextElement.currentTime = 0;
+    }
+    nextElement.loop = Boolean(cue.loop);
+    this.fadeMusicElement(nextElement, nextElement.volume || 0, cue.volume, this.musicCrossfadeSec);
+
+    const playAttempt = nextElement.play?.();
+    if (playAttempt?.catch) {
+      playAttempt.catch(() => {
+        this.pendingMusicCueId = cueId;
+      });
+    }
+
+    if (previousElement && previousElement !== nextElement) {
+      this.fadeMusicElement(previousElement, previousElement.volume, 0, this.musicCrossfadeSec, true);
+    }
+  }
+
+  fadeMusicElement(element, fromVolume, toVolume, durationSec, pauseAtEnd = false) {
+    if (!element || typeof requestAnimationFrame !== "function") {
+      if (element) {
+        element.volume = Math.max(0, Math.min(1, toVolume));
+        if (pauseAtEnd && toVolume <= 0) {
+          element.pause?.();
+        }
+      }
+      return;
+    }
+
+    const startedAt = performance.now();
+    const durationMs = Math.max(1, durationSec * 1000);
+    const fadeToken = { cancelled: false };
+    this.musicFadeFrames.add(fadeToken);
+
+    const step = (now) => {
+      if (fadeToken.cancelled || !this.musicFadeFrames.has(fadeToken)) {
+        return;
+      }
+      const ratio = Math.max(0, Math.min(1, (now - startedAt) / durationMs));
+      const eased = ratio * ratio * (3 - 2 * ratio);
+      element.volume = Math.max(0, Math.min(1, fromVolume + (toVolume - fromVolume) * eased));
+      if (ratio < 1) {
+        requestAnimationFrame(step);
+        return;
+      }
+      this.musicFadeFrames.delete(fadeToken);
+      if (pauseAtEnd && toVolume <= 0) {
+        element.pause?.();
+      }
+    };
+
+    requestAnimationFrame(step);
+  }
+
+  stopProceduralMusic() {
     for (const timerId of this.musicTimers) {
       clearInterval(timerId);
     }
@@ -487,6 +634,21 @@ export class Audio3D {
     }
     this.musicTimers = [];
     this.musicTimeouts = [];
+  }
+
+  stopMusic() {
+    this.stopProceduralMusic();
+    for (const fadeToken of this.musicFadeFrames) {
+      fadeToken.cancelled = true;
+    }
+    this.musicFadeFrames.clear();
+    for (const element of this.musicElements.values()) {
+      element.pause?.();
+      element.volume = 0;
+    }
+    this.musicDirector.reset();
+    this.currentMusicElement = null;
+    this.pendingMusicCueId = "";
     this.activeMusicKey = "";
   }
 }

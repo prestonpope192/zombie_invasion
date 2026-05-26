@@ -29,7 +29,7 @@ export class RenderPipeline {
     const profile = this.qualityProfile;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.7;
+    this.renderer.toneMappingExposure = 1.46;
     this.renderer.shadowMap.enabled = Boolean(profile.shadows);
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -39,14 +39,14 @@ export class RenderPipeline {
 
     if (profile.ssao) {
       const ssaoPass = new SSAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
-      ssaoPass.kernelRadius = 10;
+      ssaoPass.kernelRadius = 15;
       ssaoPass.minDistance = 0.002;
-      ssaoPass.maxDistance = 0.16;
+      ssaoPass.maxDistance = 0.22;
       composer.addPass(ssaoPass);
     }
 
     if (profile.bloom) {
-      const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.42, 0.9);
+      const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.08, 0.36, 0.92);
       composer.addPass(bloomPass);
     }
 

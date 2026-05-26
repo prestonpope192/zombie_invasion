@@ -15,6 +15,17 @@ describe("weapon audio profiles", () => {
     }
   });
 
+  it("can mute sound effects without touching music state", () => {
+    const audio = new Audio3D(null);
+    const ensureContext = vi.spyOn(audio, "ensureContext");
+
+    audio.setSfxEnabled(false);
+    audio.playTone({ freq: 220 });
+
+    expect(ensureContext).not.toHaveBeenCalled();
+    expect(audio.musicEnabled).toBe(true);
+  });
+
   it("keeps similar weapon classes acoustically distinct", () => {
     const signature = (weaponId) =>
       WEAPON_AUDIO_PROFILES[weaponId].layers
@@ -29,6 +40,17 @@ describe("weapon audio profiles", () => {
 });
 
 describe("wave music profiles", () => {
+  it("can mute music playback without disabling effects", () => {
+    const audio = new Audio3D(null);
+    const updateMusicState = vi.spyOn(audio, "updateMusicState");
+
+    audio.setMusicEnabled(false);
+    audio.startMusic("menu");
+
+    expect(updateMusicState).not.toHaveBeenCalled();
+    expect(audio.sfxEnabled).toBe(true);
+  });
+
   it("escalates gradually while staying restrained", () => {
     const wave1 = createWaveMusicProfile(1);
     const wave8 = createWaveMusicProfile(8);

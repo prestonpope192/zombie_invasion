@@ -3,6 +3,7 @@
     "id": "village_house_a",
     "label": "Safe House",
     "startHouse": true,
+    "visualVariant": "stucco_thatch",
     "exteriorDoor": { "x": -14.5, "y": 1.1, "z": -10.24 },
     "exteriorSpawn": { "x": -14.5, "y": 1.2, "z": -8.6 },
     "interior": {
@@ -17,6 +18,7 @@
   {
     "id": "village_house_b",
     "label": "Blue Roof Home",
+    "visualVariant": "log_cottage",
     "exteriorDoor": { "x": -8.2, "y": 1.0, "z": -6.79 },
     "exteriorSpawn": { "x": -8.2, "y": 1.2, "z": -5.2 },
     "interior": {

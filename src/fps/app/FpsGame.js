@@ -63,6 +63,8 @@ export class FpsGame {
 
     this.physics = new PhysicsWorld();
     this.audio = new Audio3D(this.camera);
+    this.audio.setMusicEnabled(this.save.musicEnabled);
+    this.audio.setSfxEnabled(this.save.sfxEnabled);
     this.mobileControls = new MobileFpsControls();
 
     this.renderPipeline = new RenderPipeline({
@@ -90,6 +92,9 @@ export class FpsGame {
 
   attachGlobalHandlers() {
     window.addEventListener("contextmenu", (event) => event.preventDefault());
+    const unlockAudio = () => this.audio.unlockAudio?.();
+    window.addEventListener("pointerdown", unlockAudio, { capture: true });
+    window.addEventListener("keydown", unlockAudio, { capture: true });
     const preventGesture = (event) => event.preventDefault();
     let lastTouchEndAt = 0;
     window.addEventListener("gesturestart", preventGesture, { passive: false });
@@ -241,13 +246,38 @@ export class FpsGame {
   }
 
   startRaidRun() {
+    this.audio.unlockAudio?.();
     this.clearOverlay();
     this.raidScene.enter();
     this.mode = "raid";
     this.mobileControls.show();
   }
 
+  persistAudioSettings({ musicEnabled = this.save.musicEnabled, sfxEnabled = this.save.sfxEnabled } = {}) {
+    this.save.musicEnabled = musicEnabled !== false;
+    this.save.sfxEnabled = sfxEnabled !== false;
+    this.save = persistFpsSave(this.save);
+    this.audio.setSfxEnabled(this.save.sfxEnabled);
+    this.audio.setMusicEnabled(this.save.musicEnabled);
+    if (this.save.musicEnabled) {
+      this.restartCurrentMusic();
+    }
+  }
+
+  restartCurrentMusic() {
+    if (!this.save.musicEnabled) {
+      return;
+    }
+    if (this.mode === "raid") {
+      this.audio.startMusic("raid", { waveNumber: this.raidScene.waveDirector.waveNumber });
+      return;
+    }
+    const musicMode = this.mode === "shop" || this.mode === "summary" || this.mode === "game_over" ? this.mode : "menu";
+    this.audio.startMusic(musicMode);
+  }
+
   resumeAfterIntermission() {
+    this.audio.unlockAudio?.();
     this.clearOverlay();
     this.raidScene.resumeAfterIntermission();
     this.mode = "raid";
@@ -257,12 +287,15 @@ export class FpsGame {
   }
 
   openShop() {
+    this.audio.unlockAudio?.();
     this.raidScene.pause();
     this.setMode("shop", { waveNumber: this.raidScene.waveDirector.waveNumber + 1 });
   }
 
   reloadSave() {
     this.save = loadFpsSave();
+    this.audio.setMusicEnabled(this.save.musicEnabled);
+    this.audio.setSfxEnabled(this.save.sfxEnabled);
   }
 
   setMode(mode, payload = {}) {
@@ -287,7 +320,7 @@ export class FpsGame {
       this.mode = "shop";
       this.mobileControls.hide();
       this.audio.stopMusic();
-      this.audio.startMusic("menu");
+      this.audio.startMusic("shop");
       return;
     }
 
@@ -298,7 +331,7 @@ export class FpsGame {
       this.mode = "summary";
       this.mobileControls.hide();
       this.audio.stopMusic();
-      this.audio.startMusic("menu");
+      this.audio.startMusic("summary");
       return;
     }
 
@@ -309,7 +342,7 @@ export class FpsGame {
       this.mode = "game_over";
       this.mobileControls.hide();
       this.audio.stopMusic();
-      this.audio.startMusic("menu");
+      this.audio.startMusic("game_over", payload);
       this.save = persistFpsSave(this.save);
     }
   }

@@ -8,6 +8,7 @@
     "build": "vite build",
     "vercel-build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 8080",
+    "generate:music": "node scripts/generate-retro-music.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250"
