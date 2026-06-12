@@ -10,17 +10,19 @@ import { GRENADE_TYPE_DEFS } from "../src/fps/systems/grenadeLoadout";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-describe("active FPS game contract", () => {
-  it("mounts the FPS runtime rather than the preserved legacy 2D runtime", () => {
+describe("active PlayCanvas game contract", () => {
+  it("mounts the PlayCanvas runtime by default and keeps the FPS runtime behind the legacy query flag", () => {
     const main = fs.readFileSync(path.join(repoRoot, "src/main.js"), "utf8");
 
+    expect(main).toContain("./playcanvas/main");
+    expect(main).toContain("createPlayCanvasGame(root)");
+    expect(main).toContain('params.get("legacy") === "1"');
     expect(main).toContain("./fps/app/FpsGame");
-    expect(main).toContain("createFpsGame(root)");
     expect(main).not.toContain("legacy2d");
     expect(fs.existsSync(path.join(repoRoot, "src/legacy2d/game/Game.js"))).toBe(true);
   });
 
-  it("keeps every active overlay scene wired into FpsGame", () => {
+  it("keeps every legacy FPS overlay scene wired into FpsGame", () => {
     const source = fs.readFileSync(path.join(repoRoot, "src/fps/app/FpsGame.js"), "utf8");
 
     for (const scene of [

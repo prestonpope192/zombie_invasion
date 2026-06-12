@@ -1,6 +1,12 @@
-import { createFpsGame } from "./fps/app/FpsGame";
-
-window.__zombieInvasionVersion = "v2026.04.02.1";
+window.__zombieInvasionVersion = "v2026.06.03.playcanvas";
 
 const root = document.getElementById("app");
-createFpsGame(root);
+const params = new URLSearchParams(window.location.search);
+
+if (params.get("legacy") === "1") {
+  const { createFpsGame } = await import("./fps/app/FpsGame");
+  await createFpsGame(root);
+} else {
+  const { createPlayCanvasGame } = await import("./playcanvas/main");
+  createPlayCanvasGame(root);
+}

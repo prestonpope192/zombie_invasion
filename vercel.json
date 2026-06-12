@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/playcanvas",
+      "destination": "/playcanvas.html"
+    },
+    {
+      "source": "/playcanvas.html",
+      "destination": "/playcanvas.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
@@ -59,6 +67,15 @@
     },
     {
       "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/playcanvas.html",
       "headers": [
         {
           "key": "Cache-Control",

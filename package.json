@@ -5,17 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:playcanvas": "vite --open /playcanvas.html",
     "build": "vite build",
     "vercel-build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 8080",
     "generate:music": "node scripts/generate-retro-music.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250"
+    "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250",
+    "smoke:playcanvas": "node scripts/smoke-playcanvas-slice.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
     "lucide": "^1.8.0",
+    "playcanvas": "^2.19.1",
     "three": "^0.183.1"
   },
   "devDependencies": {

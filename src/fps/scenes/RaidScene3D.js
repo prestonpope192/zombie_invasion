@@ -2052,6 +2052,7 @@ export class RaidScene3D {
     this.villageDamageRecent = 0;
     this.villageDestroyed = false;
     this.playerDamageFlash = 0;
+    this.playerDamageImmunitySec = 0;
     this.pendingPlayerBiteDamage = 0;
     this.villageDamageAudioCooldown = 0;
     this.playerDamageOverlayEl = null;
@@ -5788,7 +5789,8 @@ export class RaidScene3D {
     });
 
     this.waveStartGraceSec = Math.max(0, this.waveStartGraceSec - dt);
-    const damageGraceActive = this.waveStartGraceSec > 0;
+    this.playerDamageImmunitySec = Math.max(0, (this.playerDamageImmunitySec ?? 0) - dt);
+    const damageGraceActive = this.waveStartGraceSec > 0 || this.playerDamageImmunitySec > 0;
 
     if (enemyDamage.playerDamage > 0 && !damageGraceActive) {
       const armorReduction = this.getArmorDamageReduction();
@@ -8147,6 +8149,19 @@ export class RaidScene3D {
     this.waveDirector.intermissionSec = 0;
     this.syncPurchasedGearVisuals();
     this.game.audio.updateMusicState(this.getMusicSnapshot(), 0, { force: true });
+  }
+
+  revivePlayer({ hp = 60, invulnerableSec = 3 } = {}) {
+    if (!this.playerController?.state) {
+      return;
+    }
+    this.paused = false;
+    this.playerController.state.hp = Math.max(1, Math.min(100, Number(hp) || 60));
+    this.playerHitCooldown = 0;
+    this.pendingPlayerBiteDamage = 0;
+    this.playerDamageImmunitySec = Math.max(this.playerDamageImmunitySec ?? 0, Number(invulnerableSec) || 0);
+    this.setPrompt("Reward revive: 3 seconds to reposition.");
+    this.syncHud();
   }
 
   syncHud() {

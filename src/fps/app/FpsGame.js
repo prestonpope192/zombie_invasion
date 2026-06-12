@@ -19,6 +19,8 @@ import { PhysicsWorld } from "../systems/physicsWorld";
 import { chooseGraphicsPreset, RenderPipeline } from "../systems/renderPipeline";
 import { getGrenadeTypeDefs } from "../systems/grenadeLoadout";
 import { defaultFpsSave, loadFpsSave, persistFpsSave } from "../systems/saveFps";
+import { showRewardedAd } from "../systems/rewardedAds";
+import { applyRewardedOffer, createRewardedRunState, ensureRewardedRunState } from "../systems/rewardedAdOffers";
 
 const FIXED_DT = 1 / 60;
 
@@ -44,6 +46,7 @@ export class FpsGame {
 
     this.save = loadFpsSave();
     this.defaultSaveFactory = defaultFpsSave;
+    this.rewardedRunState = createRewardedRunState();
 
     this.qualityPreset = this.save.graphicsPreset in qualityProfiles ? this.save.graphicsPreset : chooseGraphicsPreset(qualityProfiles);
     this.qualityProfile = qualityProfiles[this.qualityPreset];
@@ -247,9 +250,69 @@ export class FpsGame {
 
   startRaidRun() {
     this.audio.unlockAudio?.();
+    this.rewardedRunState = createRewardedRunState();
     this.clearOverlay();
     this.raidScene.enter();
     this.mode = "raid";
+    this.mobileControls.show();
+  }
+
+  recordRewardedAdEvent(type, details = {}) {
+    const state = ensureRewardedRunState(this);
+    const event = {
+      type,
+      mode: this.mode,
+      at: Date.now(),
+      ...details,
+    };
+    state.telemetry.push(event);
+    if (state.telemetry.length > 80) {
+      state.telemetry.splice(0, state.telemetry.length - 80);
+    }
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+      window.dispatchEvent(new CustomEvent("zombie_invasion_rewarded_ad", { detail: event }));
+    }
+    return event;
+  }
+
+  async claimRewardedOffer({ offerId, summary = null, source = "unknown" } = {}) {
+    if (!offerId) {
+      return { applied: false, message: "Missing reward offer." };
+    }
+    this.recordRewardedAdEvent("offer_clicked", { offerId, source, wave: summary?.wave ?? null });
+    const ad = await showRewardedAd({ placement: offerId });
+    this.recordRewardedAdEvent(ad.completed ? "ad_completed" : "ad_failed", {
+      offerId,
+      source,
+      provider: ad.provider,
+      wave: summary?.wave ?? null,
+    });
+    if (!ad.completed) {
+      return { applied: false, message: "Rewarded ad unavailable. Try again later.", ad };
+    }
+
+    const result = applyRewardedOffer({ game: this, offerId, summary });
+    if (result.applied) {
+      this.save = persistFpsSave(this.save);
+      this.raidScene.syncHud?.();
+    }
+    this.recordRewardedAdEvent(result.applied ? "reward_granted" : "reward_rejected", {
+      offerId,
+      source,
+      provider: ad.provider,
+      wave: summary?.wave ?? null,
+      message: result.message,
+      reward: result.reward ?? null,
+    });
+    return { ...result, ad };
+  }
+
+  reviveFromRewardedAd({ hp = 60, invulnerableSec = 3 } = {}) {
+    this.clearOverlay();
+    this.raidScene.revivePlayer?.({ hp, invulnerableSec });
+    this.mode = "raid";
+    this.audio.stopMusic();
+    this.audio.startMusic("raid", { waveNumber: this.raidScene.waveDirector.waveNumber });
     this.mobileControls.show();
   }
 

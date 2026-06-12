@@ -42,6 +42,16 @@ describe("GameOverScene3D", () => {
         coins: 40,
         nextGoal: "Next goal: get back to your best run, Wave 9.",
       },
+      rewardedOffers: [
+        {
+          id: "revive",
+          claimKey: "run:revive",
+          label: "Revive Once",
+          description: "Watch an ad to stand back up with 60 HP and a short grace period.",
+          claimed: false,
+        },
+      ],
+      rewardedStatus: "",
     });
   });
 

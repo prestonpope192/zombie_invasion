@@ -1,10 +1,12 @@
 import { escapeHtml } from "../systems/safeHtml";
 import { getRunMotivation } from "../systems/firstSessionRules";
+import { getGameOverRewardedOffers } from "../systems/rewardedAdOffers";
 
 export class GameOverScene3D {
   constructor(game) {
     this.game = game;
     this.root = null;
+    this.rewardStatus = "";
   }
 
   enter(payload) {
@@ -28,13 +30,18 @@ export class GameOverScene3D {
         <div class="fps-summary-callout">
           <strong>${escapeHtml(nextGoal)}</strong>
         </div>
+        <div class="fps-rewarded-panel" data-bind="rewarded-panel">
+          <h3>Bonus Rewards</h3>
+          <div class="fps-rewarded-list" data-bind="rewarded-offers"></div>
+          <p class="fps-rewarded-status" data-bind="rewarded-status"></p>
+        </div>
         <div class="fps-shop-actions">
           <button data-action="retry">Retry</button>
           <button data-action="menu">Back to Menu</button>
         </div>
       </div>
     `;
-    this.root.addEventListener("click", (event) => {
+    this.root.addEventListener("click", async (event) => {
       const button = event.target.closest("button");
       if (!button) {
         return;
@@ -47,8 +54,20 @@ export class GameOverScene3D {
       if (action === "menu") {
         this.game.setMode("menu");
       }
+      if (button.dataset.rewardedOffer) {
+        button.disabled = true;
+        this.rewardStatus = "Checking rewarded ad...";
+        this.refreshRewardedOffers();
+        const result = await this.game.claimRewardedOffer({
+          offerId: button.dataset.rewardedOffer,
+          source: "game_over",
+        });
+        this.rewardStatus = result.message;
+        this.refreshRewardedOffers();
+      }
     });
     document.body.appendChild(this.root);
+    this.refreshRewardedOffers();
   }
 
   exit() {
@@ -59,8 +78,43 @@ export class GameOverScene3D {
   }
 
   renderGameToText() {
-    return JSON.stringify({ mode: "game_over", payload: this.payload });
+    return JSON.stringify({
+      mode: "game_over",
+      payload: this.payload,
+      rewardedOffers: getGameOverRewardedOffers({ game: this.game, payload: this.payload }),
+      rewardedStatus: this.rewardStatus,
+    });
   }
 
   advanceSimulation() {}
+
+  refreshRewardedOffers() {
+    if (!this.root) {
+      return;
+    }
+    const panel = this.root.querySelector('[data-bind="rewarded-panel"]');
+    const list = this.root.querySelector('[data-bind="rewarded-offers"]');
+    const status = this.root.querySelector('[data-bind="rewarded-status"]');
+    if (!panel || !list || !status) {
+      return;
+    }
+    const offers = getGameOverRewardedOffers({ game: this.game, payload: this.payload });
+    panel.style.display = offers.length ? "" : "none";
+    status.textContent = this.rewardStatus;
+    list.innerHTML = "";
+    for (const offer of offers) {
+      const row = document.createElement("div");
+      row.className = "fps-rewarded-row";
+      row.innerHTML = `
+        <span>
+          <strong>${escapeHtml(offer.label)}</strong>
+          <small>${escapeHtml(offer.claimed ? "Claimed for this run." : offer.description)}</small>
+        </span>
+        <button type="button" data-rewarded-offer="${escapeHtml(offer.id)}" ${offer.claimed ? "disabled" : ""}>
+          ${escapeHtml(offer.claimed ? "Claimed" : "Watch Ad")}
+        </button>
+      `;
+      list.appendChild(row);
+    }
+  }
 }
