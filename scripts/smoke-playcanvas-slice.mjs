@@ -42,7 +42,9 @@ try {
   await page.reload({ waitUntil: "networkidle" });
   const readyText = await page.evaluate(() => window.render_game_to_text?.() ?? "");
   const readyPrimaryText = await page.locator('[data-flow-action="primary"]').textContent();
-  await page.locator('[data-action="start"]').click();
+  // Click the modal's primary button; the bottom-bar start button is hidden
+  // while the campaign modal is open (it returns for in-game controls).
+  await page.locator('[data-flow-action="primary"]').click();
   // Poll until the game transitions to running phase (up to 5s) before capturing the impact
   // baseline. Capturing immediately after the click races against async state setup and can
   // return an empty string or a stale "ready" snapshot — both will fail the impact assertions.

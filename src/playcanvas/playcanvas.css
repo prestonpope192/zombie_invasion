@@ -699,6 +699,12 @@ a {
   border-radius: 8px;
 }
 
+/* Honor the hidden attribute (the flex display above otherwise overrides it),
+   so the bar can be suppressed while the campaign modal is open. */
+.pc-slice-actions[hidden] {
+  display: none;
+}
+
 .pc-slice-actions button,
 .pc-slice-actions a {
   display: inline-flex;

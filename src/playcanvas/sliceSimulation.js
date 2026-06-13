@@ -95,6 +95,15 @@ const FIRE_PATCH_MERGE_DIST = 2.4;
 
 const BITE_INTERVAL_SEC = 0.42;
 const BITE_MAX_DAMAGE = 9;
+// Village is far more durable than a one-on-one melee: a lone walker chews
+// ~2.5 dmg/s (was ~6.5), so the player has time to thin a wave before the
+// bell tower falls. Capped so a brute can't melt the village in one bite.
+const VILLAGE_BITE_MULTIPLIER = 0.34;
+const VILLAGE_BITE_MAX_DAMAGE = 3.4;
+// How close the player must be for a zombie to break off the village and
+// chase them, and how long a zombie stays aggro'd after the player shoots it.
+const PLAYER_AGGRO_RADIUS = 13;
+const PLAYER_AGGRO_ON_HIT_SEC = 4;
 
 const JUMP_SPEED_MPS = 6.2;
 const DOUBLE_JUMP_SPEED_MPS = 8.4;
@@ -678,6 +687,7 @@ function stepZombies(state, dt) {
 
     zombie.hitFlashSec = Math.max(0, zombie.hitFlashSec - dt);
     zombie.biteCooldownSec = Math.max(0, (zombie.biteCooldownSec ?? 0) - dt);
+    zombie.aggroPlayerSec = Math.max(0, (zombie.aggroPlayerSec ?? 0) - dt);
 
     const toPlayerX = state.player.x - zombie.x;
     const toPlayerZ = state.player.z - zombie.z;
@@ -685,7 +695,12 @@ function stepZombies(state, dt) {
     const toVillageX = -zombie.x;
     const toVillageZ = SLICE_WORLD.villageZ - zombie.z;
     const villageDist = Math.hypot(toVillageX, toVillageZ);
-    const targetPlayer = playerDist < 8 || zombie.z > SLICE_WORLD.villageZ + 1;
+    // Chase the player when they're near, when the zombie is already on the
+    // player's side of the village line, or when freshly shot (aggro-on-hit).
+    const targetPlayer =
+      playerDist < PLAYER_AGGRO_RADIUS ||
+      zombie.z > SLICE_WORLD.villageZ + 1 ||
+      zombie.aggroPlayerSec > 0;
     const tx = targetPlayer ? toPlayerX : toVillageX;
     const tz = targetPlayer ? toPlayerZ : toVillageZ;
     const dist = Math.hypot(tx, tz) || 1;
@@ -703,7 +718,10 @@ function stepZombies(state, dt) {
 
     if (!targetPlayer && villageDist < SLICE_WORLD.villageBiteRange) {
       if (zombie.biteCooldownSec <= 0) {
-        const biteDamage = zombie.attackDps * 0.72 * BITE_INTERVAL_SEC;
+        const biteDamage = Math.min(
+          VILLAGE_BITE_MAX_DAMAGE,
+          zombie.attackDps * VILLAGE_BITE_MULTIPLIER * BITE_INTERVAL_SEC,
+        );
         const before = state.villageHp;
         state.villageHp = Math.max(0, state.villageHp - biteDamage);
         state.lifetimeStats.villageDamageTaken += Math.max(0, Math.round(before - state.villageHp));
@@ -2068,6 +2086,8 @@ function damageZombie(state, zombie, rawDamage) {
   zombie.hp = Math.max(0, zombie.hp - damage);
   state.lifetimeStats.damageDealt += damage;
   zombie.hitFlashSec = 0.18;
+  // Getting shot makes a village-bound zombie turn and come for the player.
+  zombie.aggroPlayerSec = PLAYER_AGGRO_ON_HIT_SEC;
   if (zombie.hp > 0) {
     return { damage, killed: false };
   }

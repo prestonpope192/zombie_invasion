@@ -447,6 +447,7 @@ export class PlayCanvasZombieSlice {
     this.shopGuideBody = this.root.querySelector("[data-shop-guide-body]");
     this.shopItemsRoot = this.root.querySelector("[data-shop-items]");
     this.flowPanel = this.root.querySelector('[data-panel="flow"]');
+    this.actionBar = this.root.querySelector(".pc-slice-actions");
     this.flowFields = {
       eyebrow: this.root.querySelector('[data-flow-field="eyebrow"]'),
       title: this.root.querySelector('[data-flow-field="title"]'),
@@ -1267,11 +1268,19 @@ export class PlayCanvasZombieSlice {
     window.addEventListener("blur", () => {
       this.input.dragLooking = false;
     });
-    window.addEventListener("pointerlockchange", () => {
+    // pointerlockchange / pointerlockerror fire on document, not window.
+    document.addEventListener("pointerlockchange", () => {
       this.input.pointerLocked = document.pointerLockElement === this.canvas;
       if (this.input.pointerLocked) {
         this.input.dragLooking = false;
+        this.state.lastMessage = "Mouse look active — click to fire, Esc to release.";
+        this.updateHud();
       }
+    });
+    document.addEventListener("pointerlockerror", () => {
+      this.input.pointerLocked = false;
+      this.state.lastMessage = "Pointer lock unavailable here; drag the mouse to look around.";
+      this.updateHud();
     });
     this.canvas.addEventListener("pointerdown", (event) => {
       if (event.target.closest?.("button, a")) {
@@ -3030,6 +3039,12 @@ export class PlayCanvasZombieSlice {
   renderFlowPanel(live) {
     const visible = !isActivePlayPhase(this.state.phase);
     this.flowPanel.hidden = !visible;
+    // The bottom action bar duplicates the modal's Start/Shop/Reset on the
+    // menu, so hide it whenever the flow modal is up; it returns for in-game
+    // controls (Blast/Shop/Reset/Map) once play starts.
+    if (this.actionBar) {
+      this.actionBar.hidden = visible;
+    }
     if (!visible) {
       return;
     }
