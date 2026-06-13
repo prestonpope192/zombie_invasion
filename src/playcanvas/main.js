@@ -3284,6 +3284,10 @@ export class PlayCanvasZombieSlice {
     if (this.actionBar) {
       this.actionBar.hidden = visible;
     }
+    // Add is-menu to root when fully-covering modal is showing (ready/lost/won)
+    // to suppress the in-game HUD clusters. Keep HUD visible during intermission.
+    const isFullCover = visible && this.state.phase !== "intermission";
+    this.root.classList.toggle("is-menu", isFullCover);
     if (!visible) {
       return;
     }
@@ -3402,7 +3406,9 @@ export class PlayCanvasZombieSlice {
       return;
     }
     const guidance = getPlayCanvasGuidanceSnapshot(this.state);
-    const suppress = this.shopOpen || guidance.stage === "secret_boss";
+    // Suppress when: shop open, boss phase, OR flow modal is fully covering (ready/lost/won)
+    const flowCovering = this.state.phase === "ready" || this.state.phase === "lost" || this.state.phase === "won";
+    const suppress = this.shopOpen || guidance.stage === "secret_boss" || flowCovering;
     if (suppress) {
       this.guidancePanel.hidden = true;
       return;

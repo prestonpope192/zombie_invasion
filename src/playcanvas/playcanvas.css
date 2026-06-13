@@ -57,6 +57,11 @@ a {
   font: inherit;
 }
 
+/* Ensure [hidden] always wins — needed because some rules set display explicitly */
+[hidden] {
+  display: none !important;
+}
+
 .pc-slice {
   position: fixed;
   inset: 0;
@@ -75,6 +80,20 @@ a {
   inset: 0;
   z-index: 5;
   pointer-events: none;
+}
+
+/* When the full-cover flow modal is showing (ready/lost/won), suppress
+   in-game HUD clusters to reduce visual noise behind the modal.
+   is-menu is toggled on the #app root (this.root). */
+.is-menu .zi-hud-objective,
+.is-menu .zi-hud-meta,
+.is-menu .zi-hud-vitals,
+.is-menu .zi-toast,
+.is-menu .pc-mobile-controls,
+.is-menu .pc-minimap-panel {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
 }
 
 /* ── Shared cluster panel ──────────────────────────────────────────────────── */
@@ -552,23 +571,27 @@ a {
   display: none;
 }
 
-/* ── Guidance toast (transient — replaces old persistent guidance panel) ─── */
+/* ── Guidance toast — compact top-center, clears HUD clusters on all sizes ── */
 .pc-guidance-toast {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 130px);
+  /* Sit just below the top-center phase toast (toast is ~24px tall + 10px gap) */
+  top: calc(env(safe-area-inset-top, 0px) + 52px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
-  width: min(380px, calc(100vw - 180px));
-  padding: 10px 14px;
+  /* Narrow enough to clear the left objective panel (~160px) and right meta panel (~130px) */
+  width: min(360px, 70vw);
+  padding: 6px 12px;
   box-sizing: border-box;
-  border: 1px solid rgba(255, 178, 99, 0.36);
+  border: 1px solid rgba(155, 214, 74, 0.28);
   border-radius: var(--zi-radius-sm);
-  background: var(--zi-bg-raised);
+  background: rgba(13, 18, 24, 0.88);
   box-shadow: var(--zi-shadow);
   backdrop-filter: blur(10px);
   pointer-events: none;
-  animation: pc-toast-fadein 0.25s ease-out;
+  animation: pc-toast-fadein 0.22s ease-out;
+  /* Keep it to ~2 lines max to stay compact */
+  overflow: hidden;
 }
 
 .pc-guidance-toast[hidden] {
@@ -576,32 +599,43 @@ a {
 }
 
 @keyframes pc-toast-fadein {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+/* Stage label (eyebrow) */
 .pc-guidance-toast span {
-  display: block;
-  color: var(--pc-warm);
-  font-size: 0.62rem;
+  display: inline;
+  color: var(--zi-accent);
+  font-size: 0.6rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
+/* Title — primary line */
 .pc-guidance-toast strong {
-  display: block;
-  margin-top: 2px;
+  display: inline;
   color: var(--zi-text);
-  font-size: 0.88rem;
-  line-height: 1.2;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.3;
+  vertical-align: middle;
 }
 
+/* Body paragraph — clamped, dim */
 .pc-guidance-toast p {
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   color: var(--zi-text-dim);
-  font-size: 0.76rem;
-  line-height: 1.35;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  /* Clamp to 2 lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ── Minimap — compact, positioned top-right on desktop / top-right mobile ── */
@@ -659,105 +693,191 @@ a {
 .pc-minimap-legend-mini .enemy  { color: #76e360; }
 .pc-minimap-legend-mini .village { color: #ffd870; }
 
+/* ── Flow / campaign modal ─────────────────────────────────────────────────── */
 .pc-flow-panel {
   position: fixed;
   left: 50%;
-  top: 52%;
-  z-index: 8;
-  width: min(540px, calc(100vw - 36px));
+  top: 50%;
+  z-index: 24; /* above summary/grace overlays (z-22) so intermission panel shows clean */
+  width: min(440px, calc(100vw - 36px));
   transform: translate(-50%, -50%);
-  display: grid;
-  gap: 14px;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
   box-sizing: border-box;
-  border: 1px solid rgba(216, 255, 125, 0.32);
-  border-radius: 8px;
-  background: rgba(7, 12, 13, 0.82);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
-  backdrop-filter: blur(10px);
+  font-family: var(--zi-font);
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius);
+  background: var(--zi-bg-raised);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.06);
+  backdrop-filter: blur(14px) saturate(1.5);
+}
+
+/* Optional subtle red top-border for game-over */
+.pc-flow-panel[data-phase="lost"] {
+  border-color: rgba(232, 80, 58, 0.6);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(232, 80, 58, 0.1);
+}
+
+/* Victory: accent border */
+.pc-flow-panel[data-phase="won"] {
+  border-color: var(--zi-border-bright);
+  box-shadow: var(--zi-shadow), 0 0 24px rgba(155, 214, 74, 0.12);
 }
 
 .pc-flow-panel[hidden] {
   display: none;
 }
 
+/* Intermission (between waves): sit right-anchored so HUD is still visible */
 .pc-flow-panel[data-phase="intermission"] {
   left: auto;
   right: 18px;
   transform: translateY(-50%);
-  width: min(500px, calc(100vw - 36px));
+  top: 50%;
+  width: min(460px, calc(100vw - 36px));
 }
 
+/* Eyebrow — small label above the title */
 .pc-flow-panel [data-flow-field="eyebrow"] {
-  color: var(--pc-accent);
-  font-size: 0.72rem;
-  font-weight: 850;
-  letter-spacing: 0.16em;
+  color: var(--zi-text-dim);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+/* Override eyebrow color per phase */
+.pc-flow-panel[data-phase="lost"] [data-flow-field="eyebrow"] {
+  color: var(--zi-danger);
+}
+
+.pc-flow-panel[data-phase="won"] [data-flow-field="eyebrow"] {
+  color: var(--zi-accent);
 }
 
 .pc-flow-panel h1 {
   margin: 0;
-  color: var(--pc-ink);
-  font-size: clamp(2rem, 4vw, 3.35rem);
-  line-height: 0.98;
+  color: var(--zi-text);
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+/* Victory title gets accent tint */
+.pc-flow-panel[data-phase="won"] h1 {
+  color: var(--zi-accent);
 }
 
 .pc-flow-panel p {
   margin: 0;
   max-width: 48ch;
-  color: var(--pc-dim);
-  font-size: 0.98rem;
-  line-height: 1.45;
+  color: var(--zi-text-dim);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
+/* ── Stat chips row ──────────────────────────────────────────────────────── */
 .pc-flow-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--zi-gap);
 }
 
 .pc-flow-stats span {
   min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid rgba(216, 255, 125, 0.16);
-  border-radius: 6px;
-  background: rgba(216, 255, 125, 0.07);
-  color: var(--pc-dim);
-  font-size: 0.78rem;
+  padding: 8px 10px;
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(155, 214, 74, 0.05);
+  color: var(--zi-text-dim);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .pc-flow-stats b {
   display: block;
-  margin-top: 2px;
-  color: var(--pc-ink);
+  margin-top: 3px;
+  color: var(--zi-text);
   font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
+/* ── Action buttons — clear hierarchy ───────────────────────────────────── */
+/* Use a flex-wrap row; primary + revive fill the row solo; secondaries share a row */
 .pc-flow-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--zi-gap);
 }
 
+/* Ghost base — secondary buttons share a row */
 .pc-flow-actions button {
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 14px;
-  border: 1px solid rgba(216, 255, 125, 0.38);
-  border-radius: 6px;
-  background: rgba(216, 255, 125, 0.12);
-  color: var(--pc-ink);
+  flex: 1 1 auto;
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(150, 180, 160, 0.06);
+  color: var(--zi-text-dim);
+  font-family: var(--zi-font);
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  text-align: center;
 }
 
-.pc-flow-actions button:first-child {
-  border-color: rgba(255, 178, 99, 0.66);
-  background: rgba(255, 178, 99, 0.18);
+.pc-flow-actions button:hover:not(:disabled) {
+  background: rgba(150, 180, 160, 0.12);
+  border-color: rgba(150, 180, 160, 0.3);
+  color: var(--zi-text);
+}
+
+/* PRIMARY CTA — filled accent, dark text, full-width solo row */
+.pc-flow-actions button[data-flow-action="primary"] {
+  flex: 1 1 100%; /* forces its own row */
+  min-height: 48px;
+  background: var(--zi-accent);
+  border-color: var(--zi-accent);
+  color: #0d1208;
+  font-size: 0.94rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.pc-flow-actions button[data-flow-action="primary"]:hover:not(:disabled) {
+  background: #b0e860;
+  border-color: #b0e860;
+  color: #0d1208;
+}
+
+/* REVIVE — amber outline, solo row */
+.pc-flow-actions button[data-flow-action="revive"] {
+  flex: 1 1 100%; /* own row so it's prominent */
+  min-height: 42px;
+  border-color: rgba(245, 197, 66, 0.7);
+  background: rgba(245, 197, 66, 0.1);
+  color: var(--zi-coin);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.pc-flow-actions button[data-flow-action="revive"]:hover:not(:disabled) {
+  background: rgba(245, 197, 66, 0.2);
+  border-color: var(--zi-coin);
+  color: var(--zi-coin);
 }
 
 .pc-flow-actions button:disabled {
   cursor: default;
-  opacity: 0.48;
+  opacity: 0.38;
 }
 
 /* ── Mobile controls shell ─────────────────────────────────────────────────── */
@@ -1046,20 +1166,23 @@ a {
   background: rgba(255, 178, 99, 0.26);
 }
 
+/* ── Shop panel ────────────────────────────────────────────────────────────── */
 .pc-shop-panel {
   position: fixed;
   left: 18px;
-  bottom: 86px;
-  z-index: 6;
+  bottom: 90px;
+  z-index: 23; /* above HUD (5), minimap (6), summary overlay (22), below flow panel (24) */
   width: min(720px, calc(100vw - 36px));
-  max-height: min(42vh, 360px);
-  overflow: auto;
-  border: 1px solid var(--pc-line);
-  border-radius: 8px;
-  background: rgba(7, 12, 13, 0.84);
-  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(8px);
-  padding: 12px;
+  max-height: min(44vh, 380px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-family: var(--zi-font);
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius);
+  background: var(--zi-bg-solid);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.06);
+  backdrop-filter: blur(14px);
+  padding: 14px;
   box-sizing: border-box;
 }
 
@@ -1067,90 +1190,153 @@ a {
   display: none;
 }
 
+/* ── Shop header row ─────────────────────────────────────────────────────── */
 .pc-shop-panel-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--zi-border);
 }
 
+/* Eyebrow: "FIELD SHOP" */
 .pc-shop-panel-head span {
-  color: var(--pc-accent);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.pc-shop-panel-head strong {
-  color: var(--pc-ink);
-  font-size: 0.9rem;
-}
-
-.pc-shop-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.pc-shop-card {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid rgba(216, 255, 125, 0.18);
-  border-radius: 8px;
-  background: rgba(216, 255, 125, 0.06);
-}
-
-.pc-shop-card.is-equipped {
-  border-color: rgba(255, 178, 99, 0.5);
-  background: rgba(255, 178, 99, 0.1);
-}
-
-.pc-shop-card.is-recommended {
-  border-color: rgba(255, 178, 99, 0.72);
-  background: rgba(255, 178, 99, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(255, 178, 99, 0.18), 0 0 18px rgba(255, 178, 99, 0.12);
-}
-
-.pc-shop-card.is-recommended strong::after {
-  content: "Recommended";
-  display: block;
-  margin-top: 3px;
-  color: var(--pc-warm);
+  color: var(--zi-text-dim);
   font-size: 0.62rem;
-  font-weight: 850;
-  letter-spacing: 0.12em;
+  font-weight: 800;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
-.pc-shop-card strong {
-  color: var(--pc-ink);
-  font-size: 0.9rem;
+/* Recommendation / context line */
+.pc-shop-panel-head strong {
+  color: var(--zi-text-dim);
+  font-size: 0.8rem;
+  font-weight: 400;
+  flex: 1;
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.pc-shop-card span {
-  color: var(--pc-dim);
-  font-size: 0.76rem;
+/* ── Item grid — 4-up desktop, 2-up mobile ───────────────────────────────── */
+.pc-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--zi-gap);
 }
 
+/* ── Individual card ─────────────────────────────────────────────────────── */
+.pc-shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(150, 180, 160, 0.04);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+/* OWNED / EQUIPPED — accent border + subtle fill */
+.pc-shop-card.is-equipped {
+  border-color: var(--zi-accent);
+  background: rgba(155, 214, 74, 0.1);
+}
+
+/* RECOMMENDED — warm amber highlight */
+.pc-shop-card.is-recommended {
+  border-color: rgba(240, 168, 56, 0.8);
+  background: rgba(240, 168, 56, 0.1);
+  box-shadow: 0 0 14px rgba(240, 168, 56, 0.1);
+}
+
+/* Badge after item name */
+.pc-shop-card.is-equipped strong::after {
+  content: "EQUIPPED";
+  display: block;
+  margin-top: 2px;
+  color: var(--zi-accent);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pc-shop-card.is-recommended strong::after {
+  content: "REC";
+  display: block;
+  margin-top: 2px;
+  color: var(--zi-village);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Only show recommended badge when not already equipped */
+.pc-shop-card.is-equipped.is-recommended strong::after {
+  content: "EQUIPPED";
+  color: var(--zi-accent);
+}
+
+/* Item name */
+.pc-shop-card strong {
+  color: var(--zi-text);
+  font-size: 0.88rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+/* Stat detail line */
+.pc-shop-card span {
+  color: var(--zi-text-dim);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  flex: 1; /* push button to bottom */
+}
+
+/* Buy / state button — at bottom of card */
 .pc-shop-card button {
   min-height: 30px;
-  border: 1px solid rgba(216, 255, 125, 0.34);
-  border-radius: 6px;
-  background: rgba(216, 255, 125, 0.1);
-  color: var(--pc-ink);
+  margin-top: auto;
+  padding: 0 10px;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(155, 214, 74, 0.1);
+  color: var(--zi-accent);
+  font-family: var(--zi-font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
 }
 
+.pc-shop-card button:hover:not(:disabled) {
+  background: rgba(155, 214, 74, 0.22);
+  border-color: var(--zi-accent);
+}
+
+/* Equipped / locked state */
+.pc-shop-card.is-equipped button {
+  border-color: rgba(155, 214, 74, 0.3);
+  background: transparent;
+  color: var(--zi-text-dim);
+  cursor: default;
+}
+
+/* Cannot afford / locked wave */
 .pc-shop-card button:disabled {
   cursor: default;
-  opacity: 0.52;
+  opacity: 0.45;
 }
 
 /* pc-slice-actions removed (Pass 2) — stub so the no-op !important rule wins */
@@ -1226,9 +1412,9 @@ a {
   .pc-shop-panel {
     left: 10px;
     right: 10px;
-    bottom: 72px;
+    bottom: 80px;
     width: auto;
-    max-height: 46vh;
+    max-height: 50vh;
   }
 
   .pc-shop-grid {
@@ -1237,7 +1423,8 @@ a {
 
   .pc-flow-panel {
     top: 50%;
-    padding: 16px;
+    padding: 18px;
+    gap: 14px;
   }
 
   .pc-flow-panel[data-phase="intermission"] {
@@ -1248,11 +1435,32 @@ a {
   }
 
   .pc-flow-panel h1 {
-    font-size: 2rem;
+    font-size: clamp(1.5rem, 6vw, 2rem);
   }
 
   .pc-flow-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* On narrow screens make secondary flow actions inline/wrap */
+  .pc-flow-actions {
+    gap: 6px;
+  }
+
+  .pc-flow-actions button:not([data-flow-action="primary"]):not([data-flow-action="revive"]) {
+    font-size: 0.78rem;
+    min-height: 34px;
+    padding: 0 10px;
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  /* Group secondary buttons into a row */
+  .pc-flow-actions button[data-flow-action="stats"],
+  .pc-flow-actions button[data-flow-action="settings"],
+  .pc-flow-actions button[data-flow-action="shop"],
+  .pc-flow-actions button[data-flow-action="reset"] {
+    /* displayed inline via flex parent */
   }
 }
 
@@ -1298,62 +1506,125 @@ a {
   background: radial-gradient(ellipse at top, rgba(255, 160, 20, 0.6) 0%, transparent 65%);
 }
 
-/* Grace period overlay */
+/* ── Grace period countdown overlay ──────────────────────────────────────── */
 .pc-grace-overlay {
   position: fixed;
-  top: 12%;
+  top: 10%;
   left: 50%;
   transform: translateX(-50%);
   z-index: 22;
-  background: rgba(20, 40, 10, 0.78);
-  border: 1px solid rgba(160, 230, 100, 0.45);
-  border-radius: 8px;
-  padding: 10px 24px;
-  color: #c8f08c;
-  font-size: 1.1rem;
+  font-family: var(--zi-font);
+  background: rgba(13, 18, 24, 0.80);
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  padding: 8px 20px;
+  color: var(--zi-text-dim);
+  font-size: 0.82rem;
   font-weight: 600;
+  letter-spacing: 0.06em;
   text-align: center;
   pointer-events: none;
   display: flex;
   align-items: center;
   gap: 8px;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--zi-shadow);
+}
+
+/* The big countdown number — accented + subtle pulse */
+.pc-grace-overlay [data-grace-countdown] {
+  color: var(--zi-accent);
+  font-size: 1.6rem;
+  font-weight: 800;
+  animation: pc-grace-pulse 1s ease-in-out infinite;
+  display: inline-block;
+  line-height: 1;
+}
+
+@keyframes pc-grace-pulse {
+  0%, 100% { transform: scale(1);   opacity: 1; }
+  50%       { transform: scale(1.12); opacity: 0.8; }
 }
 
 .pc-grace-overlay[hidden] {
   display: none;
 }
 
-/* Post-wave summary overlay */
+/* ── Post-wave summary overlay ─────────────────────────────────────────────── */
 .pc-summary-overlay {
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 22;
-  background: rgba(10, 25, 10, 0.88);
-  border: 1px solid rgba(160, 230, 100, 0.5);
-  border-radius: 10px;
-  padding: 20px 32px;
-  color: #e0f4c0;
+  font-family: var(--zi-font);
+  background: var(--zi-bg-raised);
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius);
+  padding: 24px 32px;
   text-align: center;
-  min-width: 220px;
+  min-width: 240px;
   pointer-events: none;
+  box-shadow: var(--zi-shadow), 0 0 32px rgba(155, 214, 74, 0.1);
+  backdrop-filter: blur(14px);
+  animation: pc-summary-in 0.28s cubic-bezier(0.2, 0, 0.3, 1);
+}
+
+@keyframes pc-summary-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)) scale(0.97); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
 .pc-summary-overlay[hidden] {
   display: none;
 }
 
-.pc-summary-content h2 {
-  font-size: 1.4rem;
-  margin: 0 0 10px;
+/* "WAVE CLEAR" eyebrow */
+.pc-summary-content [data-summary-eyebrow] {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--zi-accent);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
+/* Wave number headline */
+.pc-summary-content h2 {
+  margin: 0 0 14px;
+  color: var(--zi-text);
+  font-size: clamp(1.8rem, 5vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Stat chips */
 .pc-summary-stats {
   display: flex;
-  gap: 18px;
+  gap: 10px;
   justify-content: center;
-  font-size: 0.95rem;
+  flex-wrap: wrap;
+}
+
+.pc-summary-stats span {
+  padding: 7px 12px;
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(155, 214, 74, 0.05);
+  color: var(--zi-text-dim);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pc-summary-stats b {
+  color: var(--zi-text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 /* Stamina meter */
@@ -1378,74 +1649,84 @@ a {
   display: none;
 }
 
-/* Menu sections: stats, settings, help */
+/* ── Flow modal subsections: lifetime stats + settings ─────────────────── */
 .pc-flow-lifetime,
 .pc-flow-settings {
-  background: rgba(0, 20, 0, 0.5);
-  border: 1px solid rgba(140, 210, 80, 0.25);
-  border-radius: 6px;
-  padding: 10px 14px;
-  margin: 6px 0;
+  background: rgba(150, 180, 160, 0.04);
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  padding: 12px 14px;
 }
 
+/* Lifetime stats grid */
 .pc-flow-lifetime-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 16px;
-  font-size: 0.88rem;
-  color: #c0e890;
+  font-family: var(--zi-font);
+  font-size: 0.82rem;
+  color: var(--zi-text-dim);
 }
 
 .pc-flow-lifetime-grid b {
-  color: #e8f8c0;
+  color: var(--zi-text);
   font-weight: 700;
-  margin-left: 4px;
+  margin-left: 6px;
 }
 
+/* Settings subsection */
 .pc-flow-settings {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .pc-flow-setting {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.9rem;
-  color: #c0e890;
+  font-family: var(--zi-font);
+  font-size: 0.86rem;
+  color: var(--zi-text);
   cursor: pointer;
 }
 
 .pc-flow-setting input,
 .pc-flow-setting select {
-  accent-color: #a0d840;
-  background: rgba(10, 30, 10, 0.8);
-  color: #e0f8b0;
-  border: 1px solid rgba(140, 210, 80, 0.4);
-  border-radius: 4px;
-  padding: 2px 6px;
+  accent-color: var(--zi-accent);
+  background: rgba(13, 18, 24, 0.8);
+  color: var(--zi-text);
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius-sm);
+  padding: 3px 8px;
+  font-family: var(--zi-font);
+  font-size: 0.82rem;
 }
 
+/* Help / controls disclosure */
 .pc-flow-help {
-  font-size: 0.82rem;
-  color: #98c070;
-  margin: 4px 0;
-  padding: 6px 10px;
-  background: rgba(0, 15, 0, 0.4);
-  border-radius: 6px;
+  font-family: var(--zi-font);
+  font-size: 0.78rem;
+  color: var(--zi-text-dim);
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(150, 180, 160, 0.04);
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
 }
 
 .pc-flow-help summary {
   cursor: pointer;
-  font-weight: 600;
-  color: #b0d870;
-  margin-bottom: 4px;
+  font-weight: 700;
+  color: var(--zi-text);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
 }
 
 .pc-flow-help p {
   margin: 4px 0;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 /* Right-zone touch look ghost — appears at touch-start in the look zone,
