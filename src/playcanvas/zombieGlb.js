@@ -113,6 +113,43 @@ function buildAnimMap(container) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-type tint configs
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns tint config for the given zombie type.
+ * All configs use Phong path (useMetalness=false) to avoid the PBR jelly artefact.
+ *
+ * @param {string} type — zombie.type
+ * @returns {{ diffuse: number[], emissive: number[], emissiveIntensity: number }}
+ */
+function getTintConfig(type) {
+  switch (type) {
+    // Brute / Juggernaut — desaturated cold grey-green, very dark, deader look
+    case "brute":
+    case "juggernaut":
+      return { diffuse: [0.18, 0.22, 0.18], emissive: [0.03, 0.05, 0.05], emissiveIntensity: 1.0 };
+
+    // Armored — dark grey with slight metallic darkening
+    case "armored":
+      return { diffuse: [0.20, 0.22, 0.22], emissive: [0.04, 0.05, 0.05], emissiveIntensity: 0.8 };
+
+    // Mega zombie — sickly toxic green, stronger emissive veining
+    case "mega_zombie":
+      return { diffuse: [0.18, 0.30, 0.10], emissive: [0.04, 0.12, 0.02], emissiveIntensity: 1.8 };
+
+    // Mini boss / Secret boss — near-black with deep red undertone
+    case "mini_boss":
+    case "secret_boss":
+      return { diffuse: [0.12, 0.08, 0.08], emissive: [0.10, 0.02, 0.02], emissiveIntensity: 2.0 };
+
+    // Commons (walker, runner, crawler, etc.) — standard muted olive flesh
+    default:
+      return { diffuse: [0.25, 0.30, 0.18], emissive: [0.06, 0.09, 0.04], emissiveIntensity: 1.0 };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Night tint — darken and desaturate the Atlas material
 // ---------------------------------------------------------------------------
 
@@ -134,8 +171,10 @@ function buildAnimMap(container) {
  * useMetalness=true.  Phong + shininess=10 gives a matte clay look.
  *
  * @param {pc.Entity} modelEntity
+ * @param {string}    type — zombie.type (used for per-type tint)
  */
-function applyNightTint(modelEntity) {
+function applyNightTint(modelEntity, type) {
+  const cfg = getTintConfig(type ?? "walker");
   const renders = modelEntity.findComponents("render");
   for (const render of renders) {
     for (const mi of render.meshInstances) {
@@ -143,16 +182,13 @@ function applyNightTint(modelEntity) {
       if (!orig) continue;
       const cloned = orig.clone();
 
-      // Diffuse tint: multiplies the atlas texture → dark muted olive flesh.
-      // A value of 0.22-0.30 in sRGB darkens the bright cartoon atlas to the
-      // moody dark-night palette while keeping the texture silhouette readable.
-      cloned.diffuse = new pc.Color(0.25, 0.30, 0.18);
+      // Diffuse tint: multiplies the atlas texture → per-type dark palette.
+      cloned.diffuse = new pc.Color(...cfg.diffuse);
 
       // Emissive lift: small constant glow so the zombie reads against the
       // dark road (sRGB ~0.04-0.06) without looking self-lit or over-bright.
-      // Keep intensity low — 1.0 is enough for readability at 5-20m.
-      cloned.emissive = new pc.Color(0.06, 0.09, 0.04);
-      cloned.emissiveIntensity = 1.0;
+      cloned.emissive = new pc.Color(...cfg.emissive);
+      cloned.emissiveIntensity = cfg.emissiveIntensity;
 
       // MATTE finish — Phong path, zero specular.
       // useMetalness=false forces Phong shading (avoids PBR atlas-channel
@@ -167,6 +203,43 @@ function applyNightTint(modelEntity) {
       cloned.update();
       mi.material = cloned;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-type eye config
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns eye color, sphere scale multiplier, and light intensity for a type.
+ * Boss types get larger spheres + brighter light to be scary at distance.
+ *
+ * @param {string} type
+ * @returns {{ color: number[], intensity: number, scaleMul: number, lightIntensity: number, lightRange: number }}
+ */
+function getEyeConfig(type) {
+  switch (type) {
+    case "brute":
+    case "juggernaut":
+      // Deep orange — heavier, deader look
+      return { color: [1.0, 0.35, 0.0], intensity: 4.5, scaleMul: 1.0, lightIntensity: 2.5, lightRange: 5 };
+
+    case "armored":
+      // Cold white-blue — mechanical / armored threat
+      return { color: [0.8, 0.9, 1.0], intensity: 3.5, scaleMul: 1.0, lightIntensity: 2.0, lightRange: 5 };
+
+    case "mega_zombie":
+      // Acid green — toxic mutation
+      return { color: [0.2, 1.0, 0.1], intensity: 5.0, scaleMul: 1.1, lightIntensity: 3.0, lightRange: 6 };
+
+    case "mini_boss":
+    case "secret_boss":
+      // Blood red — boss-level menace, larger + brighter
+      return { color: [1.0, 0.04, 0.04], intensity: 6.0, scaleMul: 1.35, lightIntensity: 4.0, lightRange: 8 };
+
+    default:
+      // Standard warm amber for commons
+      return { color: [1.0, 0.62, 0.08], intensity: 4.0, scaleMul: 1.0, lightIntensity: 2.0, lightRange: 5 };
   }
 }
 
@@ -186,17 +259,20 @@ function applyNightTint(modelEntity) {
  * @param {pc.Entity} root        — the wrapper entity (parent of modelEntity)
  * @param {pc.Entity} modelEntity — the instantiated render entity
  * @param {number}    hS          — height scale factor
+ * @param {string}    type        — zombie.type for per-type color
  */
-function attachEyes(app, root, modelEntity, hS) {
+function attachEyes(app, root, modelEntity, hS, type) {
+  const eyeCfg = getEyeConfig(type ?? "walker");
+
   // Eye separation (world units, scaled by hS)
   const eyeX = 0.065 * hS;
   const eyeZ = -0.06 * hS;   // slightly forward of head centre
-  const eyeS = 0.055 * hS;   // sphere radius
+  const eyeS = 0.055 * hS * eyeCfg.scaleMul;   // sphere radius (larger for bosses)
 
-  // Eye material: bright emissive amber/orange, no lighting
+  // Eye material: bright emissive, per-type color, no lighting
   const eyeMat = new pc.StandardMaterial();
-  eyeMat.emissive = new pc.Color(1.0, 0.62, 0.08);
-  eyeMat.emissiveIntensity = 4.0;
+  eyeMat.emissive = new pc.Color(...eyeCfg.color);
+  eyeMat.emissiveIntensity = eyeCfg.intensity;
   eyeMat.diffuse = new pc.Color(0, 0, 0);
   eyeMat.useLighting = false;
   eyeMat.update();
@@ -220,19 +296,197 @@ function attachEyes(app, root, modelEntity, hS) {
   const eyeL = makeEye("glb-eye-l", -eyeX);
   const eyeR = makeEye("glb-eye-r",  eyeX);
 
-  // Modest omni glow light
+  // Omni glow light — intensity/range scale with threat level
   const eyeGlow = new pc.Entity("glb-eye-glow");
   eyeGlow.addComponent("light", {
     type: "omni",
-    color: new pc.Color(1.0, 0.68, 0.18),
-    intensity: 2.0,
-    range: 5,
+    color: new pc.Color(...eyeCfg.color),
+    intensity: eyeCfg.lightIntensity,
+    range: eyeCfg.lightRange,
     castShadows: false,
   });
   eyeGlow.setLocalPosition(0, 1.16 * hS, eyeZ - 0.02);
   root.addChild(eyeGlow);
 
   return { eyeL, eyeR, eyeGlow, eyeMat };
+}
+
+// ---------------------------------------------------------------------------
+// Silhouette prop helpers (heavy types only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a dark primitive prop entity (box or cone).
+ * @param {string} name
+ * @param {"box"|"cone"|"cylinder"} shape
+ * @param {pc.Color} color
+ * @param {number} emissiveIntensity — 0 for fully dark, >0 for emissive crack look
+ * @returns {pc.Entity}
+ */
+function makePropEntity(name, shape, color, emissiveIntensity = 0) {
+  const e = new pc.Entity(name);
+  const mat = new pc.StandardMaterial();
+  mat.diffuse = color;
+  mat.useMetalness = false;
+  mat.shininess = 5;
+  mat.specular = new pc.Color(0, 0, 0);
+  if (emissiveIntensity > 0) {
+    mat.emissive = color.clone();
+    mat.emissiveIntensity = emissiveIntensity;
+  }
+  mat.update();
+  e.addComponent("render", {
+    type: shape,
+    material: mat,
+    castShadows: false,
+    receiveShadows: false,
+  });
+  return e;
+}
+
+/**
+ * Attach silhouette props to a heavy zombie.
+ * Props are parented to bones if findable, otherwise to model root at
+ * standing-pose world offsets converted to modelEntity-local space.
+ *
+ * Bone names confirmed in Quaternius skeleton (logged in console):
+ *   Spine, Spine1, Spine2, LeftArm, RightArm, LeftShoulder, RightShoulder,
+ *   LeftForeArm, RightForeArm, Head, Neck
+ * We'll try shoulder bones; fall back to Spine2 (chest); fall back to modelEntity root.
+ *
+ * Total added entities per heavy ≤ 8 (typically 4-6).
+ *
+ * @param {pc.Application} app
+ * @param {pc.Entity} root        — wrapper root entity (world scale)
+ * @param {pc.Entity} modelEntity — GLB render entity (has 100x armature)
+ * @param {string}    type        — zombie.type
+ * @param {number}    hS          — height scale factor
+ */
+function attachSilhouetteProps(app, root, modelEntity, type, hS) {
+  const darkGrey = new pc.Color(0.06, 0.07, 0.07);
+  const darkGreen = new pc.Color(0.05, 0.08, 0.04);
+  const darkRed = new pc.Color(0.40, 0.02, 0.02);
+  const nearBlack = new pc.Color(0.06, 0.04, 0.04);
+
+  // Helper: find a bone by name anywhere in the model hierarchy
+  function bone(name) {
+    return modelEntity.findByName(name);
+  }
+
+  // ── Armored: 2 dark shoulder plate boxes + chest plate ─────────────────
+  if (type === "armored") {
+    const lShoulder = bone("LeftArm") ?? bone("LeftShoulder") ?? bone("Spine2");
+    const rShoulder = bone("RightArm") ?? bone("RightShoulder") ?? bone("Spine2");
+    const spine2    = bone("Spine2") ?? bone("Spine1") ?? bone("Spine");
+
+    const plateScale = 0.18 * hS;
+    const plateThick = 0.05 * hS;
+    const plateH     = 0.14 * hS;
+
+    // Left shoulder plate
+    const lPlate = makePropEntity("prop-shoulder-l", "box", darkGrey);
+    lPlate.setLocalScale(plateScale, plateH, plateThick);
+    if (lShoulder) {
+      lPlate.setLocalPosition(-0.08 * hS, 0, 0);
+      lShoulder.addChild(lPlate);
+    } else {
+      lPlate.setLocalPosition(-0.22 * hS, 1.35 * hS, 0);
+      modelEntity.addChild(lPlate);
+    }
+
+    // Right shoulder plate
+    const rPlate = makePropEntity("prop-shoulder-r", "box", darkGrey);
+    rPlate.setLocalScale(plateScale, plateH, plateThick);
+    if (rShoulder) {
+      rPlate.setLocalPosition(0.08 * hS, 0, 0);
+      rShoulder.addChild(rPlate);
+    } else {
+      rPlate.setLocalPosition(0.22 * hS, 1.35 * hS, 0);
+      modelEntity.addChild(rPlate);
+    }
+
+    // Chest plate
+    const chest = makePropEntity("prop-chest", "box", darkGrey);
+    chest.setLocalScale(0.30 * hS, 0.20 * hS, 0.04 * hS);
+    if (spine2) {
+      chest.setLocalPosition(0, 0.04 * hS, -0.12 * hS);
+      spine2.addChild(chest);
+    } else {
+      chest.setLocalPosition(0, 1.10 * hS, -0.15 * hS);
+      modelEntity.addChild(chest);
+    }
+    return;
+  }
+
+  // ── Brute / Juggernaut: 3-4 jagged back spikes (dark cones on Spine2) ──
+  if (type === "brute" || type === "juggernaut") {
+    const spine2 = bone("Spine2") ?? bone("Spine1") ?? bone("Spine");
+    const spikeH = 0.22 * hS;
+    const spikeR = 0.045 * hS;
+    const spikeColor = darkGreen;
+
+    // 3 spikes staggered along the back (positive Z is world-back when anim is neutral)
+    const spikeOffsets = [
+      { x: -0.08 * hS, y: 0.05 * hS, z: 0.10 * hS },
+      { x:  0.00 * hS, y: 0.10 * hS, z: 0.12 * hS },
+      { x:  0.08 * hS, y: 0.05 * hS, z: 0.10 * hS },
+    ];
+    for (let i = 0; i < spikeOffsets.length; i++) {
+      const spike = makePropEntity(`prop-spike-${i}`, "cone", spikeColor);
+      spike.setLocalScale(spikeR, spikeH, spikeR);
+      if (spine2) {
+        spike.setLocalPosition(spikeOffsets[i].x, spikeOffsets[i].y, spikeOffsets[i].z);
+        // Tilt spike outward slightly (rotate around Z) to look jagged
+        spike.setLocalEulerAngles(spikeOffsets[i].x < 0 ? -15 : spikeOffsets[i].x > 0 ? 15 : 0, 0, 0);
+        spine2.addChild(spike);
+      } else {
+        spike.setLocalPosition(spikeOffsets[i].x, 1.1 * hS + spikeOffsets[i].y, spikeOffsets[i].z);
+        modelEntity.addChild(spike);
+      }
+    }
+    return;
+  }
+
+  // ── Mini boss / Secret boss: crown horns on Head + emissive chest crack ─
+  if (type === "mini_boss" || type === "secret_boss") {
+    const head = bone("Head");
+    const spine2 = bone("Spine2") ?? bone("Spine1") ?? bone("Spine");
+
+    // Crown of 3 short horns around head top
+    const hornH = 0.14 * hS;
+    const hornR = 0.035 * hS;
+    const hornAngles = [-40, 0, 40];  // degrees around head, spread
+    for (let i = 0; i < 3; i++) {
+      const horn = makePropEntity(`prop-horn-${i}`, "cone", nearBlack);
+      horn.setLocalScale(hornR, hornH, hornR);
+      const angle = hornAngles[i];
+      const spread = 0.07 * hS;
+      const xOff = Math.sin((angle * Math.PI) / 180) * spread;
+      const zOff = Math.cos((angle * Math.PI) / 180) * 0.02 * hS;
+      if (head) {
+        horn.setLocalPosition(xOff, 0.06 * hS, zOff);
+        horn.setLocalEulerAngles(angle !== 0 ? (angle > 0 ? -12 : 12) : 0, 0, angle * 0.3);
+        head.addChild(horn);
+      } else {
+        horn.setLocalPosition(xOff, 1.72 * hS, zOff);
+        modelEntity.addChild(horn);
+      }
+    }
+
+    // Emissive red chest crack (thin box on Spine2)
+    const crack = makePropEntity("prop-chest-crack", "box", darkRed, 3.0);
+    crack.setLocalScale(0.06 * hS, 0.20 * hS, 0.025 * hS);
+    if (spine2) {
+      crack.setLocalPosition(0, 0.02 * hS, -0.13 * hS);
+      spine2.addChild(crack);
+    } else {
+      crack.setLocalPosition(0, 1.05 * hS, -0.15 * hS);
+      modelEntity.addChild(crack);
+    }
+    return;
+  }
+
+  // mega_zombie and commons: no silhouette props
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +545,8 @@ export function createZombieGlbEntity(app, zombie, container) {
 
   root.addChild(modelEntity);
 
-  // Apply night tint to the bright Atlas material (Phong matte path)
-  applyNightTint(modelEntity);
+  // Apply night tint to the bright Atlas material (Phong matte path, per-type tint)
+  applyNightTint(modelEntity, zombie.type ?? "walker");
 
   // Blob shadow (flat disc on ground, same as procedural rig)
   const shadowMat = new pc.StandardMaterial();
@@ -312,8 +566,19 @@ export function createZombieGlbEntity(app, zombie, container) {
   shadow.setLocalScale(0.88, 0.03, 0.88);
   root.addChild(shadow);
 
-  // Glowing eyes (parented to root wrapper; y position updated each frame)
-  const eyes = attachEyes(app, root, modelEntity, hS);
+  // Glowing eyes (parented to root wrapper; y position updated each frame; per-type color)
+  const eyes = attachEyes(app, root, modelEntity, hS, zombie.type ?? "walker");
+
+  // Silhouette props — only for heavy types; commons are VISUALLY UNCHANGED
+  const zombieType = zombie.type ?? "walker";
+  const HEAVY_TYPES = new Set(["brute", "juggernaut", "armored", "mega_zombie", "mini_boss", "secret_boss"]);
+  if (HEAVY_TYPES.has(zombieType)) {
+    try {
+      attachSilhouetteProps(app, root, modelEntity, zombieType, hS);
+    } catch (ex) {
+      console.warn("[zombieGlb] attachSilhouetteProps failed:", ex);
+    }
+  }
 
   // Build animation name → AnimTrack map (uses track.name, not asset.name)
   const animMap = buildAnimMap(container);

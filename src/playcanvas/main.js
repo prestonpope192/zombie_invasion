@@ -1,6 +1,11 @@
 import * as pc from "playcanvas";
 import { createZombieRig, animateZombieRig, applyZombieRigMaterials } from "./zombieRig";
 import { loadZombieGlbContainer, createZombieGlbEntity, animateZombieGlbEntity } from "./zombieGlb";
+import {
+  loadVillagerGlbContainers,
+  createVillagerGlbEntity,
+  animateVillagerGlbEntity,
+} from "./villagerGlb";
 import buildingsConfig from "../fps/config/buildings_fps.json";
 import qualityProfiles from "../fps/config/quality_profiles.json";
 import { Audio3D } from "../fps/systems/audio3d";
@@ -98,6 +103,10 @@ const MATERIALS = {
   runnerFlesh: { diffuse: [0.29, 0.35, 0.23], emissive: [0.045, 0.07, 0.05], roughness: 0.85 },
   bruteFlesh: { diffuse: [0.21, 0.26, 0.20], emissive: [0.032, 0.05, 0.04], roughness: 0.85 },
   zombieEye: { diffuse: [1, 0.92, 0.55], emissive: [14.0, 8.0, 1.2], roughness: 0.04 },
+  // Eye corona — larger translucent additive sphere around each eye.
+  // Provides a wide emissive seed for CameraFrame bloom; also reads as a warm
+  // halo on hardware where bloom is disabled (mobile_low / SwiftShader).
+  zombieEyeCorona: { diffuse: [1, 0.72, 0.2], emissive: [3.5, 1.8, 0.25], roughness: 1, opacity: 0.28, blend: "additive" },
   zombiePants: { diffuse: [0.10, 0.11, 0.14], emissive: [0.030, 0.036, 0.064], roughness: 0.92 },
   zombieBoots: { diffuse: [0.09, 0.07, 0.06], emissive: [0.018, 0.014, 0.012], roughness: 0.95 },
   zombieShirtRed: { diffuse: [0.32, 0.10, 0.07], emissive: [0.10, 0.022, 0.012], roughness: 0.9 },
@@ -153,6 +162,10 @@ export class PlayCanvasZombieSlice {
       dragLooking: false,
       lastPointerX: 0,
       lastPointerY: 0,
+      // Right-zone touch look (mobile only)
+      lookTouch: null,   // { id, startX, startY, curX, curY }
+      lookVelX: 0,       // smoothed look velocity (px/frame equivalent)
+      lookVelY: 0,
     };
     this.playerDamageFlashSec = 0;
     this.villageDamageFlashSec = 0;
@@ -185,12 +198,20 @@ export class PlayCanvasZombieSlice {
     /** @type {pc.Asset|null} */
     this.glbContainer = null;
 
+    // Villager GLB containers — loaded once alongside zombie GLB.
+    // villagerGlbContainers stays null until both (or at least one) model loads.
+    // createVillagerEntity falls back to primitive rig when null.
+    /** @type {{man: pc.Asset|null, woman: pc.Asset|null}|null} */
+    this.villagerGlbContainers = null;
+
     this.buildDom();
     this.createApp();
     this.createMaterials();
     this.createScene();
+    this._initCameraFrame();
 
-    // Kick off GLB container load asynchronously — never blocks startup.
+    // Kick off GLB container loads asynchronously — never blocks startup.
+    // Zombie and villager GLB loads run in parallel (both are ~1MB assets).
     if (this.useGlbZombies) {
       loadZombieGlbContainer(this.app).then((asset) => {
         this.glbContainer = asset;
@@ -198,6 +219,17 @@ export class PlayCanvasZombieSlice {
           console.log("[PlayCanvas] GLB zombie container ready.");
         } else {
           console.warn("[PlayCanvas] GLB container load failed — falling back to procedural rig.");
+        }
+      });
+
+      // Villager GLB load — primitive fallback until containers resolve
+      loadVillagerGlbContainers(this.app).then((containers) => {
+        const anyLoaded = containers.man || containers.woman;
+        if (anyLoaded) {
+          this.villagerGlbContainers = containers;
+          console.log("[PlayCanvas] Villager GLB containers ready (man:", !!containers.man, "woman:", !!containers.woman, ").");
+        } else {
+          console.warn("[PlayCanvas] Villager GLB load failed — using primitive villager fallback.");
         }
       });
     }
@@ -493,7 +525,7 @@ export class PlayCanvasZombieSlice {
       material.useMetalness = true;
       if (def.opacity !== undefined) {
         material.opacity = def.opacity;
-        material.blendType = pc.BLEND_NORMAL;
+        material.blendType = def.blend === "additive" ? pc.BLEND_ADDITIVEALPHA : pc.BLEND_NORMAL;
         material.depthWrite = false;
       }
       // Sky/backdrop materials bypass scene fog so the moon and clouds don't wash out
@@ -563,6 +595,44 @@ export class PlayCanvasZombieSlice {
     this.createWeaponModel();
     this.createGearVisuals();
     this.createShotFxPool();
+  }
+
+  // Approach 1 — pc.CameraFrame (PlayCanvas ≥1.70 / 2.x).
+  // Bloom is gated by the quality profile's `bloom` flag:
+  //   desktop_high: bloom true, mobile_high: bloom true, mobile_low: bloom false.
+  // CameraFrame's FramePassCameraFrame auto-disables bloom when the GPU cannot
+  // allocate an HDR render target (SwiftShader RGBA8 fallback) — so the smoke
+  // test is safe without any extra guard.
+  _initCameraFrame() {
+    // Disabled by default: the CameraFrame HDR render path visibly alters the
+    // tuned night look even with bloom off (mist billboards composite hotter,
+    // sky washes toward grey — verified live on Metal GPU). The additive
+    // eye/muzzle corona spheres deliver the halo look in the normal pipeline
+    // instead. Re-enable for experiments with ?bloom=1.
+    const params = new URLSearchParams(globalThis.location?.search ?? "");
+    if (params.get("bloom") !== "1") return;
+    if (!this.qualityProfile?.bloom) return;
+    try {
+      const cf = new pc.CameraFrame(this.app, this.camera.camera);
+      // Bloom: soft halo for zombie eyes [14,8,1.2], muzzle [2.2,1.4,0.25],
+      // lanterns [2.8,1.15,0.32], windows [2.2,0.95,0.28], moon [0.95,1.18,1.55].
+      // intensity 0.08 — visible halo on eyes/flash while sky stays dark navy.
+      //   0.04 was too subtle on small emissive spheres; 0.30+ washes the scene.
+      //   Live-tested at 0.08: moon halos, muzzle flash corona, eye glow all read.
+      // blurLevel 16 — max MIP chain for the widest soft spread.
+      cf.bloom.intensity = 0.08;
+      cf.bloom.blurLevel = 16;
+      // Keep ACES tone mapping (was already on the camera component).
+      // CameraFrame compose pass owns tone mapping when active.
+      cf.rendering.toneMapping = pc.TONEMAP_ACES;
+      // No SSAO (too expensive; already disabled on mobile_low, optional on desktop).
+      // cf.ssao.type stays SSAOTYPE_NONE (default).
+      this.cameraFrame = cf;
+      console.log("[PlayCanvas] CameraFrame bloom enabled (quality:", this.qualityProfileKey, ")");
+    } catch (e) {
+      console.warn("[PlayCanvas] CameraFrame init failed — bloom disabled.", e);
+      this.cameraFrame = null;
+    }
   }
 
   addGround() {
@@ -1063,8 +1133,30 @@ export class PlayCanvasZombieSlice {
     if (this.useGlbZombies && this.glbContainer) {
       // GLB path — skinned Quaternius model
       root = createZombieGlbEntity(this.app, zombie, this.glbContainer);
+      // Attach bloom corona spheres alongside the GLB eye entities.
+      // zombieGlb.js cannot be modified (in-flight), so we add them here.
+      // Coronas are siblings on root (not children of eye entities) to avoid
+      // inheriting the eye entity's local scale.  Their positions are synced
+      // to the eye entities each frame in updateZombies after animateZombieGlbEntity.
+      const coronaMat = this.materials.get("zombieEyeCorona");
+      if (coronaMat) {
+        const cs = 0.22; // world-space corona diameter — 4x GLB eye sphere (~0.055u)
+        for (const side of ["coronaL", "coronaR"]) {
+          const c = new pc.Entity(`glb-bloom-${side}-${zombie.id}`);
+          c.addComponent("render", {
+            type: "sphere",
+            material: coronaMat,
+            castShadows: false,
+            receiveShadows: false,
+          });
+          c.setLocalScale(cs, cs, cs);
+          root.addChild(c);
+          root[`_bloomCorona${side === "coronaL" ? "L" : "R"}`] = c;
+        }
+      }
     } else {
       // Procedural rig — default behavior (also used as fallback if container not yet loaded)
+      // Eye corona spheres are added inside createZombieRig / zombieRig.js.
       root = createZombieRig(this.app, this.materials, zombie);
     }
     this.entitiesByZombie.set(zombie.id, root);
@@ -1194,6 +1286,11 @@ export class PlayCanvasZombieSlice {
       if (event.button !== 0) {
         return;
       }
+      // Touch events in the right zone are handled by the look-zone handler;
+      // skip the dragLooking path for them to avoid dual-handling.
+      if (event.pointerType !== "mouse") {
+        return;
+      }
       this.input.dragLooking = true;
       this.input.lastPointerX = event.clientX;
       this.input.lastPointerY = event.clientY;
@@ -1288,6 +1385,150 @@ export class PlayCanvasZombieSlice {
       button.addEventListener("pointercancel", () => setActive(false));
       button.addEventListener("lostpointercapture", () => setActive(false));
     }
+    this.attachTouchLookZone();
+  }
+
+  // ── Right-zone touch look ─────────────────────────────────────────────────────
+  // Touches starting in the right 55% of the canvas (and not on a button) drive
+  // yaw/pitch via continuous delta, matching the feel of the legacy right stick.
+  // Sensitivity is viewport-scaled; response curve + dead-zone mirror the legacy
+  // mobileFpsControls right-stick (deadzone 0.24, exponent 1.75, gain 0.62).
+  // Multi-touch safe: each touch has its own pointerId; the look touch keeps
+  // working while move/fire buttons are held.
+  attachTouchLookZone() {
+    // Only active on coarse-pointer (touch) devices. Desktop mouse paths are
+    // handled by handleLookMove and pointerLock — those remain unchanged.
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    if (!isTouch) {
+      return;
+    }
+
+    this._buildLookGhost();
+
+    const LOOK_ZONE_SPLIT = 0.45; // left 45% = move zone; right 55% = look zone
+    const DEADZONE = 0.24;        // matches legacy right-stick
+    const EXPONENT = 1.75;        // legacy right-stick power curve
+    const GAIN = 0.62;            // legacy right-stick gain
+    // Sensitivity: yaw degrees per px * (viewport normalisation). Tuned so a
+    // ~100px swipe rotates ~90°; pitch capped by existing clamp (-34..24).
+    const YAW_SENS_BASE = 0.0028;  // radians per css-pixel (pointer: coarse thumb)
+    const PITCH_SENS_BASE = 0.13;  // degrees per css-pixel
+    const SMOOTH = 0.28;           // exponential smoothing factor (0=frozen, 1=raw)
+
+    const applyLookResponse = (normalised) => {
+      const sign = Math.sign(normalised);
+      const abs = Math.abs(normalised);
+      if (abs <= DEADZONE) return 0;
+      const n = (abs - DEADZONE) / (1 - DEADZONE);
+      const curved = Math.pow(clamp(n, 0, 1), EXPONENT) * GAIN;
+      return clamp(curved, 0, 1) * sign;
+    };
+
+    const onPointerDown = (event) => {
+      // Ignore if something else already captured this pointer (e.g. a button).
+      if (event.target.closest?.("button, a")) return;
+      // Already tracking a look touch?
+      if (this.input.lookTouch !== null) return;
+      // Must start in the right look zone.
+      const canvasRect = this.canvas.getBoundingClientRect();
+      const relX = (event.clientX - canvasRect.left) / canvasRect.width;
+      if (relX < LOOK_ZONE_SPLIT) return;
+
+      this.canvas.setPointerCapture?.(event.pointerId);
+      this.input.lookTouch = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        curX: event.clientX,
+        curY: event.clientY,
+      };
+      this.input.lookVelX = 0;
+      this.input.lookVelY = 0;
+      this._showLookGhost(event.clientX, event.clientY);
+      event.preventDefault();
+    };
+
+    const onPointerMove = (event) => {
+      if (!this.input.lookTouch) return;
+      if (event.pointerId !== this.input.lookTouch.id) return;
+      const lt = this.input.lookTouch;
+      const dx = event.clientX - lt.curX;
+      const dy = event.clientY - lt.curY;
+      lt.curX = event.clientX;
+      lt.curY = event.clientY;
+      // Normalise delta to a ±1 range by viewport scale so sensitivity is
+      // consistent across screen sizes.
+      const vpW = window.innerWidth || 360;
+      const vpH = window.innerHeight || 640;
+      const ndx = dx / (vpW * 0.08);   // ÷8% of viewport width ≈ full deflection at 80px
+      const ndy = dy / (vpH * 0.08);
+      // Apply response curve
+      const rx = applyLookResponse(clamp(ndx, -1, 1));
+      const ry = applyLookResponse(clamp(ndy, -1, 1));
+      // Exponential smoothing — damp jitter while keeping responsiveness
+      this.input.lookVelX = this.input.lookVelX * (1 - SMOOTH) + rx * SMOOTH;
+      this.input.lookVelY = this.input.lookVelY * (1 - SMOOTH) + ry * SMOOTH;
+      this._updateLookGhost(event.clientX, event.clientY);
+      event.preventDefault();
+    };
+
+    const onPointerUp = (event) => {
+      if (!this.input.lookTouch) return;
+      if (event.pointerId !== this.input.lookTouch.id) return;
+      this.input.lookTouch = null;
+      this.input.lookVelX = 0;
+      this.input.lookVelY = 0;
+      this._hideLookGhost();
+    };
+
+    this.canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
+    this.canvas.addEventListener("pointermove", onPointerMove, { passive: false });
+    this.canvas.addEventListener("pointerup", onPointerUp);
+    this.canvas.addEventListener("pointercancel", onPointerUp);
+  }
+
+  _buildLookGhost() {
+    if (this._lookGhostEl) return;
+    const ghost = document.createElement("div");
+    ghost.className = "pc-look-ghost";
+    ghost.setAttribute("aria-hidden", "true");
+    const knob = document.createElement("div");
+    knob.className = "pc-look-ghost-knob";
+    ghost.appendChild(knob);
+    this.root.appendChild(ghost);
+    this._lookGhostEl = ghost;
+    this._lookGhostKnob = knob;
+    this._lookGhostOriginX = 0;
+    this._lookGhostOriginY = 0;
+  }
+
+  _showLookGhost(x, y) {
+    if (!this._lookGhostEl) return;
+    this._lookGhostOriginX = x;
+    this._lookGhostOriginY = y;
+    this._lookGhostEl.style.transform = `translate(${x}px, ${y}px)`;
+    this._lookGhostEl.classList.add("is-active");
+    this._lookGhostKnob.style.transform = "translate(-50%, -50%)";
+  }
+
+  _updateLookGhost(x, y) {
+    if (!this._lookGhostEl || !this._lookGhostEl.classList.contains("is-active")) return;
+    const GHOST_RADIUS = 40;
+    const ox = this._lookGhostOriginX;
+    const oy = this._lookGhostOriginY;
+    const dx = x - ox;
+    const dy = y - oy;
+    const mag = Math.hypot(dx, dy);
+    const clampedMag = Math.min(mag, GHOST_RADIUS);
+    const kx = mag > 0 ? (dx / mag) * clampedMag : 0;
+    const ky = mag > 0 ? (dy / mag) * clampedMag : 0;
+    this._lookGhostKnob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+  }
+
+  _hideLookGhost() {
+    if (!this._lookGhostEl) return;
+    this._lookGhostEl.classList.remove("is-active");
+    this._lookGhostKnob.style.transform = "translate(-50%, -50%)";
   }
 
   requestPointerLock() {
@@ -2044,9 +2285,25 @@ export class PlayCanvasZombieSlice {
 
   update(dt) {
     this._lastUpdateDt = dt;
+    // Drive CameraFrame post-processing (bloom, tone mapping compose) each frame.
+    // cf.update() must be called before the PlayCanvas render tick processes the passes.
+    this.cameraFrame?.update();
     const previousVillageHp = this.state.villageHp;
     const previousPlayerHp = this.state.playerHp;
     this.state.player.pitch = this.pitch;
+    // Apply right-zone touch look velocity — only when there's an active look touch
+    // and the pointer isn't locked (pointer-lock path uses handleLookMove).
+    if (this.input.lookTouch !== null && !this.input.pointerLocked) {
+      const vpW = window.innerWidth || 360;
+      const vpH = window.innerHeight || 640;
+      // lookVelX/Y are normalised ±1 after response curve; scale to pixels/frame
+      // equivalent so applyLookDelta receives the same units it always does (px delta).
+      const fakePixDx = this.input.lookVelX * vpW * 0.08;
+      const fakePixDy = this.input.lookVelY * vpH * 0.08;
+      if (Math.abs(fakePixDx) > 0.5 || Math.abs(fakePixDy) > 0.5) {
+        this.applyLookDelta(fakePixDx, fakePixDy);
+      }
+    }
     stepSlice(this.state, this.input, Math.min(dt, 0.05));
     this.input.jump = false;
     this.trackAudioDamage(previousVillageHp, previousPlayerHp);
@@ -2093,7 +2350,7 @@ export class PlayCanvasZombieSlice {
     this.updateAudioState(dt);
     this.updateWeaponVisuals();
     this.updateZombies(dt);
-    this.updateVillagers();
+    this.updateVillagers(dt);
     this.updateLandscapeMutationVisuals();
     this.updateWindowImpactVisuals();
     this.updateGearVisuals();
@@ -2148,6 +2405,18 @@ export class PlayCanvasZombieSlice {
           entity.setLocalScale(1, 1, 1);
         }
         animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+        // Sync bloom coronas to GLB eye positions (set by animateZombieGlbEntity above).
+        // Coronas provide a wider emissive seed for CameraFrame bloom.
+        const eyeLEnt = entity.findByName("glb-eye-l");
+        const eyeREnt = entity.findByName("glb-eye-r");
+        if (entity._bloomCoronaL && eyeLEnt) {
+          entity._bloomCoronaL.setLocalPosition(eyeLEnt.getLocalPosition());
+          entity._bloomCoronaL.enabled = !zombie.dead;
+        }
+        if (entity._bloomCoronaR && eyeREnt) {
+          entity._bloomCoronaR.setLocalPosition(eyeREnt.getLocalPosition());
+          entity._bloomCoronaR.enabled = !zombie.dead;
+        }
       } else {
         // ── Procedural rig path (default) ─────────────────────────────────────
         entity.enabled = !zombie.dead;
@@ -2172,24 +2441,102 @@ export class PlayCanvasZombieSlice {
     }
   }
 
-  updateVillagers() {
+  // Resolve yaw (degrees) a villager should face.
+  // Escorting: face movement direction (computed from per-frame position delta).
+  //            Smoothed shortest-arc at 540°/s — same rate as resolveZombieYawDeg.
+  // Idle:      face the player (stationary villager "noticing" you).
+  // Uses the same shortest-arc smoothing pattern as resolveZombieYawDeg so turns
+  // are gradual rather than snapping.
+  resolveVillagerYawDeg(entity, villager, dt) {
+    const player = this.state.player;
+
+    if (villager.state === "escorting") {
+      // Movement direction from per-frame position delta.
+      // On the first call (no prev stored) or when standing still, fall back to
+      // facing the player so there's no pop on escort-start.
+      const prevX = entity._prevVillagerX ?? villager.x;
+      const prevZ = entity._prevVillagerZ ?? villager.z;
+      const dx = villager.x - prevX;
+      const dz = villager.z - prevZ;
+      entity._prevVillagerX = villager.x;
+      entity._prevVillagerZ = villager.z;
+
+      let targetYaw;
+      const moveDist = Math.hypot(dx, dz);
+      if (moveDist > 0.0005) {
+        // PlayCanvas yaw 0 faces -Z: direction (dx,dz) → atan2(-dx,-dz)
+        targetYaw = Math.atan2(-dx, -dz) * pc.math.RAD_TO_DEG;
+      } else {
+        // Standing still — face player (no pop, just hold current)
+        const px = player.x - villager.x;
+        const pz = player.z - villager.z;
+        targetYaw = Math.atan2(-px, -pz) * pc.math.RAD_TO_DEG;
+      }
+
+      const current = entity._yawDeg ?? targetYaw;
+      let delta = targetYaw - current;
+      while (delta > 180) delta -= 360;
+      while (delta < -180) delta += 360;
+      const maxStep = 540 * Math.max(dt, 0);
+      const yaw = Math.abs(delta) <= maxStep ? targetYaw : current + Math.sign(delta) * maxStep;
+      entity._yawDeg = yaw;
+      return yaw;
+    } else {
+      // Idle — face the player so they "notice" you approaching
+      const px = player.x - villager.x;
+      const pz = player.z - villager.z;
+      const targetYaw = Math.atan2(-px, -pz) * pc.math.RAD_TO_DEG;
+      const current = entity._yawDeg ?? targetYaw;
+      let delta = targetYaw - current;
+      while (delta > 180) delta -= 360;
+      while (delta < -180) delta += 360;
+      const maxStep = 180 * Math.max(dt, 0); // slower turn rate for idle villagers
+      const yaw = Math.abs(delta) <= maxStep ? targetYaw : current + Math.sign(delta) * maxStep;
+      entity._yawDeg = yaw;
+      return yaw;
+    }
+  }
+
+  updateVillagers(dt = 0) {
     for (const villager of this.state.villagers) {
       const entity = this.entitiesByVillager.get(villager.id) ?? this.createVillagerEntity(villager);
       entity.enabled = villager.state === "idle" || villager.state === "escorting";
       if (!entity.enabled) {
         continue;
       }
+
       entity.setLocalPosition(villager.x, 0, villager.z);
-      entity.lookAt(this.state.player.x, 0.8, this.state.player.z);
-      const pulse = villager.state === "escorting" ? 1 + Math.sin(this.state.elapsedSec * 8) * 0.04 : 1;
-      entity.setLocalScale(pulse, 1, pulse);
+
+      // Facing: escorting villagers face movement direction, idle face player.
+      // Both paths use shortest-arc smooth yaw — no backward-walking artefact.
+      const yawDeg = this.resolveVillagerYawDeg(entity, villager, dt);
+      if (entity._glb?.valid) {
+        // GLB path: Quaternius model faces +Z at yaw=0, same as zombie (+180 flip
+        // already applied in zombieGlb). Villager models also face +Z (not -Z),
+        // so we need the same 180° offset as the zombie GLB.
+        entity.setLocalEulerAngles(0, yawDeg + 180, 0);
+        entity.setLocalScale(1, 1, 1);
+        animateVillagerGlbEntity(entity, villager);
+      } else {
+        // Primitive rig path — no 180° flip needed (primitive faces correct direction)
+        entity.setLocalEulerAngles(0, yawDeg, 0);
+        // Pulse scale only on primitive root (skip for GLB — would squash the model)
+        const pulse = villager.state === "escorting" ? 1 + Math.sin(this.state.elapsedSec * 8) * 0.04 : 1;
+        entity.setLocalScale(pulse, 1, pulse);
+      }
+
+      // Health bar — same logic for both primitive and GLB
       if (entity._healthRoot && entity._healthFill) {
         const visible = villager.state === "escorting";
         entity._healthRoot.enabled = visible;
         if (visible) {
           const ratio = Math.max(0, Math.min(1, villager.hp / Math.max(1, villager.maxHp)));
+          // GLB villager is taller (1.65u); primitive head is at 1.58u.
+          // Health bar Y position is embedded in the entity at creation time —
+          // the fill only needs its X scale and position updated here.
+          const fillY = entity._healthBarY ?? 2.34; // set at entity creation
           entity._healthFill.setLocalScale(0.86 * ratio, 0.05, 0.035);
-          entity._healthFill.setLocalPosition(-0.43 + (0.86 * ratio) / 2, 2.34, -0.04);
+          entity._healthFill.setLocalPosition(-0.43 + (0.86 * ratio) / 2, fillY, -0.04);
         }
       }
     }
@@ -2241,6 +2588,17 @@ export class PlayCanvasZombieSlice {
   }
 
   createVillagerEntity(villager) {
+    // GLB path — skinned Quaternius villager model (man/woman alternated by id hash)
+    if (this.villagerGlbContainers) {
+      const root = createVillagerGlbEntity(this.app, villager, this.villagerGlbContainers);
+      // GLB entity has _glb, _healthRoot, _healthFill set by createVillagerGlbEntity.
+      // Health bar Y for GLB is at 1.92u (set inside villagerGlb.js).
+      root._healthBarY = 1.92;
+      this.entitiesByVillager.set(villager.id, root);
+      return root;
+    }
+
+    // Primitive rig fallback — used until GLB containers load or on GLB failure
     const root = new pc.Entity(`villager-${villager.id}`);
     this.app.root.addChild(root);
     this.addPrimitive(`${villager.id}-shadow`, "cylinder", [0, 0.04, 0], [0.5, 0.035, 0.5], "road", root);
@@ -2254,6 +2612,7 @@ export class PlayCanvasZombieSlice {
     healthRoot.enabled = false;
     root._healthRoot = healthRoot;
     root._healthFill = healthFill;
+    root._healthBarY = 2.34; // primitive health bar Y (head at 1.58u)
     this.entitiesByVillager.set(villager.id, root);
     return root;
   }

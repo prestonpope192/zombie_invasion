@@ -1,119 +1,163 @@
 # Current State
 
-## Summary
+**As of 2026-06-12** | Vitest: 153 pass (36 files) | Smoke: green
 
-The PlayCanvas route now has functional parity with the legacy Three.js FPS
-route across all major gameplay systems:
+---
 
-- The default app route launches the PlayCanvas campaign slice.
-- The older Three.js FPS implementation remains accessible behind `?legacy=1`.
-- Full feature parity was achieved and all 153 automated tests pass (`npm test`
-  as of 2026-06-09). The build completes cleanly (`npm run build`).
+## Route Architecture
 
-## Implemented
+`src/main.js` selects the runtime at load time:
 
-The PlayCanvas route (`src/playcanvas/`) now includes:
+- **Default (`/`)** — PlayCanvas route: `src/playcanvas/main.js` + `src/playcanvas/sliceSimulation.js`
+- **Legacy (`/?legacy=1`)** — Three.js FPS route: `src/fps/app/FpsGame.js`
 
-- **Stamina system**: sprint drain (12/s), jump cost (12), double-jump cost (16), recovery (8/s), HUD bar
-- **Crouch mechanic**: Ctrl key, reduced eye height (1.3 m vs 1.62 m), crouch speed (2.2 m/s)
-- **Double-jump**: float window (0.36 s at 0.48× gravity), stamina cost
-- **Magazine reload**: per-weapon magSize, 1.3 s reload timer, pending reload flag, reload progress bar in HUD
-- **Weapon spread**: ADS (0.4×), crouch (0.65×), sprint (2.0×) spread multipliers; headshot detection at pitch < −8° within 14 units (2.2× damage)
-- **Fire patch merging**: FIRE_PATCH_MERGE_DIST=2.4, cap at 3 patches with multi-layer animated fire visuals and per-patch point lights
-- **Dynamic crosshair**: CSS `--spread-mult` custom property, ADS collapse animation
-- **Damage flash overlays**: player (radial red) and village (orange top) screen overlays, 0.45 s fade
-- **Bite timing**: pulse-based at 0.42 s intervals, 9 dmg/pulse cap (replaces continuous DPS)
-- **Recoil system**: per-shot camera pitch kick, 6°/s recovery, 8° max
-- **Muzzle flash light**: per-shot omni point light at muzzle position, fades in 0.08 s
-- **Impact particles**: material-specific debris (flesh/wood/concrete) per hit
-- **Combat cue popups**: enemy intro messages with 3.5 s display on first encounter per type
-- **Wave grace period**: 5.5 s safe zone with countdown overlay at wave start
-- **Post-wave summary overlay**: wave/kills/coins/village stats shown for 4 s after wave clear
-- **Revive-on-death**: rewarded ad flow (CrazyGames/Poki/mock) on `lost` phase; `revivePlayer()` function in sliceSimulation
-- **Quality presets**: auto-detect mobile/desktop, shadow resolution from profile
-- **Enemy pose animation**: walk sway and attack arm swipe driven by `biteCooldownSec` and `elapsedSec`
-- **Fire sprite visuals**: multi-layer sphere stack (base, flame0, flame1, tip) with animated flicker and per-patch light
-- A 12-wave defense loop with combat, shop flow, village health pressure, and save/load behavior
-- Desktop and mobile control support (pointer lock, touch pad, right-click ADS, new jump/crouch/ADS buttons)
-- Local build, preview, Docker, and Vercel deployment configuration
-- 153 automated tests under [`/test`](/Users/preston/Code/zombie_invasion/test)
+Both routes share the same config JSONs (`src/fps/config/`) and most gameplay
+system modules under `src/fps/systems/`.
 
-## Verified In-Repo
+---
 
-The repo claims the following local verification patterns, and the commands are
-present in `package.json` or checked-in scripts:
+## PlayCanvas Route — What Is Implemented
 
-- `npm test`
-- `npm run build`
-- `npm run smoke:playcanvas`
-- `npm run preview`
-- `docker compose up --build -d`
+### Gameplay Systems (sliceSimulation.js — pure logic, node-testable)
 
-`progress.md` also records earlier local validation passes for:
+- 12-wave defense loop + secret boss phase (post-wave-12)
+- Wave spawning from `waves_fps.json` (budget, composition, boss slot, mega slot)
+- All 17 enemy types from `enemies_fps.json` spawn with correct stats; wave-scaled HP/speed
+- Weapons: all 14 from `weapons_fps.json`; mag reload, ADS spread, headshot (2.2× at pitch <−8°)
+- Ordnance: frag/thermo/breacher/EMP grenades, C4, nuke (all types from `economy_fps.json`)
+- Armor: cloth/kevlar/ceramic tiers; damage reduction applied per hit
+- Gear: flashlight (visual), flint & steel (fire patches with TTL, DPS, merge, cap=3)
+- Shop economy: weapon buy/equip, armor, gear, village upgrade, med kit, ordnance packs
+- Village: HP with max determined by village level and villager perk modifiers
+- Villager escort: enter buildings, locate villager, escort to Town Hall, perk awarded on rescue
+- Villager perks: shop discount, kill coin multiplier, damage reduction, HP bonus, grenade bonus
+- Door system: exterior/interior door interaction with range check
+- Breakable windows + structure impacts: material-specific particles, potential village damage tracked
+- Save/load: `zombie_invasion_playcanvas_save_v1` in localStorage; sanitizes legacy field aliases
+- Lifetime stats: kills, damage dealt/taken, village damage, waves cleared, play seconds
+- Adaptive music: `selectMusicCue` / `computeRaidThreatScore` from `musicDirector.js`
+- First-session guidance: enemy intro messages, shop recommendations, wave threat briefs
+- Rewarded ad — revive-on-death: CrazyGames / Poki / mock; one revive per run
+- Player movement: WASD, sprint (stamina drain), crouch (0.65× spread), double-jump with float window
+- Wave grace period (5.5 s countdown overlay at wave start)
 
-- unit and scene-level tests
-- Playwright/browser smoke checks
-- Docker health verification
-- a Vercel preview deployment
+### Visual Layer (main.js — PlayCanvas Application)
 
-Those historical notes are useful evidence, but they should not be treated as
-same-session proof without rerunning them.
+- **GLB zombie pipeline** (`?glb=0` to opt out): Quaternius CC0 skinned model
+  (`public/models/zombie-quaternius.glb`) — Walk/Run/Crawl/Punch animations per type;
+  procedural rig fallback while container loads or if `?glb=0`
+- Procedural humanoid rig (`zombieRig.js`): articulated joint hierarchy, hunched posture,
+  walk cycle, glowing eyes, 3 shirt variants, per-zombie point light
+- Movement-based zombie facing: smooth 540°/s yaw interpolation; facing matches sim targeting rule
+- Night-style environment: ACES tone mapping, linear fog (start 42, end 95), moon disc + halo,
+  6 cloud clusters, ground-mist billboards, 32 lane trees (pines + deciduous clusters),
+  24 rocks, 20 grass tufts
+- 9 first-person weapon viewmodels: sidearm, compact, rifle, shotgun, precision, heavy,
+  launcher, flamethrower, pipe — each with gloved hands/forearms and camera fill light
+- Shot FX pool: star muzzle flash (8 slots), muzzle light pulse, emissive tracers (8 slots),
+  material-tinted impact bursts (3 slots × 6 particles); zero per-shot allocations after warmup
+- Villager entities: primitive capsule+head rig with health bar; GLB path supported
+  (`animateVillagerGlbEntity`, smooth facing)
+- Damage flash overlays: player (red radial), village (orange top)
+- Minimap: canvas 2D with zombie/villager/door/fire/building layers
+- Shop: in-raid side panel (all item types)
+- Mobile touch controls: DPAD move pad + 11-button action pad
+
+### Verified Baseline (2026-06-12)
+
+| Check | Result |
+|---|---|
+| `npx vitest run` | 36 files, 153 tests, all pass |
+| `npm run build` | Pass (existing chunk-size warning only) |
+| `npm run smoke:playcanvas` | Pass, exit 0 |
+| GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
+| Zombie facing (movement-based) | Confirmed via real-GPU test |
+| Weapon fire FX pool | Confirmed via `?fxslow=1` harness |
+
+---
+
+## Parity Status — Honest Assessment
+
+A full requirement-by-requirement audit was completed on 2026-06-12 and is
+documented in [`docs/parity-audit.md`](./parity-audit.md). Summary:
+
+| Status | Count |
+|---|---|
+| FULL | 46 |
+| PARTIAL | 8 |
+| MISSING | 2 |
+| N/A-BY-DESIGN | 5 |
+| **Total features audited** | **61** |
+
+**Full parity is not yet achieved.** The PlayCanvas route is feature-rich and
+playable end-to-end, but has gaps versus the legacy Three.js FPS route.
+
+### Most Important Gap (Player Impact)
+
+**Mobile look — no right-stick joystick.** The legacy route uses
+`mobileFpsControls.js` with an analog right-stick zone (dead-zone, response
+curve). The PlayCanvas route uses drag-on-canvas look, which is difficult to
+operate on mobile while simultaneously using the move pad. This is the highest
+player-impact gap given the stated mobile-first goal.
+
+### Other MISSING Features
+
+- Rewarded ad multi-offers (health refill / extra grenades / village repair at
+  wave summary and game-over). Only revive-on-death is wired.
+- Rewarded ad telemetry run-state (`zombie_invasion_rewarded_ad` custom events).
+
+### Notable PARTIAL Features
+
+- Flyer / Revenant enemies do not hover (approach at ground plane)
+- Leaper / Pouncer enemies do not jump-pounce (behave as fast walkers)
+- Village damage feedback stages (`villageFeedback.js` thresholds not used)
+- Game-over scene lacks lifetime stat table and multi-offer buttons
+- No right-stick virtual joystick for mobile look
+
+See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with
+per-feature delta notes and legacy source citations.
+
+---
+
+## Architecture Constraints (Intentional Non-Parity)
+
+These items are absent from the PlayCanvas route by explicit design decision
+(documented in `CLAUDE.md`):
+
+- **Rapier3D physics** — collision and movement use pure distance checks. No
+  physics capsule, no knockback on hit.
+- **Three.js render pipeline** — no bloom, DOF, or SSAO post-processing. PlayCanvas
+  uses ACES tone mapping natively.
+- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and
+  drag replaced by hitscan with distance falloff.
+
+---
 
 ## Important Distinctions
 
-### Default route versus legacy route
+### Proven vs aspirational
 
-[`src/main.js`](/Users/preston/Code/zombie_invasion/src/main.js:1) makes the
-PlayCanvas route the default and sends the Three.js FPS build behind
-`?legacy=1`.
+The PlayCanvas route is proven playable from start (wave 1) through win (secret
+boss defeated) in automated tests and smoke runs. The `progress.md` log records
+real-GPU inspection at each major milestone.
 
-### Proven versus aspirational PlayCanvas state
+### Local vs hosted
 
-The repo evidence supports that the PlayCanvas route is playable and has a smoke
-test path. The repo does not support a stronger claim that the PlayCanvas route
-already matches the older FPS runtime in full feature depth.
+Hosted proof on Vercel is not current. `progress.md` records that a prior
+Vercel preview was blocked by Vercel Authentication in Playwright. Local `npm
+run build` and `npm run preview` work; Docker `docker compose up --build -d`
+is configured. Treat hosted status as unverified unless re-tested.
 
-### Local proof versus hosted proof
+### Save key isolation
 
-The repo includes Vercel and Docker deployment configuration, but hosted proof
-should be treated separately from local proof. `progress.md` explicitly records
-that an unauthenticated public Playwright smoke on the Vercel preview was
-blocked by Vercel Authentication.
+The PlayCanvas route uses `zombie_invasion_playcanvas_save_v1`; the legacy FPS
+route uses `zombie_invasion_fps_save_v1`. They do not share saves.
 
-- **Main menu scene**: Stats panel (lifetime kills/waves/time/damage), settings panel (music, SFX, quality preset), collapsible controls help — all accessible from the `ready` phase flow panel via Stats/Settings buttons
+---
 
-## Visual Style Parity Pass (2026-06-11)
+## Recommended Reading Order
 
-The PlayCanvas route was restyled to match the cinematic low-poly survival
-reference art (moonlit village street). Verified on real GPU, with
-`npm test` (153), `npm run build`, and `npm run smoke:playcanvas` all passing
-after the pass:
-
-- **Zombies**: articulated humanoid rig (`src/playcanvas/zombieRig.js`) —
-  joint hierarchy, hunched shamble, walk/attack animation, grey-green flesh,
-  3 shirt variants, glowing eyes with per-zombie light.
-- **Atmosphere**: engine linear distance fog, ground-mist billboards, moonlit
-  cloud clusters, moon halo, lifted blue ambient + cool fill light.
-- **Environment dressing**: foliage-cluster trees, 4-tier pines, faceted
-  rocks, grass tufts (seeded deterministic placement).
-- **Weapon viewmodel**: gloved hands/forearms on all 9 weapons, gunmetal
-  accent materials, camera-attached fill light so the weapon reads at night.
-
-Engine decision: PlayCanvas retained — the reference style is achievable with
-procedural low-poly geometry; no engine swap required.
-
-## Known Gaps Or Active Uncertainty
-
-- Rapier3D physics and Three.js post-processing are intentionally absent from
-  the PlayCanvas route (per architecture decision; collision uses distance checks).
-- `progress.md` is comprehensive but too large to act as the primary
-  orientation doc.
-- Current hosted status is not proven by this docs pass — only local
-  `npm test` and `npm run build` were verified.
-
-## Recommended Reading Order For New Work
-
-1. Read [Architecture](./architecture.md).
-2. Read [Continuation Guide](./continuation-guide.md).
-3. Consult `progress.md` only when you need detailed historical evidence for a
-   claim or validation step.
+1. [`docs/architecture.md`](./architecture.md) — system layout
+2. [`docs/parity-audit.md`](./parity-audit.md) — feature-by-feature gap table
+3. [`docs/continuation-guide.md`](./continuation-guide.md) — next-steps guidance
+4. `progress.md` — detailed historical evidence for individual validation steps

@@ -203,6 +203,25 @@ export function createZombieRig(app, materials, zombie) {
     [0.14, 0.14, 0.14],
     eyeMat);
 
+  // Eye corona spheres — additive translucent halo around each eye.
+  // 3x the eye sphere radius (0.42u), emissive warm amber, opacity 0.28 additive.
+  // Provides a wide HDR seed for CameraFrame bloom to spread from; also reads as
+  // a visible warm halo on SwiftShader / mobile_low where bloom is disabled.
+  // No shadows, no fog — these are pure light effects.
+  const coronaScale = 0.42;
+  const coronaL = prim(app, materials, `${id}-eye-corona-l`, "sphere", headPivot,
+    [-eyeX, eyeY, -headW * 0.52],
+    [coronaScale, coronaScale, coronaScale],
+    "zombieEyeCorona");
+  coronaL.render.castShadows = false;
+  coronaL.render.receiveShadows = false;
+  const coronaR = prim(app, materials, `${id}-eye-corona-r`, "sphere", headPivot,
+    [eyeX, eyeY, -headW * 0.52],
+    [coronaScale, coronaScale, coronaScale],
+    "zombieEyeCorona");
+  coronaR.render.castShadows = false;
+  coronaR.render.receiveShadows = false;
+
   // Per-zombie omni eye-glow light — modest face/ground tint only; distance
   // readability comes from the emissive eye spheres, not this light. Kept weak
   // so a zombie does not floodlight its own head or nearby zombies.

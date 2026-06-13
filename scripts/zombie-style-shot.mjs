@@ -256,6 +256,35 @@ try {
   await page.screenshot({ path: "output/zombie-glb-street.png", fullPage: false });
   console.log("GLB Shot C saved: output/zombie-glb-street.png");
 
+  // ── Bloom Shot: zombie eyes glow at 8-20u ─────────────────────────────────
+  // Two zombies at 8u and 16u ahead; night scene, eyes should read as soft halos
+  // from CameraFrame bloom. Pitch=-3 keeps them centred in frame.
+  await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    g.yaw = 0;
+    g.pitch = -3;
+    g.state.player.yaw = 0;
+    g.updateCamera();
+    const all = g.state.zombies;
+    const eyeSlots = [
+      { x:  0.6, z: g.state.player.z - 8 },   //  8u — close, eyes prominent
+      { x: -0.8, z: g.state.player.z - 16 },  // 16u — mid-range halo
+    ];
+    for (let i = 0; i < all.length; i++) {
+      all[i].dead = false;
+      if (i < eyeSlots.length) {
+        all[i].x = eyeSlots[i].x;
+        all[i].z = eyeSlots[i].z;
+      } else {
+        all[i].x = -30; all[i].z = -30;
+      }
+    }
+    window.advanceTime(150);
+  });
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: "output/bloom-eyes.png", fullPage: false });
+  console.log("Bloom Shot (eye glow) saved: output/bloom-eyes.png");
+
   // ── GLB Shot D: type variants side-by-side (walker, runner, brute, crawler) ─
   // Strategy: mutate the .type field of the first 4 live zombies, then delete
   // their entities from entitiesByZombie so updateZombies() recreates them with
@@ -446,6 +475,236 @@ try {
   await page.waitForTimeout(200);
   await page.screenshot({ path: "output/weapon-fire-impact.png", fullPage: false });
   console.log("Shot G (impact burst) saved: output/weapon-fire-impact.png");
+
+  // ── Bloom Shot: muzzle flash bloom ───────────────────────────────────────
+  // Still in ?fxslow=1 session. Fire again; we catch the stretched muzzle flash.
+  // Intentional night scene: sky stays dark, only the muzzle corona blooms.
+  await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    const target = g.state.zombies.find((z) => !z.dead);
+    if (target) { target.x = 0; target.z = g.state.player.z - 12; }
+    g.fire();
+    g.update(1 / 60);
+  });
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: "output/bloom-muzzle.png", fullPage: false });
+  console.log("Bloom Shot (muzzle bloom) saved: output/bloom-muzzle.png");
+
+  // ── Shot H: villager GLB — man + woman near a building, health bar visible ──
+  // Navigate back to default (GLB) route. Villager GLB containers load alongside
+  // zombie GLB. Force 2+ villagers into escorting state: one with low HP so the
+  // health bar is visibly depleted — easier to verify in the screenshot.
+  await page.goto(`${baseUrl}/`, { waitUntil: "networkidle", timeout: 30000 });
+  await page.evaluate((saveKey) => localStorage.removeItem(saveKey), "zombie_invasion_playcanvas_save_v1");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator('[data-action="start"]').click();
+
+  // Boot and wait for villager GLB containers to load (~2s) plus initial spawns
+  await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    g.state.waveGraceSec = 0;
+    window.advanceTime(1000);
+    g.state.villageHp = 100;
+    g.state.playerHp = 100;
+    // Camera: slightly above head height, looking forward at the main building block
+    g.yaw = 0;
+    g.pitch = -8;
+    g.state.player.yaw = 0;
+    g.updateCamera();
+  });
+  // Wait for async GLB container loads (villager models are ~300KB each)
+  await page.waitForTimeout(2500);
+
+  // Inject 2 villagers in escorting state near the building, one with depleted HP.
+  // Strategy: freeze sim (set player to static pos), pin villager positions AFTER
+  // the advance so the escort follow logic doesn't teleport them away.
+  const villagerDiag = await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    const villagers = g.state.villagers;
+    if (!villagers || villagers.length < 2) return { err: "not enough villagers", count: villagers?.length };
+
+    // Push all zombies offscreen so they don't clutter the shot
+    for (const z of g.state.zombies) { z.x = -30; z.z = -30; }
+
+    // Place player/camera further back so villagers at z~0 are 12u ahead — full body visible.
+    // Player camera is at z=12, so villagers at z=0 are 12 units ahead (good for full-body shot).
+    g.state.player.x = 0;
+    g.state.player.z = 12;
+    // Pitch down to -12° so we see their full height; yaw 0 faces -Z toward villagers
+    g.yaw = 0;
+    g.pitch = -10;
+    g.state.player.yaw = 0;
+    g.updateCamera();
+
+    // Destroy and clear old entities so updateVillagers() recreates with GLB
+    if (g.entitiesByVillager) {
+      for (const [id, ent] of g.entitiesByVillager.entries()) {
+        ent.destroy();
+      }
+      g.entitiesByVillager.clear();
+    }
+
+    // Set villager states BEFORE advance so entities are created as GLB.
+    // Villagers at z=0 → 12 units from camera → full-body visible at pitch=-10.
+    // Villager 0 (one gender): escorting, full HP
+    const v0 = villagers[0];
+    v0.state = "escorting";
+    v0.hp = v0.maxHp;
+    v0.x = -1.6;
+    v0.z = 0;
+    g.state.activeEscortVillagerId = v0.id;
+
+    // Villager 1 (other gender): escorting, low HP (~35%) so health bar shows damage
+    const v1 = villagers[1];
+    v1.state = "escorting";
+    v1.hp = Math.ceil(v1.maxHp * 0.35);
+    v1.x = 1.4;
+    v1.z = 0.5;
+
+    // Advance 2 frames — enough for entity creation + anim component init,
+    // not enough for significant escort movement (4.8 m/s × 0.1s = 0.48u)
+    window.advanceTime(100);
+
+    // Pin positions AFTER advance so escort follow-logic doesn't drift them
+    v0.x = -1.6;
+    v0.z = 0;
+    v1.x = 1.4;
+    v1.z = 0.5;
+
+    return {
+      v0: { id: v0.id, state: v0.state, hp: v0.hp, x: v0.x, z: v0.z },
+      v1: { id: v1.id, state: v1.state, hp: v1.hp, x: v1.x, z: v1.z },
+      villagerGlbContainersReady: !!(g.villagerGlbContainers),
+      glbContainerReady: !!(g.glbContainer),
+      totalVillagers: villagers.length,
+    };
+  });
+  console.log("Villager GLB shot diagnostics:", JSON.stringify(villagerDiag));
+
+  // Extra render time: GLB anim binding is async — give it 1.5s
+  await page.waitForTimeout(1500);
+  // Pin positions again, flush ticks, and gather entity diagnostics
+  const villagerEntityDiag = await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    const v0 = g.state.villagers[0];
+    const v1 = g.state.villagers[1];
+    if (v0) { v0.x = -1.6; v0.z = 0; }
+    if (v1) { v1.x = 1.4; v1.z = 0.5; }
+    window.advanceTime(50);
+
+    const results = [];
+    for (const v of [v0, v1]) {
+      if (!v) continue;
+      const ent = g.entitiesByVillager?.get(v.id);
+      if (!ent) { results.push({ id: v.id, err: "no entity" }); continue; }
+      const glb = ent._glb;
+      const model = glb?.modelEntity;
+      results.push({
+        id: v.id,
+        hasGlb: !!glb,
+        glbValid: glb?.valid,
+        currentAnim: glb?.currentAnim,
+        animSetupOk: glb?.animSetupOk,
+        animKeys: glb?.animMap ? [...glb.animMap.keys()] : null,
+        animSpeed: model?.anim?.speed,
+        animPlaying: model?.anim?.playing,
+        healthBarEnabled: ent._healthRoot?.enabled,
+      });
+    }
+    return results;
+  });
+  console.log("Villager entity diagnostics:", JSON.stringify(villagerEntityDiag));
+  await page.waitForTimeout(400);
+
+  await page.screenshot({ path: "output/villager-glb.png", fullPage: false });
+  console.log("Shot H (villager GLB) saved: output/villager-glb.png");
+
+  // ── Shot I: heavy zombie types line-up (walker, brute, armored, mega_zombie, mini_boss) ──
+  // Navigate to the GLB default route fresh so no left-over sim state.
+  await page.goto(`${baseUrl}/`, { waitUntil: "networkidle", timeout: 30000 });
+  await page.evaluate((saveKey) => localStorage.removeItem(saveKey), "zombie_invasion_playcanvas_save_v1");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator('[data-action="start"]').click();
+
+  // Boot + wait for GLB container to load, then skip grace so zombies spawn.
+  await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    g.state.waveGraceSec = 0;
+    window.advanceTime(2000);
+    g.state.villageHp = 100;
+    g.state.playerHp = 100;
+    g.yaw = 0;
+    g.pitch = -4;
+    g.state.player.yaw = 0;
+    g.updateCamera();
+  });
+  await page.waitForTimeout(1500);
+
+  // Ensure at least 5 live zombies for the 5 heavy slots.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const count = await page.evaluate(
+      () => window.__playCanvasZombieGame.state.zombies.filter((z) => !z.dead).length
+    );
+    if (count >= 5) break;
+    await page.evaluate(() => window.advanceTime(1000));
+    await page.waitForTimeout(200);
+  }
+
+  const heaviesDiag = await page.evaluate(() => {
+    const g = window.__playCanvasZombieGame;
+    g.state.waveGraceSec = 0;
+    g.state.villageHp = 100;
+    g.state.playerHp = 100;
+    // Camera: player at default z=12, pitch=-4 → zombies at z=4 are 8 units ahead.
+    // Spread 5 types across x=[-6, -3, 0, 3, 6] so all fit in frame at 1280x800.
+    g.yaw = 0;
+    g.pitch = -4;
+    g.state.player.yaw = 0;
+    g.updateCamera();
+
+    const live = g.state.zombies.filter((z) => !z.dead);
+
+    const heavySlots = [
+      { type: "walker",     x: -6.0, z: 4 },
+      { type: "brute",      x: -3.0, z: 4 },
+      { type: "armored",    x:  0.0, z: 4 },
+      { type: "mega_zombie",x:  3.0, z: 4 },
+      { type: "mini_boss",  x:  6.0, z: 4 },
+    ];
+
+    const reassigned = [];
+    for (let i = 0; i < Math.min(live.length, heavySlots.length); i++) {
+      const z = live[i];
+      const slot = heavySlots[i];
+      z.type = slot.type;
+      z.x = slot.x;
+      z.z = slot.z;
+      z.dead = false;
+      // Delete existing visual entity so updateZombies() recreates with new type-specific appearance
+      const existing = g.entitiesByZombie.get(z.id);
+      if (existing) {
+        existing.destroy();
+        g.entitiesByZombie.delete(z.id);
+      }
+      reassigned.push({ id: z.id, type: z.type, x: z.x });
+    }
+    // Push remaining zombies offscreen
+    for (let i = heavySlots.length; i < g.state.zombies.length; i++) {
+      g.state.zombies[i].x = -50;
+      g.state.zombies[i].z = -50;
+    }
+    window.advanceTime(400);
+    return { reassigned, totalZombies: g.state.zombies.length };
+  });
+  console.log("Heavy types shot diagnostics:", JSON.stringify(heaviesDiag));
+
+  // Wait for GLB entities to instantiate, anim to bind, props to attach
+  await page.waitForTimeout(2500);
+  await page.evaluate(() => window.advanceTime(200));
+  await page.waitForTimeout(600);
+
+  await page.screenshot({ path: "output/zombie-heavies.png", fullPage: false });
+  console.log("Shot I (zombie-heavies) saved: output/zombie-heavies.png");
 
   // ── Report any blocking errors ─────────────────────────────────────────────
   const blockingLogs = logs.filter((e) => e.type === "pageerror" || e.type === "error");
