@@ -7,6 +7,38 @@
   --pc-panel: rgba(7, 12, 13, 0.76);
   --pc-line: rgba(216, 255, 125, 0.24);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
+
+  /* ── ZI Design Tokens ──────────────────────────────────────────────────── */
+  --zi-font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  /* Backgrounds */
+  --zi-bg: rgba(13, 18, 24, 0.72);
+  --zi-bg-raised: rgba(20, 28, 36, 0.92);
+  --zi-bg-solid: #0d1218;
+
+  /* Borders */
+  --zi-border: rgba(150, 180, 160, 0.16);
+  --zi-border-bright: rgba(155, 214, 74, 0.5);
+
+  /* Text */
+  --zi-text: #eaf2ea;
+  --zi-text-dim: rgba(206, 220, 210, 0.6);
+
+  /* Semantic colours */
+  --zi-accent: #9bd64a;
+  --zi-hp: #46d07f;
+  --zi-hp-low: #e8503a;
+  --zi-stamina: #4aa8e8;
+  --zi-village: #f0a838;
+  --zi-danger: #e8503a;
+  --zi-coin: #f5c542;
+
+  /* Geometry */
+  --zi-radius: 12px;
+  --zi-radius-sm: 8px;
+  --zi-gap: 8px;
+  --zi-pad: 12px;
+  --zi-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
 
 html,
@@ -40,61 +72,312 @@ a {
 
 .pc-slice-hud {
   position: fixed;
-  top: 18px;
-  left: 18px;
-  right: 18px;
+  inset: 0;
   z-index: 5;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
   pointer-events: none;
 }
 
-.pc-slice-status,
-.pc-slice-meters,
-.pc-slice-actions {
-  border: 1px solid var(--pc-line);
-  background: var(--pc-panel);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(8px);
+/* ── Shared cluster panel ──────────────────────────────────────────────────── */
+.zi-hud-objective,
+.zi-hud-meta,
+.zi-hud-vitals {
+  position: absolute;
+  font-family: var(--zi-font);
+  background: var(--zi-bg-raised);
+  border: 1px solid rgba(150, 180, 160, 0.22);
+  border-radius: var(--zi-radius);
+  box-shadow: var(--zi-shadow), inset 0 1px 0 rgba(255,255,255,0.04);
+  backdrop-filter: blur(12px) saturate(1.4);
+  padding: var(--zi-pad);
+  color: var(--zi-text);
+  pointer-events: auto;
 }
 
-.pc-slice-status {
-  max-width: min(580px, 56vw);
-  padding: 12px 14px;
-  border-radius: 8px;
+/* ── TOP-LEFT: objective cluster ───────────────────────────────────────────── */
+.zi-hud-objective {
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: calc(env(safe-area-inset-left, 0px) + 14px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--zi-gap);
+  min-width: 170px;
 }
 
-.pc-slice-status span {
+.zi-label {
   display: block;
-  color: var(--pc-accent);
-  font-size: 0.72rem;
+  color: var(--zi-text-dim);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+.zi-wave-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.zi-wave-chip b {
+  color: var(--zi-accent);
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.zi-wave-total {
+  color: var(--zi-text-dim);
+  font-size: 0.78rem;
+}
+
+.zi-village-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.zi-village-row .zi-label {
+  color: var(--zi-village);
+  opacity: 0.9;
+}
+
+.zi-village-row b {
+  font-size: 0.8rem;
+  color: var(--zi-text);
+  font-weight: 700;
+}
+
+/* ── TOP-RIGHT: meta cluster ───────────────────────────────────────────────── */
+.zi-hud-meta {
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px var(--zi-pad);
+}
+
+.zi-meta-stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.88rem;
+}
+
+.zi-meta-stat b {
+  color: var(--zi-text);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.zi-glyph {
+  font-size: 0.9rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.zi-glyph-coin {
+  color: var(--zi-coin);
+  opacity: 1;
+}
+
+.zi-glyph-skull {
+  color: var(--zi-text-dim);
+  opacity: 1;
+}
+
+.zi-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(155, 214, 74, 0.08);
+  color: var(--zi-text-dim);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  pointer-events: auto;
+}
+
+.zi-settings-btn:hover {
+  background: rgba(155, 214, 74, 0.18);
+  color: var(--zi-text);
+}
+
+/* ── BOTTOM-LEFT: vitals cluster ───────────────────────────────────────────── */
+.zi-hud-vitals {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+  left: calc(env(safe-area-inset-left, 0px) + 14px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--zi-gap);
+  min-width: 190px;
+}
+
+.zi-vital-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zi-vital-row .zi-glyph {
+  color: var(--zi-hp);
+  font-size: 0.85rem;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.zi-vital-row b {
+  color: var(--zi-text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.zi-vital-stamina .zi-glyph {
+  color: var(--zi-stamina);
+}
+
+.zi-weapon-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--zi-text-dim);
+  padding-top: 4px;
+  border-top: 1px solid var(--zi-border);
+  margin-top: 2px;
+}
+
+.zi-weapon-row b {
+  color: var(--zi-text);
+  font-weight: 700;
+}
+
+.zi-sep {
+  color: var(--zi-border-bright);
+  opacity: 0.7;
+}
+
+.zi-reload-label {
+  color: var(--zi-accent);
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  animation: zi-blink 0.5s step-start infinite;
+}
+
+@keyframes zi-blink {
+  50% { opacity: 0; }
+}
+
+/* ── Bar tracks + fills ────────────────────────────────────────────────────── */
+.zi-bar-track {
+  flex: 1;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.zi-bar-track.zi-bar-health {
+  height: 9px;
+}
+
+.zi-bar-track.zi-bar-stamina {
+  height: 5px;
+  border: none;
+}
+
+.zi-village-row .zi-bar-track {
+  flex: none;
+  height: 10px;
+  width: 100%;
+}
+
+.zi-bar-fill {
+  display: block !important;
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease-out, background-color 0.3s ease-out;
+}
+
+.zi-bar-track.zi-bar-health .zi-bar-fill {
+  background-color: var(--zi-hp);
+}
+
+.zi-bar-track.zi-bar-stamina .zi-bar-fill {
+  background-color: var(--zi-stamina);
+}
+
+.zi-village-row .zi-bar-fill {
+  background-color: var(--zi-village);
+}
+
+/* ── Top-center toast ──────────────────────────────────────────────────────── */
+.zi-toast {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 16px;
+  background: var(--zi-bg-raised);
+  border: 1px solid rgba(150, 180, 160, 0.22);
+  border-radius: var(--zi-radius-sm);
+  box-shadow: var(--zi-shadow);
+  backdrop-filter: blur(10px);
+  font-family: var(--zi-font);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  max-width: min(400px, calc(100vw - 380px));
+}
+
+.zi-toast span {
+  color: var(--zi-accent);
+  font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-.pc-slice-status strong {
-  display: block;
-  margin-top: 3px;
-  color: var(--pc-ink);
-  font-size: 0.95rem;
-  line-height: 1.25;
-}
-
-.pc-slice-meters {
-  display: grid;
-  grid-template-columns: repeat(4, auto);
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  color: var(--pc-dim);
+.zi-toast strong {
+  color: var(--zi-text);
   font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
-.pc-slice-meters b {
-  color: var(--pc-ink);
+/* ── Hidden stash ──────────────────────────────────────────────────────────── */
+.zi-hud-stash {
+  display: none;
+}
+
+/* ── Legacy .pc-slice-status / .pc-slice-meters removed (see stash) ──────── */
+
+/* .pc-slice-actions removed (Pass 2) — styled as no-op for safety */
+.pc-slice-actions {
+  display: none !important;
 }
 
 .pc-slice-reticle {
@@ -269,63 +552,72 @@ a {
   display: none;
 }
 
-.pc-guidance-panel {
+/* ── Guidance toast (transient — replaces old persistent guidance panel) ─── */
+.pc-guidance-toast {
   position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 130px);
   left: 50%;
-  bottom: 86px;
-  z-index: 6;
-  width: min(470px, calc(100vw - 280px));
   transform: translateX(-50%);
-  padding: 11px 13px;
+  z-index: 6;
+  width: min(380px, calc(100vw - 180px));
+  padding: 10px 14px;
   box-sizing: border-box;
   border: 1px solid rgba(255, 178, 99, 0.36);
-  border-radius: 8px;
-  background: rgba(7, 12, 13, 0.78);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(8px);
+  border-radius: var(--zi-radius-sm);
+  background: var(--zi-bg-raised);
+  box-shadow: var(--zi-shadow);
+  backdrop-filter: blur(10px);
   pointer-events: none;
+  animation: pc-toast-fadein 0.25s ease-out;
 }
 
-.pc-guidance-panel[hidden] {
+.pc-guidance-toast[hidden] {
   display: none;
 }
 
-.pc-guidance-panel span {
+@keyframes pc-toast-fadein {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.pc-guidance-toast span {
   display: block;
   color: var(--pc-warm);
-  font-size: 0.68rem;
-  font-weight: 850;
+  font-size: 0.62rem;
+  font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.pc-guidance-panel strong {
+.pc-guidance-toast strong {
   display: block;
-  margin-top: 3px;
-  color: var(--pc-ink);
-  font-size: 0.94rem;
+  margin-top: 2px;
+  color: var(--zi-text);
+  font-size: 0.88rem;
   line-height: 1.2;
 }
 
-.pc-guidance-panel p {
-  margin: 4px 0 0;
-  color: var(--pc-dim);
-  font-size: 0.8rem;
+.pc-guidance-toast p {
+  margin: 3px 0 0;
+  color: var(--zi-text-dim);
+  font-size: 0.76rem;
   line-height: 1.35;
 }
 
+/* ── Minimap — compact, positioned top-right on desktop / top-right mobile ── */
 .pc-minimap-panel {
   position: fixed;
-  left: 18px;
-  bottom: 86px;
+  /* Desktop: top-right below the meta cluster */
+  top: calc(env(safe-area-inset-top, 0px) + 72px);
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
   z-index: 6;
-  width: 206px;
-  padding: 10px;
+  width: 150px;
+  padding: 6px;
   box-sizing: border-box;
-  border: 1px solid var(--pc-line);
-  border-radius: 8px;
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
   background: rgba(7, 12, 13, 0.82);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.36);
+  box-shadow: var(--zi-shadow);
   backdrop-filter: blur(8px);
 }
 
@@ -333,82 +625,39 @@ a {
   display: none;
 }
 
-.pc-minimap-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 7px;
-  color: var(--pc-accent);
-  font-size: 0.72rem;
-  font-weight: 850;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.pc-minimap-header button {
-  min-height: 26px;
-  padding: 0 8px;
-  border: 1px solid rgba(216, 255, 125, 0.34);
-  border-radius: 6px;
-  background: rgba(216, 255, 125, 0.1);
-  color: var(--pc-ink);
-  cursor: pointer;
-  font-size: 0.7rem;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
 .pc-minimap-canvas {
   display: block;
-  width: 180px;
-  height: 180px;
-  border-radius: 6px;
+  width: 138px;
+  height: 138px;
+  border-radius: 4px;
   background: #071018;
 }
 
-.pc-minimap-legend {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 8px;
-  margin-top: 7px;
+/* 3-item mini legend (no door/fire/villager) */
+.pc-minimap-legend-mini {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.56rem;
   color: var(--pc-dim);
-  font-size: 0.68rem;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
-.pc-minimap-legend span::before {
+.pc-minimap-legend-mini span::before {
   content: "";
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 5px;
+  width: 6px;
+  height: 6px;
+  margin-right: 3px;
   border-radius: 999px;
   background: currentColor;
+  vertical-align: middle;
 }
 
-.pc-minimap-legend .player {
-  color: #68bbff;
-}
-
-.pc-minimap-legend .enemy {
-  color: #76e360;
-}
-
-.pc-minimap-legend .village {
-  color: #ffd870;
-}
-
-.pc-minimap-legend .villager {
-  color: #4aabff;
-}
-
-.pc-minimap-legend .door {
-  color: #d8ff7d;
-}
-
-.pc-minimap-legend .fire {
-  color: #ff8d3d;
-}
+.pc-minimap-legend-mini .player { color: #68bbff; }
+.pc-minimap-legend-mini .enemy  { color: #76e360; }
+.pc-minimap-legend-mini .village { color: #ffd870; }
 
 .pc-flow-panel {
   position: fixed;
@@ -511,74 +760,290 @@ a {
   opacity: 0.48;
 }
 
+/* ── Mobile controls shell ─────────────────────────────────────────────────── */
 .pc-mobile-controls {
   position: fixed;
-  inset: auto 18px 82px 18px;
+  inset: 0;
   z-index: 6;
-  display: none;
-  align-items: flex-end;
-  justify-content: space-between;
+  /* pointer-events: none so the canvas touch-look zone still receives touches */
   pointer-events: none;
+  /* Hidden on desktop (fine pointer); shown on coarse (touch) via media query below */
+  display: none;
 }
 
-.pc-move-pad,
-.pc-action-pad {
+/* Touch-device OR narrow viewport: show the shell.
+   max-width: 860px covers Playwright viewport resize (pointer type stays "fine" in headless) */
+@media (pointer: coarse), (hover: none), (max-width: 860px) {
+  .pc-mobile-controls {
+    display: block;
+  }
+}
+
+/* ── Joystick zone — invisible hit area bottom-left, pointer-events on ───── */
+.pc-joystick-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 45%;
+  height: 55%;
   pointer-events: auto;
 }
 
-.pc-move-pad {
-  display: grid;
-  grid-template-columns: repeat(3, 48px);
-  grid-template-rows: repeat(2, 48px);
-  gap: 8px;
+/* ── Virtual joystick base + knob (JS-positioned on touch start) ─────────── */
+.pc-joystick-base {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 100px;
+  margin-left: -50px;
+  margin-top: -50px;
+  border-radius: 50%;
+  border: 2px solid rgba(216, 255, 125, 0.22);
+  background: rgba(216, 255, 125, 0.05);
+  pointer-events: none;
+  z-index: 24;
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
 }
 
-.pc-move-pad button:first-child {
-  grid-column: 2;
+.pc-joystick-base.is-active {
+  opacity: 1;
 }
 
-.pc-move-pad button:nth-child(2) {
-  grid-column: 1;
-  grid-row: 2;
+.pc-joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  margin-top: -20px;
+  border-radius: 50%;
+  border: 2px solid rgba(216, 255, 125, 0.5);
+  background: rgba(216, 255, 125, 0.16);
+  transform: translate(-50%, -50%);
 }
 
-.pc-move-pad button:nth-child(3) {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.pc-move-pad button:nth-child(4) {
-  grid-column: 3;
-  grid-row: 2;
-}
-
-.pc-action-pad {
-  display: grid;
+/* ── Right action cluster — bottom-right corner ──────────────────────────── */
+.pc-action-cluster {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 10px;
+  pointer-events: auto;
 }
 
-.pc-mobile-controls button {
-  min-width: 48px;
-  min-height: 48px;
-  border: 1px solid rgba(216, 255, 125, 0.34);
-  border-radius: 8px;
-  background: rgba(7, 12, 13, 0.7);
+/* ── Primary action row (4 smaller buttons above fire) ──────────────────── */
+.pc-primary-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Shared mobile button style */
+.pc-action-cluster button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid rgba(216, 255, 125, 0.34);
+  border-radius: 50%;
+  background: rgba(13, 18, 24, 0.80);
   color: var(--pc-ink);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
   touch-action: none;
   cursor: pointer;
   user-select: none;
+  font-size: 1.1rem;
+  transition: background 0.08s, border-color 0.08s, transform 0.06s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.pc-action-pad button {
-  min-width: 76px;
+/* Primary action buttons: 52px circle, small caps text */
+.pc-primary-actions button {
+  width: 52px;
+  height: 52px;
+  font-size: 0.62rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase;
 }
 
-.pc-mobile-controls button.is-active {
-  border-color: rgba(255, 178, 99, 0.72);
-  background: rgba(255, 178, 99, 0.18);
-  box-shadow: 0 0 18px rgba(255, 178, 99, 0.26);
+/* More button — visible border, slightly dimmer color to differentiate */
+.pc-btn-more {
+  font-size: 1.2rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.12em;
+  color: var(--zi-text) !important;
+  border-color: rgba(155, 214, 74, 0.4) !important;
+  background: rgba(155, 214, 74, 0.06) !important;
+}
+
+/* Large FIRE button: 76px, warm accent */
+.pc-btn-fire {
+  width: 76px !important;
+  height: 76px !important;
+  font-size: 0.75rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.12em !important;
+  border-color: rgba(255, 100, 60, 0.72) !important;
+  background: rgba(180, 50, 20, 0.55) !important;
+  color: #ffcdb2 !important;
+  box-shadow: 0 0 28px rgba(255, 80, 40, 0.28), 0 6px 20px rgba(0,0,0,0.5) !important;
+}
+
+/* Active / press states */
+.pc-action-cluster button.is-active,
+.pc-action-cluster button:active {
+  transform: scale(0.91);
+  border-color: rgba(255, 178, 99, 0.8) !important;
+  background: rgba(255, 178, 99, 0.22) !important;
+  box-shadow: 0 0 20px rgba(255, 178, 99, 0.32) !important;
+}
+
+.pc-btn-fire.is-active,
+.pc-btn-fire:active {
+  transform: scale(0.88) !important;
+  background: rgba(230, 70, 30, 0.72) !important;
+}
+
+/* ── More popover (secondary actions) ────────────────────────────────────── */
+.pc-more-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  display: grid;
+  grid-template-columns: repeat(4, 52px);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius);
+  background: var(--zi-bg-raised);
+  box-shadow: var(--zi-shadow);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+}
+
+.pc-more-popover[hidden] {
+  display: none;
+}
+
+.pc-more-popover button {
+  width: 52px;
+  height: 52px;
+  font-size: 0.68rem !important;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* ── Settings sheet (pause menu) ─────────────────────────────────────────── */
+.zi-settings-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zi-settings-sheet[hidden] {
+  display: none;
+}
+
+.zi-settings-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.60);
+  backdrop-filter: blur(4px);
+}
+
+.zi-settings-card {
+  position: relative;
+  width: min(360px, calc(100vw - 40px));
+  padding: 20px;
+  box-sizing: border-box;
+  background: var(--zi-bg-raised);
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--zi-font);
+}
+
+.zi-settings-title {
+  margin: 0;
+  color: var(--zi-accent);
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.zi-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zi-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: var(--zi-text);
+}
+
+.zi-settings-row button,
+.zi-settings-row a {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(155, 214, 74, 0.08);
+  color: var(--zi-text);
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.12s;
+}
+
+.zi-settings-row button:hover,
+.zi-settings-row a:hover {
+  background: rgba(155, 214, 74, 0.18);
+}
+
+.zi-settings-divider {
+  border: none;
+  border-top: 1px solid var(--zi-border);
+  margin: 2px 0;
+}
+
+.zi-settings-resume {
+  min-height: 44px;
+  border: 1px solid rgba(255, 178, 99, 0.6);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(255, 178, 99, 0.14);
+  color: var(--pc-warm);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.12s;
+  width: 100%;
+}
+
+.zi-settings-resume:hover {
+  background: rgba(255, 178, 99, 0.26);
 }
 
 .pc-shop-panel {
@@ -688,76 +1153,82 @@ a {
   opacity: 0.52;
 }
 
-.pc-slice-actions {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 7;
-  display: flex;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 8px;
-}
+/* pc-slice-actions removed (Pass 2) — stub so the no-op !important rule wins */
 
-/* Honor the hidden attribute (the flex display above otherwise overrides it),
-   so the bar can be suppressed while the campaign modal is open. */
-.pc-slice-actions[hidden] {
-  display: none;
-}
+/* ── HUD mobile overrides (<=640px) ────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .zi-hud-objective {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    padding: 8px 10px;
+    min-width: 140px;
+    border-radius: var(--zi-radius-sm);
+  }
 
-.pc-slice-actions button,
-.pc-slice-actions a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid rgba(216, 255, 125, 0.38);
-  border-radius: 6px;
-  background: rgba(216, 255, 125, 0.1);
-  color: var(--pc-ink);
-  text-decoration: none;
-  cursor: pointer;
-}
+  .zi-wave-chip b {
+    font-size: 1rem;
+  }
 
-.pc-slice-actions button:hover,
-.pc-slice-actions a:hover {
-  background: rgba(216, 255, 125, 0.18);
+  .zi-hud-meta {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    right: calc(env(safe-area-inset-right, 0px) + 10px);
+    padding: 6px 10px;
+    gap: 10px;
+    border-radius: var(--zi-radius-sm);
+  }
+
+  /* Vitals: bottom-left, above the joystick zone.
+     Action cluster is ~130px tall + 24px bottom margin = ~155px from bottom.
+     Vitals sit at 160px so there's no overlap. */
+  .zi-hud-vitals {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 160px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    padding: 8px 10px;
+    min-width: 150px;
+    border-radius: var(--zi-radius-sm);
+  }
+
+  .zi-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    /* Center column between objective (~155px left) and meta (~120px right).
+       Keep it narrow; single-line messages only — overflow hidden. */
+    max-width: min(160px, calc(100vw - 280px));
+    padding: 3px 7px;
+    overflow: hidden;
+  }
+
+  .zi-toast span {
+    font-size: 0.54rem;
+  }
+
+  .zi-toast strong {
+    font-size: 0.68rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  /* Minimap: smaller on phone, stay top-right */
+  .pc-minimap-panel {
+    width: 128px;
+    top: calc(env(safe-area-inset-top, 0px) + 62px);
+    right: calc(env(safe-area-inset-right, 0px) + 10px);
+  }
+
+  .pc-minimap-canvas {
+    width: 116px;
+    height: 116px;
+  }
 }
 
 @media (max-width: 720px) {
-  .pc-slice-hud {
-    top: 10px;
-    left: 10px;
-    right: 10px;
-    display: grid;
-  }
-
-  .pc-slice-status {
-    max-width: none;
-  }
-
-  .pc-slice-meters {
-    grid-template-columns: repeat(2, auto);
-    justify-content: start;
-    width: max-content;
-    max-width: calc(100vw - 20px);
-    box-sizing: border-box;
-  }
-
   .pc-shop-panel {
     left: 10px;
     right: 10px;
     bottom: 72px;
     width: auto;
     max-height: 46vh;
-  }
-
-  .pc-minimap-panel {
-    left: 10px;
-    bottom: 76px;
-    transform: scale(0.86);
-    transform-origin: left bottom;
   }
 
   .pc-shop-grid {
@@ -767,14 +1238,6 @@ a {
   .pc-flow-panel {
     top: 50%;
     padding: 16px;
-  }
-
-  .pc-guidance-panel {
-    left: 10px;
-    right: 104px;
-    bottom: 264px;
-    width: auto;
-    transform: none;
   }
 
   .pc-flow-panel[data-phase="intermission"] {
@@ -791,93 +1254,29 @@ a {
   .pc-flow-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .pc-slice-actions {
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
 }
 
-@media (hover: none), (pointer: coarse), (max-width: 860px) {
-  .pc-mobile-controls {
-    display: flex;
+/* Smaller phone: shrink action cluster buttons slightly */
+@media (max-width: 414px) {
+  .pc-primary-actions button {
+    width: 46px;
+    height: 46px;
+    font-size: 1rem !important;
   }
 
-  .pc-slice-actions {
-    bottom: max(10px, env(safe-area-inset-bottom));
-  }
-}
-
-@media (max-width: 560px) {
-  .pc-slice-meters {
-    font-size: 0.75rem;
-    gap: 7px;
+  .pc-btn-fire {
+    width: 68px !important;
+    height: 68px !important;
   }
 
-  .pc-mobile-controls {
-    inset: auto 10px 126px 10px;
-  }
-
-  .pc-minimap-panel {
-    bottom: 248px;
-    transform: scale(0.74);
-  }
-
-  .pc-guidance-panel {
-    top: 276px;
-    right: 86px;
-    bottom: auto;
-    padding: 9px 11px;
-  }
-
-  .pc-guidance-panel strong {
-    font-size: 0.86rem;
-  }
-
-  .pc-guidance-panel p {
-    font-size: 0.75rem;
-  }
-
-  .pc-move-pad {
-    grid-template-columns: repeat(3, 42px);
-    grid-template-rows: repeat(2, 42px);
-    gap: 7px;
-  }
-
-  .pc-mobile-controls button {
-    min-width: 42px;
-    min-height: 42px;
-  }
-
-  .pc-action-pad button {
-    min-width: 66px;
-  }
-
-  .pc-slice-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .pc-more-popover {
+    grid-template-columns: repeat(4, 46px);
     gap: 6px;
-    padding: 6px;
   }
 
-  .pc-slice-actions [data-action="start"],
-  .pc-slice-actions [data-action="ordnance"],
-  .pc-slice-actions [data-action="shop"] {
-    display: none;
-  }
-
-  .pc-slice-actions button,
-  .pc-slice-actions a {
-    min-height: 36px;
-    min-width: 0;
-    padding: 0 6px;
-    font-size: 0.78rem;
-    line-height: 1.05;
-    text-align: center;
-    white-space: normal;
+  .pc-more-popover button {
+    width: 46px;
+    height: 46px;
   }
 }
 

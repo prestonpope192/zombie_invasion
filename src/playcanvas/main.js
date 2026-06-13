@@ -246,29 +246,78 @@ export class PlayCanvasZombieSlice {
       <div class="pc-slice">
         <canvas class="pc-slice-canvas" aria-label="PlayCanvas zombie invasion prototype"></canvas>
         <div class="pc-slice-hud" aria-live="polite">
-          <div class="pc-slice-status">
+
+          <!-- TOP-LEFT: wave + village integrity -->
+          <div class="zi-hud-objective">
+            <div class="zi-wave-chip">
+              <span class="zi-label">WAVE</span>
+              <b data-field="wave">1</b><span class="zi-wave-total">/12</span>
+            </div>
+            <div class="zi-village-row">
+              <span class="zi-label">VILLAGE</span>
+              <div class="zi-bar-track">
+                <i class="zi-bar-fill" data-bar="village"></i>
+              </div>
+              <b data-field="village">100/100</b>
+            </div>
+          </div>
+
+          <!-- TOP-RIGHT: coins, kills, settings -->
+          <div class="zi-hud-meta">
+            <div class="zi-meta-stat">
+              <span class="zi-glyph zi-glyph-coin" aria-hidden="true">⬡</span>
+              <b data-field="coins">0</b>
+            </div>
+            <div class="zi-meta-stat">
+              <span class="zi-glyph zi-glyph-skull" aria-hidden="true">☠</span>
+              <b data-field="kills">0</b>
+            </div>
+            <button class="zi-settings-btn" data-action="hud-settings" aria-label="Settings" type="button">⚙</button>
+          </div>
+
+          <!-- BOTTOM-LEFT: health, stamina, weapon -->
+          <div class="zi-hud-vitals">
+            <div class="zi-vital-row">
+              <span class="zi-glyph" aria-hidden="true">♥</span>
+              <div class="zi-bar-track zi-bar-health">
+                <i class="zi-bar-fill" data-bar="health"></i>
+              </div>
+              <b data-field="player">100</b>
+            </div>
+            <div class="zi-vital-row zi-vital-stamina">
+              <span class="zi-glyph" aria-hidden="true">⚡</span>
+              <div class="zi-bar-track zi-bar-stamina">
+                <i class="zi-bar-fill" data-bar="stamina"></i>
+              </div>
+            </div>
+            <div class="zi-weapon-row">
+              <b data-field="weapon">Pistol</b>
+              <span class="zi-sep">·</span>
+              <span data-field="ammo">15/15</span>
+              <span class="zi-sep">·</span>
+              <span data-field="ordnance">Frag 5</span>
+              <span data-field="reload-bar" hidden>&nbsp;<span class="zi-reload-label">RLD</span> <b data-field="reload">-</b></span>
+            </div>
+          </div>
+
+          <!-- TOP-CENTER: phase / message toast -->
+          <div class="zi-toast" aria-live="assertive">
             <span data-field="phase">Ready</span>
             <strong data-field="message">Click Start Slice</strong>
           </div>
-          <div class="pc-slice-meters">
-            <span>Wave <b data-field="wave">1</b>/12</span>
-            <span>Village <b data-field="village">100</b></span>
-            <span>Player <b data-field="player">100</b></span>
-            <span class="pc-stamina-meter">Stamina <b data-field="stamina">100</b></span>
-            <span>Ammo <b data-field="ammo">24</b></span>
-            <span data-field="reload-bar" hidden>Reload <b data-field="reload">-</b></span>
-            <span>Ordnance <b data-field="ordnance">Frag 5</b></span>
-            <span>Weapon <b data-field="weapon">Pistol</b></span>
-            <span>Armor <b data-field="armor">Cloth</b></span>
-            <span>Gear <b data-field="gear">None</b></span>
-            <span>Fire <b data-field="fire">0</b></span>
-            <span>Inside <b data-field="inside">Out</b></span>
-            <span>Saved <b data-field="rescued">0/6</b></span>
-            <span>Town <b data-field="town">1</b></span>
-            <span>Coins <b data-field="coins">0</b></span>
-            <span>Kills <b data-field="kills">0</b></span>
-            <span>Live <b data-field="live">0</b></span>
+
+          <!-- Hidden stash: fields still written by updateHud but not shown -->
+          <div class="zi-hud-stash" hidden>
+            <b data-field="stamina">100</b>
+            <b data-field="armor">Cloth</b>
+            <b data-field="gear">None</b>
+            <b data-field="fire">0</b>
+            <b data-field="inside">Out</b>
+            <b data-field="rescued">0/6</b>
+            <b data-field="town">1</b>
+            <b data-field="live">0</b>
           </div>
+
         </div>
         <div class="pc-slice-reticle" data-reticle="sidearm" aria-hidden="true"></div>
         <div class="pc-damage-flash" data-flash="player" aria-hidden="true"></div>
@@ -287,24 +336,18 @@ export class PlayCanvasZombieSlice {
             </div>
           </div>
         </div>
-        <aside class="pc-guidance-panel" data-panel="guidance" aria-live="polite">
+        <!-- Guidance toast — auto-dismissing, replaces the old persistent guidance panel -->
+        <aside class="pc-guidance-toast" data-panel="guidance" aria-live="polite" hidden>
           <span data-guidance-field="stage">Guide</span>
           <strong data-guidance-field="title">First run</strong>
           <p data-guidance-field="message">Start the campaign and protect the village.</p>
         </aside>
         <div class="pc-minimap-panel" data-panel="minimap">
-          <div class="pc-minimap-header">
-            <span>Mini Map</span>
-            <button type="button" data-action="map" aria-label="Toggle minimap">Map</button>
-          </div>
           <canvas class="pc-minimap-canvas" width="${MINIMAP_SIZE_PX}" height="${MINIMAP_SIZE_PX}" aria-label="Mini map"></canvas>
-          <div class="pc-minimap-legend">
+          <div class="pc-minimap-legend-mini">
             <span class="player">You</span>
             <span class="enemy">Zombie</span>
             <span class="village">Village</span>
-            <span class="villager">Villager</span>
-            <span class="door">Door</span>
-            <span class="fire">Fire</span>
           </div>
         </div>
         <div class="pc-flow-panel" data-panel="flow" aria-live="polite">
@@ -358,25 +401,33 @@ export class PlayCanvasZombieSlice {
             <button type="button" data-flow-action="reset">Reset Run</button>
           </div>
         </div>
+        <!-- Mobile controls: left joystick zone (invisible until touched) + right action cluster -->
         <div class="pc-mobile-controls" aria-label="Touch controls">
-          <div class="pc-move-pad" aria-label="Move">
-            <button type="button" data-touch-move="forward" aria-label="Move forward">↑</button>
-            <button type="button" data-touch-move="left" aria-label="Move left">←</button>
-            <button type="button" data-touch-move="back" aria-label="Move back">↓</button>
-            <button type="button" data-touch-move="right" aria-label="Move right">→</button>
-          </div>
-          <div class="pc-action-pad" aria-label="Actions">
-            <button type="button" data-touch-action="sprint" aria-label="Sprint">Run</button>
-            <button type="button" data-touch-action="crouch" aria-label="Crouch">Duck</button>
-            <button type="button" data-touch-action="jump" aria-label="Jump">Jump</button>
-            <button type="button" data-touch-action="ads" aria-label="Aim down sights">ADS</button>
-            <button type="button" data-touch-action="cycle" aria-label="Cycle weapon">Swap</button>
-            <button type="button" data-touch-action="ordnance" aria-label="Use ordnance">Blast</button>
-            <button type="button" data-touch-action="flint" aria-label="Use flint and steel">Flint</button>
-            <button type="button" data-touch-action="interact" aria-label="Interact">Use</button>
-            <button type="button" data-touch-action="map" aria-label="Toggle minimap">Map</button>
-            <button type="button" data-touch-action="shop" aria-label="Toggle shop">Shop</button>
-            <button type="button" data-touch-action="fire" aria-label="Fire weapon">Fire</button>
+          <!-- Left joystick zone: covers bottom-left 45% width / lower 55% height.
+               Visual base+knob are injected by JS on first touch. -->
+          <div class="pc-joystick-zone" aria-label="Move" aria-hidden="true"></div>
+
+          <!-- Right action cluster: FIRE + 4 primary actions + More popover -->
+          <div class="pc-action-cluster" aria-label="Actions">
+            <!-- More popover (secondary actions — hidden by default) -->
+            <div class="pc-more-popover" aria-label="More actions" hidden>
+              <button type="button" data-touch-action="sprint" aria-label="Sprint">Run</button>
+              <button type="button" data-touch-action="crouch" aria-label="Crouch">Duck</button>
+              <button type="button" data-touch-action="jump" aria-label="Jump">Jump</button>
+              <button type="button" data-touch-action="ads" aria-label="Aim down sights">ADS</button>
+              <button type="button" data-touch-action="flint" aria-label="Use flint and steel">Flint</button>
+              <button type="button" data-touch-action="map" aria-label="Toggle minimap">Map</button>
+              <button type="button" data-touch-action="interact" aria-label="Interact">Use</button>
+            </div>
+            <!-- Primary buttons row -->
+            <div class="pc-primary-actions">
+              <button type="button" class="pc-btn-more" data-action="more" aria-label="More actions">···</button>
+              <button type="button" data-touch-action="ordnance" aria-label="Use ordnance">BLAST</button>
+              <button type="button" data-touch-action="cycle" aria-label="Cycle weapon">SWAP</button>
+              <button type="button" data-touch-action="shop" aria-label="Toggle shop">SHOP</button>
+            </div>
+            <!-- Large FIRE button -->
+            <button type="button" class="pc-btn-fire" data-touch-action="fire" aria-label="Fire weapon">FIRE</button>
           </div>
         </div>
         <div class="pc-shop-panel" data-panel="shop" hidden>
@@ -386,20 +437,52 @@ export class PlayCanvasZombieSlice {
           </div>
           <div class="pc-shop-grid" data-shop-items></div>
         </div>
-        <div class="pc-slice-actions">
-          <button type="button" data-action="start">Start Campaign</button>
-          <button type="button" data-action="ordnance">Blast</button>
-          <button type="button" data-action="shop">Shop</button>
-          <button type="button" data-action="reset">Reset Run</button>
-          <button type="button" data-action="restart">Clear Save</button>
-          <button type="button" data-action="music" aria-label="Toggle music">Music</button>
-          <button type="button" data-action="sfx" aria-label="Toggle sound effects">SFX</button>
-          <button type="button" data-action="fullscreen" aria-label="Toggle fullscreen">Full</button>
-          <a href="/?legacy=1" aria-label="Open legacy Three.js build">Legacy Build</a>
+        <!-- Settings sheet — opened by ⚙ button; houses dev/utility controls.
+             data-action hooks are preserved so attachInput() wiring stays intact. -->
+        <div class="zi-settings-sheet" data-panel="settings" hidden aria-modal="true" role="dialog" aria-label="Settings">
+          <div class="zi-settings-backdrop"></div>
+          <div class="zi-settings-card">
+            <h2 class="zi-settings-title">Settings</h2>
+            <div class="zi-settings-body">
+              <div class="zi-settings-row">
+                <span>Music</span>
+                <button type="button" data-action="music" aria-label="Toggle music">Toggle</button>
+              </div>
+              <div class="zi-settings-row">
+                <span>Sound FX</span>
+                <button type="button" data-action="sfx" aria-label="Toggle sound effects">Toggle</button>
+              </div>
+              <div class="zi-settings-row">
+                <span>Fullscreen</span>
+                <button type="button" data-action="fullscreen" aria-label="Toggle fullscreen">Toggle</button>
+              </div>
+              <hr class="zi-settings-divider">
+              <div class="zi-settings-row">
+                <span>Reset Run</span>
+                <button type="button" data-action="reset">Reset</button>
+              </div>
+              <div class="zi-settings-row">
+                <span>Clear Save</span>
+                <button type="button" data-action="restart">Clear</button>
+              </div>
+              <div class="zi-settings-row">
+                <span>Legacy Build</span>
+                <a href="/?legacy=1" class="zi-settings-link" aria-label="Open legacy Three.js build">Open</a>
+              </div>
+            </div>
+            <button type="button" class="zi-settings-resume" data-action="settings-resume">Resume</button>
+          </div>
+        </div>
+        <!-- Hidden stubs so attachInput() querySelector calls don't crash (data-action="start"/"ordnance"/"shop" live in flow/cluster) -->
+        <div hidden aria-hidden="true">
+          <button type="button" data-action="start" tabindex="-1">Start</button>
+          <button type="button" data-action="ordnance" tabindex="-1">Blast</button>
+          <button type="button" data-action="shop" tabindex="-1">Shop</button>
+          <button type="button" data-action="map" tabindex="-1">Map</button>
         </div>
       </div>
     `;
-    this.canvas = this.root.querySelector("canvas");
+    this.canvas = this.root.querySelector("canvas.pc-slice-canvas");
     this.minimapPanel = this.root.querySelector('[data-panel="minimap"]');
     this.guidancePanel = this.root.querySelector('[data-panel="guidance"]');
     this.guidanceFields = {
@@ -410,6 +493,10 @@ export class PlayCanvasZombieSlice {
     this.reticle = this.root.querySelector(".pc-slice-reticle");
     this.minimapCanvas = this.root.querySelector(".pc-minimap-canvas");
     this.minimapCtx = this.minimapCanvas?.getContext("2d") ?? null;
+    // Settings sheet
+    this.settingsSheet = this.root.querySelector('[data-panel="settings"]');
+    // More popover
+    this.morePopover = this.root.querySelector(".pc-more-popover");
     this.fields = {
       phase: this.root.querySelector('[data-field="phase"]'),
       message: this.root.querySelector('[data-field="message"]'),
@@ -429,6 +516,11 @@ export class PlayCanvasZombieSlice {
       kills: this.root.querySelector('[data-field="kills"]'),
       live: this.root.querySelector('[data-field="live"]'),
     };
+    this.bars = {
+      village: this.root.querySelector('[data-bar="village"]'),
+      health: this.root.querySelector('[data-bar="health"]'),
+      stamina: this.root.querySelector('[data-bar="stamina"]'),
+    };
     this.playerFlashOverlay = this.root.querySelector('[data-flash="player"]');
     this.villageFlashOverlay = this.root.querySelector('[data-flash="village"]');
     this.graceOverlay = this.root.querySelector('[data-overlay="grace"]');
@@ -447,7 +539,8 @@ export class PlayCanvasZombieSlice {
     this.shopGuideBody = this.root.querySelector("[data-shop-guide-body]");
     this.shopItemsRoot = this.root.querySelector("[data-shop-items]");
     this.flowPanel = this.root.querySelector('[data-panel="flow"]');
-    this.actionBar = this.root.querySelector(".pc-slice-actions");
+    // pc-slice-actions bar removed (Pass 2) — actions now live in settings sheet + action cluster
+    this.actionBar = null;
     this.flowFields = {
       eyebrow: this.root.querySelector('[data-flow-field="eyebrow"]'),
       title: this.root.querySelector('[data-flow-field="title"]'),
@@ -1192,6 +1285,32 @@ export class PlayCanvasZombieSlice {
     this.root.querySelector('[data-action="fullscreen"]').addEventListener("click", () => this.toggleFullscreen());
     this.root.querySelector('[data-action="shop"]').addEventListener("click", () => this.toggleShop());
     this.root.querySelector('[data-action="map"]').addEventListener("click", () => this.toggleMiniMap());
+    const hudSettingsBtn = this.root.querySelector('[data-action="hud-settings"]');
+    if (hudSettingsBtn) {
+      hudSettingsBtn.addEventListener("click", () => this.toggleHudSettings());
+    }
+    // "⋯ More" button toggles the secondary-action popover
+    const moreBtn = this.root.querySelector('[data-action="more"]');
+    if (moreBtn) {
+      moreBtn.addEventListener("click", () => this.toggleMorePopover());
+    }
+    // Close more popover when any secondary action is triggered
+    if (this.morePopover) {
+      this.morePopover.addEventListener("pointerdown", () => {
+        // small delay so the action registers before hiding
+        setTimeout(() => this.closeMorePopover(), 120);
+      });
+    }
+    // Settings backdrop click closes the sheet
+    const backdrop = this.root.querySelector(".zi-settings-backdrop");
+    if (backdrop) {
+      backdrop.addEventListener("click", () => this.toggleHudSettings());
+    }
+    // Resume button also closes the sheet
+    const resumeBtn = this.root.querySelector('[data-action="settings-resume"]');
+    if (resumeBtn) {
+      resumeBtn.addEventListener("click", () => this.toggleHudSettings());
+    }
     this.flowPanel.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-flow-action]");
       if (!button) {
@@ -1344,14 +1463,14 @@ export class PlayCanvasZombieSlice {
   }
 
   attachTouchControls() {
-    const touchButtons = this.root.querySelectorAll("[data-touch-move], [data-touch-action]");
+    // ── Virtual joystick (replaces the old 4-button d-pad) ──────────────────
+    this._attachVirtualJoystick();
+
+    const touchButtons = this.root.querySelectorAll("[data-touch-action]");
     for (const button of touchButtons) {
       const setActive = (active) => {
-        const move = button.dataset.touchMove;
         const action = button.dataset.touchAction;
-        if (move) {
-          this.input[move] = active ? 1 : 0;
-        } else if (action === "sprint") {
+        if (action === "sprint") {
           this.input.sprint = active;
         } else if (action === "cycle" && active) {
           this.cycleWeapon();
@@ -1395,6 +1514,92 @@ export class PlayCanvasZombieSlice {
       button.addEventListener("lostpointercapture", () => setActive(false));
     }
     this.attachTouchLookZone();
+  }
+
+  // ── Virtual joystick (left zone) ─────────────────────────────────────────────
+  // Touches starting in the bottom-left ~45% width / lower 55% height spawn a
+  // floating joystick base at the touch point. The knob vector maps to the
+  // discrete forward/back/left/right input booleans. Multi-touch safe.
+  _attachVirtualJoystick() {
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    if (!isTouch) return;
+
+    const JOYSTICK_RADIUS = 50; // px clamp radius
+    const DEAD = 0.35;          // normalised dead zone threshold
+
+    // Build DOM elements for base+knob
+    const base = document.createElement("div");
+    base.className = "pc-joystick-base";
+    base.setAttribute("aria-hidden", "true");
+    const knob = document.createElement("div");
+    knob.className = "pc-joystick-knob";
+    base.appendChild(knob);
+    this.root.appendChild(base);
+    this._joystickBase = base;
+    this._joystickKnob = knob;
+    this._joystickPointerId = null;
+
+    const clearMove = () => {
+      this.input.forward = 0;
+      this.input.back = 0;
+      this.input.left = 0;
+      this.input.right = 0;
+    };
+
+    const setKnob = (dx, dy) => {
+      const mag = Math.hypot(dx, dy);
+      const clamped = Math.min(mag, JOYSTICK_RADIUS);
+      const kx = mag > 0 ? (dx / mag) * clamped : 0;
+      const ky = mag > 0 ? (dy / mag) * clamped : 0;
+      knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+      const nx = mag > 0 ? dx / mag : 0; // normalised -1..1
+      const ny = mag > 0 ? dy / mag : 0;
+      this.input.forward = ny < -DEAD ? 1 : 0;
+      this.input.back    = ny >  DEAD ? 1 : 0;
+      this.input.left    = nx < -DEAD ? 1 : 0;
+      this.input.right   = nx >  DEAD ? 1 : 0;
+    };
+
+    // Zone: bottom-left 45% width, lower 55% height (excluding button elements)
+    const inJoystickZone = (event) => {
+      if (event.target.closest?.("button, a")) return false;
+      const relX = event.clientX / window.innerWidth;
+      const relY = event.clientY / window.innerHeight;
+      return relX < 0.45 && relY > 0.45;
+    };
+
+    const onPointerDown = (event) => {
+      if (this._joystickPointerId !== null) return; // already tracking
+      if (!inJoystickZone(event)) return;
+      this._joystickPointerId = event.pointerId;
+      this._joystickOriginX = event.clientX;
+      this._joystickOriginY = event.clientY;
+      base.style.transform = `translate(${event.clientX}px, ${event.clientY}px)`;
+      base.classList.add("is-active");
+      knob.style.transform = "translate(-50%, -50%)";
+      event.preventDefault();
+    };
+
+    const onPointerMove = (event) => {
+      if (this._joystickPointerId !== event.pointerId) return;
+      const dx = event.clientX - this._joystickOriginX;
+      const dy = event.clientY - this._joystickOriginY;
+      setKnob(dx, dy);
+      event.preventDefault();
+    };
+
+    const onPointerUp = (event) => {
+      if (this._joystickPointerId !== event.pointerId) return;
+      this._joystickPointerId = null;
+      base.classList.remove("is-active");
+      knob.style.transform = "translate(-50%, -50%)";
+      clearMove();
+    };
+
+    window.addEventListener("pointerdown", onPointerDown, { passive: false });
+    window.addEventListener("pointermove", onPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
   }
 
   // ── Right-zone touch look ─────────────────────────────────────────────────────
@@ -1635,6 +1840,21 @@ export class PlayCanvasZombieSlice {
     const settings = setPlayCanvasAudioSettings(this.state, { sfxEnabled: !this.state.sfxEnabled });
     this.audio.setSfxEnabled(settings.sfxEnabled);
     this.updateHud();
+  }
+
+  toggleHudSettings() {
+    if (!this.settingsSheet) return;
+    const isOpen = !this.settingsSheet.hidden;
+    this.settingsSheet.hidden = isOpen;
+  }
+
+  toggleMorePopover() {
+    if (!this.morePopover) return;
+    this.morePopover.hidden = !this.morePopover.hidden;
+  }
+
+  closeMorePopover() {
+    if (this.morePopover) this.morePopover.hidden = true;
   }
 
   startOrContinueCampaign({ pointerLock = false } = {}) {
@@ -3001,6 +3221,25 @@ export class PlayCanvasZombieSlice {
     this.fields.coins.textContent = this.state.coins;
     this.fields.kills.textContent = this.state.kills;
     this.fields.live.textContent = live;
+    // ── Bar fills ──────────────────────────────────────────────────────────
+    const vRatio = clamp(this.state.villageHp / Math.max(1, this.state.maxVillageHp), 0, 1);
+    if (this.bars.village) {
+      this.bars.village.style.width = (vRatio * 100) + '%';
+      this.bars.village.style.backgroundColor =
+        vRatio > 0.5 ? 'var(--zi-village)' :
+        vRatio > 0.25 ? '#e87e28' :
+        'var(--zi-danger)';
+    }
+    const hRatio = clamp(this.state.playerHp / 100, 0, 1);
+    if (this.bars.health) {
+      this.bars.health.style.width = (hRatio * 100) + '%';
+      this.bars.health.style.backgroundColor =
+        hRatio > 0.35 ? 'var(--zi-hp)' : 'var(--zi-hp-low)';
+    }
+    const sRatio = clamp((this.state.stamina ?? 100) / 100, 0, 1);
+    if (this.bars.stamina) {
+      this.bars.stamina.style.width = (sRatio * 100) + '%';
+    }
     this.root.querySelector('[data-action="start"]').textContent = this.state.phase === "intermission"
       ? `Start Wave ${this.state.waveNumber + 1}`
       : this.state.phase === "ready"
@@ -3163,31 +3402,52 @@ export class PlayCanvasZombieSlice {
       return;
     }
     const guidance = getPlayCanvasGuidanceSnapshot(this.state);
-    const hidden = this.shopOpen || guidance.stage === "secret_boss";
-    this.guidancePanel.hidden = hidden;
-    if (hidden) {
+    const suppress = this.shopOpen || guidance.stage === "secret_boss";
+    if (suppress) {
+      this.guidancePanel.hidden = true;
       return;
     }
     const enemyIntro = guidance.enemyIntro;
+    // Track enemy-intro cue separately (shows for 3.5s)
     if (enemyIntro && enemyIntro.type !== this._lastShownEnemyIntroType) {
       this._lastShownEnemyIntroType = enemyIntro.type;
       this._enemyCueDisplaySec = 3.5;
     }
     this._enemyCueDisplaySec = Math.max(0, (this._enemyCueDisplaySec ?? 0) - (this._lastUpdateDt ?? 0));
     const showEnemyCue = (this._enemyCueDisplaySec ?? 0) > 0 && enemyIntro;
+
+    let stage, title, message, dataStage, dataAction;
     if (showEnemyCue) {
-      this.guidanceFields.stage.textContent = "New Threat";
-      this.guidanceFields.title.textContent = enemyIntro.label ?? guidance.title;
-      this.guidanceFields.message.textContent = enemyIntro.message ?? guidance.message;
-      this.guidancePanel.dataset.stage = "enemy_intro";
-      this.guidancePanel.dataset.action = `learn_${enemyIntro.type}`;
+      stage = "New Threat";
+      title = enemyIntro.label ?? guidance.title;
+      message = enemyIntro.message ?? guidance.message;
+      dataStage = "enemy_intro";
+      dataAction = `learn_${enemyIntro.type}`;
     } else {
-      this.guidanceFields.stage.textContent = guidance.stage.replaceAll("_", " ");
-      this.guidanceFields.title.textContent = guidance.title;
-      this.guidanceFields.message.textContent = guidance.message;
-      this.guidancePanel.dataset.stage = guidance.stage;
-      this.guidancePanel.dataset.action = guidance.action;
+      stage = guidance.stage.replaceAll("_", " ");
+      title = guidance.title;
+      message = guidance.message;
+      dataStage = guidance.stage;
+      dataAction = guidance.action;
     }
+
+    // Detect message change → show toast for 6s, then auto-dismiss
+    const msgKey = `${dataStage}|${title}`;
+    if (msgKey !== this._lastGuidanceMsgKey) {
+      this._lastGuidanceMsgKey = msgKey;
+      this._guidanceToastRemainSec = 6.0;
+    }
+    this._guidanceToastRemainSec = Math.max(0, (this._guidanceToastRemainSec ?? 0) - (this._lastUpdateDt ?? 0));
+
+    const visible = (this._guidanceToastRemainSec ?? 0) > 0;
+    this.guidancePanel.hidden = !visible;
+    if (!visible) return;
+
+    this.guidanceFields.stage.textContent = stage;
+    this.guidanceFields.title.textContent = title;
+    this.guidanceFields.message.textContent = message;
+    this.guidancePanel.dataset.stage = dataStage;
+    this.guidancePanel.dataset.action = dataAction;
   }
 
   exposeAutomationHooks() {

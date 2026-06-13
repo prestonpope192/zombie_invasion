@@ -91,15 +91,21 @@ try {
   const nonBlackPixels = await countNonBlackPixels(page, preBlastScreenshot);
   await page.setViewportSize({ width: 390, height: 760 });
   await page.waitForTimeout(100);
+  // PRIMARY controls: visible in the right action cluster at phone viewport.
   const mobileControlsVisible = await page.locator('[data-touch-action="fire"]').isVisible();
   const mobileShopVisible = await page.locator('[data-touch-action="shop"]').isVisible();
   const mobileCycleVisible = await page.locator('[data-touch-action="cycle"]').isVisible();
   const mobileOrdnanceVisible = await page.locator('[data-touch-action="ordnance"]').isVisible();
-  const mobileFlintVisible = await page.locator('[data-touch-action="flint"]').isVisible();
-  const mobileInteractVisible = await page.locator('[data-touch-action="interact"]').isVisible();
-  const mobileMapVisible = await page.locator('[data-touch-action="map"]').isVisible();
-  const musicToggleVisible = await page.locator('[data-action="music"]').isVisible();
-  const sfxToggleVisible = await page.locator('[data-action="sfx"]').isVisible();
+  // SECONDARY controls: live in the More popover (hidden by default).
+  // Assert the element EXISTS (count===1) rather than isVisible — they are reachable
+  // via the ⋯ More button; testing DOM presence confirms they were not deleted.
+  const mobileFlintCount = await page.locator('[data-touch-action="flint"]').count();
+  const mobileInteractCount = await page.locator('[data-touch-action="interact"]').count();
+  const mobileMapCount = await page.locator('[data-touch-action="map"]').count();
+  // SETTINGS toggles: live in the settings sheet (hidden by default).
+  // Assert element exists (count===1); reachable via the ⚙ settings button.
+  const musicToggleCount = await page.locator('[data-action="music"]').count();
+  const sfxToggleCount = await page.locator('[data-action="sfx"]').count();
 
   const state = await page.evaluate(() => ({
     text: window.render_playcanvas_game_to_text?.() ?? window.render_playcanvas_slice_to_text?.() ?? "",
@@ -222,15 +228,18 @@ try {
   assert(ordnanceText.includes("ordnanceCount=4"), "G hotkey did not consume one starting frag grenade");
   assert(advanced, "advanceTime(ms) hook missing");
   assert(nonBlackPixels > 1000, `screenshot appears blank or black: ${nonBlackPixels} lit pixels`);
+  // Primary controls visible in the right cluster
   assert(mobileControlsVisible, "mobile fire control is not visible at phone viewport");
-  assert(mobileShopVisible, "mobile shop control is not visible at phone viewport");
-  assert(mobileCycleVisible, "mobile weapon-cycle control is not visible at phone viewport");
-  assert(mobileOrdnanceVisible, "mobile ordnance control is not visible at phone viewport");
-  assert(mobileFlintVisible, "mobile flint control is not visible at phone viewport");
-  assert(mobileInteractVisible, "mobile interact control is not visible at phone viewport");
-  assert(mobileMapVisible, "mobile map control is not visible at phone viewport");
-  assert(musicToggleVisible, "music toggle is not visible");
-  assert(sfxToggleVisible, "SFX toggle is not visible");
+  assert(mobileShopVisible, "mobile shop control is not visible at phone viewport (primary cluster)");
+  assert(mobileCycleVisible, "mobile weapon-cycle control is not visible at phone viewport (primary cluster)");
+  assert(mobileOrdnanceVisible, "mobile ordnance control is not visible at phone viewport (primary cluster)");
+  // Secondary controls in More popover: assert they exist (reachable via ⋯ button)
+  assert(mobileFlintCount === 1, "mobile flint control not found in DOM (expected in More popover)");
+  assert(mobileInteractCount === 1, "mobile interact control not found in DOM (expected in More popover)");
+  assert(mobileMapCount >= 1, "mobile map control not found in DOM (expected in More popover)");
+  // Settings toggles in settings sheet: assert they exist (reachable via ⚙ button)
+  assert(musicToggleCount >= 1, "music toggle not found in DOM (expected in settings sheet)");
+  assert(sfxToggleCount >= 1, "SFX toggle not found in DOM (expected in settings sheet)");
   assert(state.canvas.some((canvas) => canvas.width > 0 && canvas.height > 0), "no live PlayCanvas canvas found");
   assert(lifecycle.ok, "PlayCanvas lifecycle test could not access game instance");
   assert(lifecycle.intermissionText.includes("flowPanel=intermission"), "intermission flow panel missing");
