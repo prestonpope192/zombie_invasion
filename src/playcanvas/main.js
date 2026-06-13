@@ -204,6 +204,25 @@ export class PlayCanvasZombieSlice {
     /** @type {{man: pc.Asset|null, woman: pc.Asset|null}|null} */
     this.villagerGlbContainers = null;
 
+    // ── Juice layer state ────────────────────────────────────────────────────
+    // Screen shake — trauma^2 model, decays each frame
+    this._shakeTrauma = 0;
+    this._shakeCounter = 0; // incremented each frame for pseudo-noise variety
+    this._reducedMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // Kill-streak tracking
+    this._streakCount = 0;
+    this._streakLastKillTime = 0;
+    this._streakTimeoutMs = 3000; // reset streak if >3s between kills
+    // Haptics
+    this.hapticsEnabled = typeof localStorage !== "undefined"
+      ? localStorage.getItem("zi_haptics") !== "false"
+      : true;
+    // Coin tracking for kill floater delta
+    this._lastCoinsDelta = 0;
+    this._lastKnownCoins = 0;
+    // Low-HP vignette tracking
+    this._vignetteActive = false;
+
     this.buildDom();
     this.createApp();
     this.createMaterials();
@@ -322,6 +341,11 @@ export class PlayCanvasZombieSlice {
         <div class="pc-slice-reticle" data-reticle="sidearm" aria-hidden="true"></div>
         <div class="pc-damage-flash" data-flash="player" aria-hidden="true"></div>
         <div class="pc-damage-flash" data-flash="village" aria-hidden="true"></div>
+        <!-- Juice layer overlays -->
+        <div class="pc-hp-vignette" aria-hidden="true"></div>
+        <div class="pc-hitmarker" aria-hidden="true"><span class="pc-hm-v"></span><span class="pc-hm-v2"></span></div>
+        <div class="pc-kill-floater" aria-hidden="true"></div>
+        <div class="pc-streak-badge" aria-hidden="true"></div>
         <div class="pc-grace-overlay" data-overlay="grace" hidden aria-live="assertive">
           <span data-grace-countdown>5</span>
         </div>
@@ -453,6 +477,10 @@ export class PlayCanvasZombieSlice {
                 <button type="button" data-action="sfx" aria-label="Toggle sound effects">Toggle</button>
               </div>
               <div class="zi-settings-row">
+                <span>Haptics</span>
+                <button type="button" data-action="haptics" aria-label="Toggle haptic feedback">Toggle</button>
+              </div>
+              <div class="zi-settings-row">
                 <span>Fullscreen</span>
                 <button type="button" data-action="fullscreen" aria-label="Toggle fullscreen">Toggle</button>
               </div>
@@ -523,6 +551,11 @@ export class PlayCanvasZombieSlice {
     };
     this.playerFlashOverlay = this.root.querySelector('[data-flash="player"]');
     this.villageFlashOverlay = this.root.querySelector('[data-flash="village"]');
+    // Juice layer DOM refs
+    this.hpVignette = this.root.querySelector('.pc-hp-vignette');
+    this.hitmarkerEl = this.root.querySelector('.pc-hitmarker');
+    this.killFloaterEl = this.root.querySelector('.pc-kill-floater');
+    this.streakBadgeEl = this.root.querySelector('.pc-streak-badge');
     this.graceOverlay = this.root.querySelector('[data-overlay="grace"]');
     this.graceCountdown = this.root.querySelector('[data-grace-countdown]');
     this.summaryOverlay = this.root.querySelector('[data-overlay="summary"]');
@@ -1282,6 +1315,7 @@ export class PlayCanvasZombieSlice {
     this.root.querySelector('[data-action="restart"]').addEventListener("click", () => this.restart());
     this.root.querySelector('[data-action="music"]').addEventListener("click", () => this.toggleMusic());
     this.root.querySelector('[data-action="sfx"]').addEventListener("click", () => this.toggleSfx());
+    this.root.querySelector('[data-action="haptics"]').addEventListener("click", () => this.toggleHaptics());
     this.root.querySelector('[data-action="fullscreen"]').addEventListener("click", () => this.toggleFullscreen());
     this.root.querySelector('[data-action="shop"]').addEventListener("click", () => this.toggleShop());
     this.root.querySelector('[data-action="map"]').addEventListener("click", () => this.toggleMiniMap());
@@ -1842,6 +1876,19 @@ export class PlayCanvasZombieSlice {
     this.updateHud();
   }
 
+  toggleHaptics() {
+    this.hapticsEnabled = !this.hapticsEnabled;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("zi_haptics", String(this.hapticsEnabled));
+    }
+    this.updateHud();
+  }
+
+  _vibrate(pattern) {
+    if (!this.hapticsEnabled) return;
+    try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
+  }
+
   toggleHudSettings() {
     if (!this.settingsSheet) return;
     const isOpen = !this.settingsSheet.hidden;
@@ -1925,6 +1972,7 @@ export class PlayCanvasZombieSlice {
   }
 
   fire() {
+    const coinsBefore = this.state.coins;
     const result = fireSliceWeapon(this.state);
     if (result.reason === "blocked") {
       return;
@@ -1939,6 +1987,32 @@ export class PlayCanvasZombieSlice {
     this.spawnShotFx(result.hit, result);
     const weapon = getPlayCanvasWeaponSnapshot(this.state);
     this.recoilPitchOffset = Math.min(8, (this.recoilPitchOffset ?? 0) + (weapon.recoilKick ?? 1.5) * 1.2);
+
+    // ── Juice effects on fire ────────────────────────────────────────────────
+    // Small shot shake
+    this._addShakeTrauma(result.blast ? 0.55 : 0.1);
+    // Haptics: short buzz on fire
+    this._vibrate(8);
+
+    if (result.hit) {
+      // Hitmarker
+      this._showHitmarker(result.killCount > 0, result.headshot);
+      // Hit-confirm haptic
+      this._vibrate(result.killCount > 0 ? [0, 10, 20, 30] : 15);
+    }
+
+    if (result.killCount > 0) {
+      const coinsDelta = this.state.coins - coinsBefore;
+      this._showKillFeedback(coinsDelta);
+      this._updateStreak(result.killCount);
+      // Kill haptic pattern
+      this._vibrate([0, 15, 25, 45]);
+    }
+
+    if (result.blast) {
+      this._addShakeTrauma(0.5); // extra blast trauma (stacks)
+    }
+
     this.updateHud();
   }
 
@@ -1947,6 +2021,10 @@ export class PlayCanvasZombieSlice {
     if (result.ok) {
       this.audio.playExplosion(this.getAudioPositionAhead(10), result.ordnanceId);
       this.spawnBlastFx(result.ordnanceId);
+      // Large blast shake + haptic
+      const blastTrauma = result.ordnanceId === "nuke" ? 0.9 : result.ordnanceId === "c4" ? 0.7 : 0.55;
+      this._addShakeTrauma(blastTrauma);
+      this._vibrate([0, 20, 50, 60]);
     }
     this.updateHud();
   }
@@ -2538,6 +2616,10 @@ export class PlayCanvasZombieSlice {
     this.trackAudioDamage(previousVillageHp, previousPlayerHp);
     if (this.state.playerHp < previousPlayerHp - 0.1) {
       this.playerDamageFlashSec = 0.45;
+      // Shake on player bite — medium trauma
+      this._addShakeTrauma(0.38);
+      // Damage haptic
+      this._vibrate(45);
     }
     if (this.state.villageHp < previousVillageHp - 0.1) {
       this.villageDamageFlashSec = 0.45;
@@ -2546,6 +2628,9 @@ export class PlayCanvasZombieSlice {
     this.villageDamageFlashSec = Math.max(0, (this.villageDamageFlashSec ?? 0) - dt);
     this.recoilPitchOffset = Math.max(0, (this.recoilPitchOffset ?? 0) - dt * 6);
     this.weaponKickSec = Math.max(0, (this.weaponKickSec ?? 0) - dt);
+    // Juice: decay shake, update vignette
+    this._decayShake(dt);
+    this._updateVignette(this.state.playerHp);
     this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - dt);
     if (this.state.phase === "intermission" && this.lastSummaryWave !== this.state.waveNumber) {
       this.lastSummaryWave = this.state.waveNumber;
@@ -2594,7 +2679,13 @@ export class PlayCanvasZombieSlice {
     const jumpY = player.y ?? 0;
     this.camera.setLocalPosition(player.x, eyeHeight + jumpY, player.z);
     const pitchWithRecoil = this.pitch - (this.recoilPitchOffset ?? 0);
-    this.camera.setEulerAngles(pitchWithRecoil, this.yaw * pc.math.RAD_TO_DEG, 0);
+    // Additive screen shake — trauma^2 model, reduced-motion aware
+    const [shakePitch, shakeYaw] = this._computeShakeOffset();
+    this.camera.setEulerAngles(
+      pitchWithRecoil + shakePitch,
+      this.yaw * pc.math.RAD_TO_DEG + shakeYaw,
+      0
+    );
   }
 
   // Yaw (degrees) a zombie should face: mirrors the sim's targeting rule in
@@ -3260,6 +3351,11 @@ export class PlayCanvasZombieSlice {
       sfxButton.textContent = this.state.sfxEnabled !== false ? "SFX On" : "SFX Off";
       sfxButton.classList.toggle("is-active", this.state.sfxEnabled !== false);
     }
+    const hapticsButton = this.root.querySelector('[data-action="haptics"]');
+    if (hapticsButton) {
+      hapticsButton.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
+      hapticsButton.classList.toggle("is-active", this.hapticsEnabled);
+    }
     if (this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
     }
@@ -3454,6 +3550,142 @@ export class PlayCanvasZombieSlice {
     this.guidanceFields.message.textContent = message;
     this.guidancePanel.dataset.stage = dataStage;
     this.guidancePanel.dataset.action = dataAction;
+  }
+
+  // ── Juice layer ───────────────────────────────────────────────────────────
+  // All effects are transient DOM/CSS or additive camera offsets.
+
+  /** Show hitmarker with appropriate variant for 140-180ms */
+  _showHitmarker(isKill, isHeadshot) {
+    if (!this.hitmarkerEl) return;
+    const el = this.hitmarkerEl;
+    // Remove all classes first (to restart animation on rapid fire)
+    el.classList.remove("is-hit", "is-kill", "is-headshot");
+    // Force reflow to restart CSS animation
+    void el.offsetWidth;
+    if (isKill) {
+      el.classList.add("is-kill");
+    } else if (isHeadshot) {
+      el.classList.add("is-headshot");
+      el.classList.add("is-hit");
+    } else {
+      el.classList.add("is-hit");
+    }
+    // Clean up after animation
+    clearTimeout(this._hitmarkerTimer);
+    this._hitmarkerTimer = setTimeout(() => {
+      el.classList.remove("is-hit", "is-kill", "is-headshot");
+    }, isKill ? 200 : 160);
+  }
+
+  /** Float "+N coins" or "+KILL" text near centre and pop HUD value spans */
+  _showKillFeedback(coinsDelta) {
+    // Float text
+    if (this.killFloaterEl) {
+      const el = this.killFloaterEl;
+      el.classList.remove("is-active");
+      void el.offsetWidth;
+      el.textContent = coinsDelta > 0 ? `+${coinsDelta}` : "+KILL";
+      el.classList.add("is-active");
+      clearTimeout(this._floaterTimer);
+      this._floaterTimer = setTimeout(() => el.classList.remove("is-active"), 750);
+    }
+    // Pop coins value
+    const coinsEl = this.fields?.coins;
+    if (coinsEl) {
+      const b = coinsEl.tagName === "B" ? coinsEl : coinsEl;
+      b.classList.remove("is-popping");
+      void b.offsetWidth;
+      b.classList.add("is-popping");
+      clearTimeout(this._coinsPopTimer);
+      this._coinsPopTimer = setTimeout(() => b.classList.remove("is-popping"), 260);
+    }
+    // Pop kills value
+    const killsEl = this.fields?.kills;
+    if (killsEl) {
+      killsEl.classList.remove("is-popping-kill");
+      void killsEl.offsetWidth;
+      killsEl.classList.add("is-popping-kill");
+      clearTimeout(this._killsPopTimer);
+      this._killsPopTimer = setTimeout(() => killsEl.classList.remove("is-popping-kill"), 260);
+    }
+  }
+
+  /** Update kill streak indicator */
+  _updateStreak(newKills) {
+    if (newKills <= 0) return;
+    const now = performance.now();
+    if (now - this._streakLastKillTime > this._streakTimeoutMs) {
+      this._streakCount = 0;
+    }
+    this._streakCount += newKills;
+    this._streakLastKillTime = now;
+
+    if (this._streakCount < 3 || !this.streakBadgeEl) {
+      // Show nothing below x3 — keeps it uncluttered
+      if (this.streakBadgeEl) this.streakBadgeEl.classList.remove("is-active");
+      return;
+    }
+
+    const label = this._streakCount >= 10 ? `x${this._streakCount} RAMPAGE`
+                : this._streakCount >= 7  ? `x${this._streakCount} SLAYER`
+                : this._streakCount >= 5  ? `x${this._streakCount} HOT STREAK`
+                :                           `x${this._streakCount} COMBO`;
+
+    this.streakBadgeEl.textContent = label;
+    this.streakBadgeEl.classList.remove("is-new");
+    void this.streakBadgeEl.offsetWidth;
+    this.streakBadgeEl.classList.add("is-active", "is-new");
+
+    // Auto-hide after 3s of no new kills
+    clearTimeout(this._streakHideTimer);
+    this._streakHideTimer = setTimeout(() => {
+      if (this.streakBadgeEl) this.streakBadgeEl.classList.remove("is-active");
+      this._streakCount = 0;
+    }, this._streakTimeoutMs);
+  }
+
+  /** Update low-HP vignette — pulsing red edge when playerHp < 30% */
+  _updateVignette(playerHp) {
+    if (!this.hpVignette) return;
+    const critical = playerHp < 30;
+    if (critical !== this._vignetteActive) {
+      this._vignetteActive = critical;
+      this.hpVignette.classList.toggle("is-critical", critical);
+    }
+    if (critical) {
+      // Pulse rate and amplitude scale with how low HP is: lower = faster/brighter
+      const severity = Math.max(0, Math.min(1, 1 - playerHp / 30));
+      const rate = (2 - severity * 0.9).toFixed(2) + "s";
+      const lo = (0.35 + severity * 0.25).toFixed(2);
+      const hi = (0.72 + severity * 0.22).toFixed(2);
+      this.hpVignette.style.setProperty("--zi-vignette-rate", rate);
+      this.hpVignette.style.setProperty("--zi-vignette-lo", lo);
+      this.hpVignette.style.setProperty("--zi-vignette-hi", hi);
+    }
+  }
+
+  /** Apply trauma-based screen shake — additive to camera pitch/yaw.
+   *  trauma decays by 2.2/s. Returns [pitchOff, yawOff] in degrees. */
+  _computeShakeOffset() {
+    if (this._shakeTrauma <= 0.001) return [0, 0];
+    const reduceFactor = this._reducedMotion ? 0.5 : 1.0;
+    const t2 = this._shakeTrauma * this._shakeTrauma * reduceFactor;
+    const MAX_ANGLE = 1.8; // degrees max at full trauma
+    // Use counter to vary offset each frame without Math.random (deterministic feel)
+    const c = this._shakeCounter;
+    const px = Math.sin(c * 1.37) * Math.cos(c * 0.83);
+    const py = Math.cos(c * 1.11) * Math.sin(c * 0.61);
+    return [px * t2 * MAX_ANGLE, py * t2 * MAX_ANGLE];
+  }
+
+  _decayShake(dt) {
+    this._shakeTrauma = Math.max(0, this._shakeTrauma - dt * 2.2);
+    this._shakeCounter += 1;
+  }
+
+  _addShakeTrauma(amount) {
+    this._shakeTrauma = Math.min(1, this._shakeTrauma + amount);
   }
 
   exposeAutomationHooks() {

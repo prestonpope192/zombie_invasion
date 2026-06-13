@@ -1784,6 +1784,229 @@ a {
   }
 }
 
+/* ── JUICE LAYER ─────────────────────────────────────────────────────────────
+   Hitmarkers, kill floaters, low-HP vignette, streak counter.
+   All transient: nothing persistently obscures the view (except low-HP vignette). */
+
+/* ── Hitmarker — 4 ticks forming an X, centred on reticle ─────────────────── */
+.pc-hitmarker {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 21;
+}
+
+/* Each tick: a short bar that "pops" outward from centre */
+.pc-hitmarker::before,
+.pc-hitmarker::after,
+.pc-hitmarker .pc-hm-v,
+.pc-hitmarker .pc-hm-v2 {
+  content: "";
+  position: absolute;
+  background: var(--zi-text);
+  border-radius: 1px;
+  transform-origin: center;
+  opacity: 0;
+}
+
+/* Normal hit */
+.pc-hitmarker::before { /* horizontal left tick */
+  width: 7px; height: 2px;
+  left: -14px; top: -1px;
+}
+.pc-hitmarker::after { /* horizontal right tick */
+  width: 7px; height: 2px;
+  left: 7px; top: -1px;
+}
+.pc-hitmarker .pc-hm-v { /* vertical top tick */
+  width: 2px; height: 7px;
+  left: -1px; top: -14px;
+}
+.pc-hitmarker .pc-hm-v2 { /* vertical bottom tick */
+  width: 2px; height: 7px;
+  left: -1px; top: 7px;
+}
+
+/* Active animation: pop-out + fade */
+.pc-hitmarker.is-hit::before,
+.pc-hitmarker.is-hit::after,
+.pc-hitmarker.is-hit .pc-hm-v,
+.pc-hitmarker.is-hit .pc-hm-v2 {
+  animation: pc-hm-pop 0.14s ease-out forwards;
+}
+.pc-hitmarker.is-hit::after  { animation-delay: 0s; }
+.pc-hitmarker.is-hit .pc-hm-v2 { animation-delay: 0s; }
+
+@keyframes pc-hm-pop {
+  0%   { opacity: 1; transform: scale(0.55); }
+  40%  { opacity: 1; transform: scale(1.25); }
+  100% { opacity: 0; transform: scale(1.0); }
+}
+
+/* Kill hit: red, larger ticks */
+.pc-hitmarker.is-kill::before,
+.pc-hitmarker.is-kill::after,
+.pc-hitmarker.is-kill .pc-hm-v,
+.pc-hitmarker.is-kill .pc-hm-v2 {
+  background: var(--zi-danger);
+}
+.pc-hitmarker.is-kill::before { width: 10px; left: -18px; }
+.pc-hitmarker.is-kill::after  { width: 10px; left: 8px; }
+.pc-hitmarker.is-kill .pc-hm-v  { height: 10px; top: -18px; }
+.pc-hitmarker.is-kill .pc-hm-v2 { height: 10px; top: 8px; }
+
+.pc-hitmarker.is-kill::before,
+.pc-hitmarker.is-kill::after,
+.pc-hitmarker.is-kill .pc-hm-v,
+.pc-hitmarker.is-kill .pc-hm-v2 {
+  animation: pc-hm-pop-kill 0.18s ease-out forwards;
+}
+
+@keyframes pc-hm-pop-kill {
+  0%   { opacity: 1; transform: scale(0.4); }
+  30%  { opacity: 1; transform: scale(1.45); }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+
+/* Headshot: accent colour + "+" symbol overlay */
+.pc-hitmarker.is-headshot::before,
+.pc-hitmarker.is-headshot::after,
+.pc-hitmarker.is-headshot .pc-hm-v,
+.pc-hitmarker.is-headshot .pc-hm-v2 {
+  background: var(--zi-accent);
+}
+
+/* ── Kill floater — "+KILL" or "+N coins" text rising from centre ─────────── */
+.pc-kill-floater {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 21;
+  font-family: var(--zi-font);
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--zi-coin);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7), 0 0 14px rgba(245, 197, 66, 0.4);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.pc-kill-floater.is-active {
+  animation: pc-floater-rise 0.72s cubic-bezier(0.1, 0, 0.3, 1) forwards;
+}
+
+@keyframes pc-floater-rise {
+  0%   { opacity: 1;   transform: translateX(-50%) translateY(0);     }
+  60%  { opacity: 1;   transform: translateX(-50%) translateY(-32px); }
+  100% { opacity: 0;   transform: translateX(-50%) translateY(-52px); }
+}
+
+/* ── HUD field pop — brief scale pulse on kills/coins values ─────────────── */
+.zi-meta-stat b.is-popping {
+  animation: pc-stat-pop 0.22s cubic-bezier(0.2, 0, 0.4, 1) forwards;
+}
+
+@keyframes pc-stat-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.2); color: var(--zi-coin); }
+  100% { transform: scale(1); }
+}
+
+/* Kill pop also on kills counter */
+.zi-meta-stat b.is-popping-kill {
+  animation: pc-stat-pop-kill 0.22s cubic-bezier(0.2, 0, 0.4, 1) forwards;
+}
+
+@keyframes pc-stat-pop-kill {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.22); color: var(--zi-danger); }
+  100% { transform: scale(1); }
+}
+
+/* ── Low-HP vignette — pulsing red edge, only when playerHp < 30% ─────────── */
+.pc-hp-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 19; /* below damage flash (20) */
+  background: radial-gradient(ellipse at 50% 50%,
+    transparent 30%,
+    rgba(200, 35, 15, 0.0) 50%,
+    rgba(200, 35, 15, 0.72) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+
+.pc-hp-vignette.is-critical {
+  opacity: 1;
+  animation: pc-vignette-pulse var(--zi-vignette-rate, 2s) ease-in-out infinite;
+}
+
+@keyframes pc-vignette-pulse {
+  0%, 100% { opacity: var(--zi-vignette-lo, 0.5); }
+  50%       { opacity: var(--zi-vignette-hi, 0.88); }
+}
+
+/* ── Damage flash — restyle as edge vignette (less obscuring) ─────────────── */
+/* Override the existing full-screen wash with a tighter inset shadow */
+.pc-damage-flash[data-flash="player"] {
+  background: none !important;
+  box-shadow: inset 0 0 80px 30px rgba(220, 50, 30, 0.82);
+}
+
+.pc-damage-flash[data-flash="village"] {
+  background: none !important;
+  box-shadow: inset 0 0 70px 20px rgba(255, 160, 20, 0.72);
+}
+
+/* ── Kill-streak badge — top-center, subtle, builds engagement ────────────── */
+.pc-streak-badge {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 88px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.8);
+  pointer-events: none;
+  z-index: 21;
+  font-family: var(--zi-font);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--zi-danger);
+  background: rgba(13, 18, 24, 0.80);
+  border: 1px solid rgba(232, 80, 58, 0.5);
+  border-radius: var(--zi-radius-sm);
+  padding: 4px 12px;
+  box-shadow: 0 0 18px rgba(232, 80, 58, 0.18), var(--zi-shadow);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.pc-streak-badge.is-active {
+  opacity: 1;
+  transform: translateX(-50%) scale(1.0);
+}
+
+/* Streak pop on count increase */
+.pc-streak-badge.is-new {
+  animation: pc-streak-pop 0.22s ease-out forwards;
+}
+
+@keyframes pc-streak-pop {
+  0%   { transform: translateX(-50%) scale(0.75); opacity: 0.6; }
+  55%  { transform: translateX(-50%) scale(1.12); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1.0);  opacity: 1; }
+}
+
 /* Dynamic crosshair — spread multiplier via CSS custom property */
 .pc-slice-reticle[data-ads="1"] {
   opacity: 0.7;

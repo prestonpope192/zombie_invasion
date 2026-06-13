@@ -2420,3 +2420,16 @@ Original prompt: build this game and deploy it to a docker container and spin it
   - Polish: guidance toast repositioned below the top clusters (mobile media query) so it no longer overlaps objective/minimap; player-facing "Night Survival" eyebrow replaces "PlayCanvas Campaign".
 - Validation: npx vitest run 153/153 and npm run smoke:playcanvas exit 0 after every pass (orchestrator-run). Live desktop (1280x800) + mobile (375x812) review of menu, in-game HUD, More popover, settings sheet, shop, and game-over — all clean, hierarchical, professional.
 - Result: the play screen went from ~30 on-screen controls + a 16-stat grid to a glanceable HUD + thumb-friendly control scheme; modals share one cohesive design language across desktop and mobile.
+
+## 2026-06-13 — Game-feel / juice pass (engagement)
+
+- Continuing the "most of all engaging" goal after the UI overhaul: added a cohesive combat-feedback layer (render-only; sim untouched). Sonnet worker, orchestrator-reviewed live.
+- Driven by the existing fire() result fields (hit/killCount/headshot/hitCount/blast) and frame-to-frame playerHp watching:
+  - Hitmarker at reticle on hit — white normal, red+bigger on kill, accent on headshot; restarts per shot (snappy).
+  - Kill feedback — rising "+coins" gold floater + HUD coins/kills value pop.
+  - Screen shake — trauma^2 model decaying 2.2/s, additive in updateCamera after recoil; small per shot, medium on bite, large on blast/ordnance; halved under prefers-reduced-motion.
+  - Low-HP vignette — pulsing red radial-gradient edge below 30% HP (pulse rate/amplitude scale with severity); damage flash restyled to an inset edge vignette instead of a full-screen wash.
+  - Mobile haptics — navigator.vibrate (guarded), patterns for fire/hit/kill/bite/ordnance; "Haptics" toggle added to the settings sheet, persisted via localStorage zi_haptics.
+  - Kill streak — badge at >=3 kills within 3s (COMBO/HOT STREAK/SLAYER/RAMPAGE), pops in and auto-hides.
+- Validation: npx vitest run 153/153, npm run smoke:playcanvas exit 0. Live-GPU confirmed: low-HP red vignette renders cleanly without obscuring the view; settings sheet shows the Haptics toggle; hitmarker/streak/floater DOM all wired (transient, verified by element presence + worker inline capture).
+- Minor tuning notes logged by worker: kill floater ~720ms could go ~900ms for readability at high FPS; per-shot shake is subtle by design (builds on rapid fire).
