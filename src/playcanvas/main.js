@@ -351,7 +351,7 @@ export class PlayCanvasZombieSlice {
           </div>
         </div>
         <div class="pc-flow-panel" data-panel="flow" aria-live="polite">
-          <span data-flow-field="eyebrow">PlayCanvas Campaign</span>
+          <span data-flow-field="eyebrow">Night Survival</span>
           <h1 data-flow-field="title">Zombie Invasion</h1>
           <p data-flow-field="body">Survive the 12-wave village defense in the new cinematic low-poly style.</p>
           <div class="pc-flow-stats">
@@ -3295,7 +3295,7 @@ export class PlayCanvasZombieSlice {
     const summary = this.state.waveSummary;
     const phaseCopy = {
       ready: {
-        eyebrow: "PlayCanvas Campaign",
+        eyebrow: "Night Survival",
         title: "Zombie Invasion",
         body: "Defend the bell tower through 12 waves with infinite ammo, field upgrades, and ordnance.",
         primary: "Start Campaign",

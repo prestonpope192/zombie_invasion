@@ -574,12 +574,12 @@ a {
 /* ── Guidance toast — compact top-center, clears HUD clusters on all sizes ── */
 .pc-guidance-toast {
   position: fixed;
-  /* Sit just below the top-center phase toast (toast is ~24px tall + 10px gap) */
-  top: calc(env(safe-area-inset-top, 0px) + 52px);
+  /* Desktop: below the compact top clusters, centred in the clear band. */
+  top: calc(env(safe-area-inset-top, 0px) + 92px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
-  /* Narrow enough to clear the left objective panel (~160px) and right meta panel (~130px) */
+  /* Narrow enough to clear the left objective panel and right meta panel */
   width: min(360px, 70vw);
   padding: 6px 12px;
   box-sizing: border-box;
@@ -596,6 +596,15 @@ a {
 
 .pc-guidance-toast[hidden] {
   display: none;
+}
+
+/* Mobile: the top edge is flanked by the objective (left) and minimap (right),
+   so drop the toast below them into the clear band above the play area. */
+@media (max-width: 640px), (pointer: coarse) {
+  .pc-guidance-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 210px);
+    width: min(300px, 84vw);
+  }
 }
 
 @keyframes pc-toast-fadein {
