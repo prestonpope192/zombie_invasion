@@ -2714,17 +2714,42 @@ export class PlayCanvasZombieSlice {
     for (const zombie of this.state.zombies) {
       const entity = this.entitiesByZombie.get(zombie.id) ?? this.createZombieEntity(zombie);
 
+      // ── Telegraph ring (pounce = amber, slam = red) ──────────────────────
+      // Created lazily on first telegraph; parented to the app root at y=0 so
+      // it stays on the ground even when the zombie body lifts.
+      if (!zombie.dead) {
+        this._updateZombieTelegraph(entity, zombie);
+      } else if (entity._telegraphRing) {
+        entity._telegraphRing.enabled = false;
+      }
+
+      const zombieY = zombie.y ?? 0;
+
       if (entity._glb) {
         // ── GLB path ──────────────────────────────────────────────────────────
         entity.enabled = true; // always keep root enabled; GLB manages dead state internally
-        entity.setLocalPosition(zombie.x, 0, zombie.z);
+        // Use zombie.y for hover/pounce lift; shadow stays at y=0 (it's on the root entity
+        // but we pin the GLB shadow entity to ground-level inside _updateZombieTelegraph).
+        entity.setLocalPosition(zombie.x, zombieY, zombie.z);
         if (!zombie.dead) {
           // Quaternius model's face is on its +Z side, opposite the -Z forward
           // convention, hence the 180° offset.
+          const telegraphing = (zombie.telegraphSec ?? 0) > 0;
+          // Wind-up crouch: squash Y slightly during telegraph
+          const yScale = telegraphing ? 0.85 : 1.0;
           entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt) + 180, 0);
-          entity.setLocalScale(1, 1, 1);
+          entity.setLocalScale(1, yScale, 1);
         }
         animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+        // Keep blob shadow fixed at ground level (y=0) even when body lifts.
+        // The GLB shadow is a child of the root which now moves on Y, so we
+        // counter-translate it back to y=0.
+        const glbShadow = entity._glb?.shadow;
+        if (glbShadow && zombieY > 0) {
+          glbShadow.setLocalPosition(0, -zombieY + 0.03, 0);
+        } else if (glbShadow) {
+          glbShadow.setLocalPosition(0, 0.03, 0);
+        }
         // Sync bloom coronas to GLB eye positions (set by animateZombieGlbEntity above).
         // Coronas provide a wider emissive seed for CameraFrame bloom.
         const eyeLEnt = entity.findByName("glb-eye-l");
@@ -2743,21 +2768,91 @@ export class PlayCanvasZombieSlice {
         if (zombie.dead) {
           continue;
         }
-        entity.setLocalPosition(zombie.x, 0, zombie.z);
+        entity.setLocalPosition(zombie.x, zombieY, zombie.z);
         entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt), 0);
-        // Point 6: remove root squash — root stays at uniform scale 1
-        entity.setLocalScale(1, 1, 1);
-        // Point 6: subtle breathing on torso only (±0.015)
+        // Wind-up crouch: squash Y during telegraph
+        const telegraphing = (zombie.telegraphSec ?? 0) > 0;
+        entity.setLocalScale(1, telegraphing ? 0.85 : 1.0, 1);
+        // Subtle breathing on torso only (±0.015)
         const torsoPivot = entity._rig?.torsoPivot;
         if (torsoPivot) {
           const breathe = 1 + Math.sin(this.state.elapsedSec * (5 + zombie.speedMps)) * 0.015;
           torsoPivot.setLocalScale(breathe, 1, breathe);
+        }
+        // Keep blob shadow at ground level when body lifts
+        const shadowEnt = entity._rig?.shadowEnt;
+        if (shadowEnt && zombieY > 0) {
+          shadowEnt.setLocalPosition(0, -zombieY, 0);
+        } else if (shadowEnt) {
+          shadowEnt.setLocalPosition(0, 0, 0);
         }
         const skinMat = entity._rig?.skinMat ?? "zombieFlesh";
         const shirtMatKey = entity._rig?.shirtMatKey ?? "zombieShirtGrey";
         applyZombieRigMaterials(entity, this.materials, skinMat, shirtMatKey, zombie.hitFlashSec > 0);
         animateZombieRig(entity, zombie, this.state.elapsedSec);
       }
+    }
+  }
+
+  /**
+   * Create or update a ground-level telegraph ring under a zombie.
+   * Ring is parented to app.root (not the zombie entity) so it stays at y=0
+   * even when the zombie body lifts during a pounce arc.
+   * Color: pounce=amber (#e08a00), slam=red (#cc0000).
+   */
+  _updateZombieTelegraph(entity, zombie) {
+    const telegSec = zombie.telegraphSec ?? 0;
+    const telegType = zombie.telegraphType ?? "none";
+    const active = telegSec > 0 && telegType !== "none";
+
+    if (!entity._telegraphRing) {
+      // Build a thin flat cylinder (disc) as a ground ring
+      const ring = new pc.Entity(`telegraph-${zombie.id}`);
+      const mat = new pc.StandardMaterial();
+      mat.emissive = new pc.Color(0.88, 0.54, 0.0);
+      mat.emissiveIntensity = 3.0;
+      mat.diffuse = new pc.Color(0, 0, 0);
+      mat.useLighting = false;
+      mat.blendType = pc.BLEND_ADDITIVE;
+      mat.depthWrite = false;
+      mat.opacity = 0.8;
+      mat.update();
+      ring.addComponent("render", {
+        type: "cylinder",
+        material: mat,
+        castShadows: false,
+        receiveShadows: false,
+      });
+      ring.setLocalScale(0.9, 0.04, 0.9);
+      ring.setLocalPosition(zombie.x, 0.02, zombie.z);
+      this.app.root.addChild(ring);
+      entity._telegraphRing = ring;
+      entity._telegraphMat = mat;
+    }
+
+    const ring = entity._telegraphRing;
+    const mat = entity._telegraphMat;
+    ring.enabled = active;
+
+    if (active) {
+      // Move to zombie ground position
+      ring.setLocalPosition(zombie.x, 0.02, zombie.z);
+
+      // Color by type
+      if (telegType === "slam") {
+        mat.emissive = new pc.Color(0.9, 0.08, 0.08);
+      } else {
+        mat.emissive = new pc.Color(0.88, 0.54, 0.0);
+      }
+
+      // Pulse scale: shrinks from 1.0 → 0.4 as telegraph winds up, then pops
+      const maxDuration = telegType === "slam" ? 0.70 : 0.40;
+      const progress = Math.max(0, Math.min(1, 1 - telegSec / maxDuration));
+      const scale = 0.9 - progress * 0.5; // 0.9 → 0.4
+      const pulse = 1 + Math.sin(this.state.elapsedSec * 18) * 0.08;
+      ring.setLocalScale(scale * pulse, 0.04, scale * pulse);
+      mat.opacity = 0.6 + progress * 0.4;
+      mat.update();
     }
   }
 

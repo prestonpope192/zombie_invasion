@@ -95,6 +95,29 @@ const FIRE_PATCH_MERGE_DIST = 2.4;
 
 const BITE_INTERVAL_SEC = 0.42;
 const BITE_MAX_DAMAGE = 9;
+
+// ── Enemy behaviour variety ────────────────────────────────────────────────
+// Leaper/pouncer pounce constants
+const POUNCE_TELEGRAPH_SEC  = 0.40;  // wind-up freeze before launch
+const POUNCE_DURATION_SEC   = 0.45;  // airborne arc duration
+const POUNCE_MIN_DIST       = 2.5;   // don't pounce at melee range
+const POUNCE_MAX_DIST       = 8.0;   // don't pounce across the whole map
+const POUNCE_PEAK_Y         = 1.1;   // parabola peak (metres)
+
+// Boss charge-slam constants
+const SLAM_TELEGRAPH_SEC    = 0.70;  // boss wind-up
+const SLAM_DURATION_SEC     = 0.60;  // charge duration
+const SLAM_SPEED_MULT       = 1.8;   // charge speed multiplier vs. walk
+const SLAM_COOLDOWN_SEC     = 3.5;
+const SLAM_LAND_RADIUS      = 2.0;   // distance at which slam hit triggers
+const BOSS_TYPE_IDS = new Set(["mini_boss", "mega_zombie", "secret_boss"]);
+
+// Deterministic phase offset so each zombie pounces at slightly different times
+// Uses zombie sequence number embedded in id string (e.g. "leaper-7" → 7).
+function _idSeq(zombieId) {
+  const m = zombieId?.match(/(\d+)$/);
+  return m ? parseInt(m[1], 10) : 0;
+}
 // Village is far more durable than a one-on-one melee: a lone walker chews
 // ~2.5 dmg/s (was ~6.5), so the player has time to thin a wave before the
 // bell tower falls. Capped so a brute can't melt the village in one bite.
@@ -480,12 +503,15 @@ function spawnZombie(state, type, spawn = null) {
   const waveScale = 1 + state.waveIndex * 0.085;
   const isBoss = def.id === BOSS_DEF.id || def.id === BOSS_WAVE_TYPE_ID;
   const id = `${def.id}-${state.nextZombieSeq++}`;
+  const jumpIntervalSec = def.jumpIntervalSec ?? 0;
+  const isBossType = BOSS_TYPE_IDS.has(def.id);
   state.zombies.push({
     id,
     type: def.id,
     label: def.label,
     x: spawn?.x ?? laneOffset,
     z: spawn?.z ?? depth,
+    y: 0,
     hp: Math.round(def.hp * (isBoss ? 1 : waveScale)),
     maxHp: Math.round(def.hp * (isBoss ? 1 : waveScale)),
     speedMps: def.speedMps * (1 + state.waveIndex * 0.018),
@@ -496,6 +522,20 @@ function spawnZombie(state, type, spawn = null) {
     hitFlashSec: 0,
     biteCooldownSec: 0,
     dead: false,
+    // Leaper / pouncer
+    jumpIntervalSec,
+    jumpSpeed: def.jumpSpeed ?? 0,
+    jumpCooldownSec: jumpIntervalSec,   // first pounce delayed by full interval
+    telegraphSec: 0,
+    telegraphType: "none",
+    pounceSec: 0,
+    pounceTargetX: 0,
+    pounceTargetZ: 0,
+    // Flyer / revenant
+    hoverHeight: def.hoverHeight ?? 0,
+    // Boss slam (reuses telegraph / pounce primitives)
+    slamCooldownSec: isBossType ? SLAM_COOLDOWN_SEC * 0.5 : 0, // short initial delay
+    slamHitFired: false,
   });
 }
 
@@ -705,6 +745,7 @@ function stepZombies(state, dt) {
     const tz = targetPlayer ? toPlayerZ : toVillageZ;
     const dist = Math.hypot(tx, tz) || 1;
 
+    // ── Bite check (same for all movement modes) ──────────────────────────
     if (targetPlayer && playerDist < SLICE_WORLD.zombieBiteRange) {
       if (zombie.biteCooldownSec <= 0) {
         const biteDamage = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * getArmorDamageMultiplier(state) * BITE_INTERVAL_SEC);
@@ -713,6 +754,20 @@ function stepZombies(state, dt) {
         state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
         zombie.biteCooldownSec = BITE_INTERVAL_SEC;
       }
+      // Boss slam: if the boss lands in bite range during a charge, fire slam hit here
+      if (zombie.pounceSec > 0 && BOSS_TYPE_IDS.has(zombie.type) && !zombie.slamHitFired) {
+        const slamDmg = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * 0.4);
+        const before = state.playerHp;
+        state.playerHp = Math.max(0, state.playerHp - slamDmg);
+        state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+        zombie.slamHitFired = true;
+        zombie.slamCooldownSec = SLAM_COOLDOWN_SEC;
+      }
+      // Reset aerial state when biting
+      zombie.y = 0;
+      zombie.pounceSec = 0;
+      zombie.telegraphSec = 0;
+      zombie.telegraphType = "none";
       continue;
     }
 
@@ -727,12 +782,139 @@ function stepZombies(state, dt) {
         state.lifetimeStats.villageDamageTaken += Math.max(0, Math.round(before - state.villageHp));
         zombie.biteCooldownSec = BITE_INTERVAL_SEC;
       }
+      zombie.y = 0;
       continue;
     }
 
+    const mode = zombie.movementMode ?? "ground";
+
+    // ── FLYER / REVENANT: hover + direct approach ─────────────────────────
+    if (mode === "flyer") {
+      const seq = _idSeq(zombie.id);
+      const bobAmp = 0.12;
+      zombie.y = (zombie.hoverHeight ?? 1.45) + Math.sin(state.elapsedSec * 2 + seq) * bobAmp;
+      // Straight approach at full speed (flyers ignore zigzag)
+      zombie.x += (tx / dist) * zombie.speedMps * dt;
+      zombie.z += (tz / dist) * zombie.speedMps * dt;
+      continue;
+    }
+
+    // ── LEAPER / POUNCER: pounce state machine ────────────────────────────
+    if (mode === "leaper") {
+      // Decrement cooldowns
+      zombie.jumpCooldownSec = Math.max(0, (zombie.jumpCooldownSec ?? 0) - dt);
+
+      if (zombie.pounceSec > 0) {
+        // ── Active pounce: move at jumpSpeed toward locked target ──
+        zombie.pounceSec -= dt;
+        const ptx = zombie.pounceTargetX - zombie.x;
+        const ptz = zombie.pounceTargetZ - zombie.z;
+        const pDist = Math.hypot(ptx, ptz) || 1;
+        zombie.x += (ptx / pDist) * zombie.jumpSpeed * dt;
+        zombie.z += (ptz / pDist) * zombie.jumpSpeed * dt;
+        // Parabolic Y arc: 0 → peak at 50% → 0 at end
+        const prog = 1 - zombie.pounceSec / POUNCE_DURATION_SEC; // 0..1
+        zombie.y = POUNCE_PEAK_Y * 4 * prog * (1 - prog);       // sin²-shaped parabola
+        if (zombie.pounceSec <= 0) {
+          zombie.y = 0;
+          zombie.telegraphType = "none";
+          zombie.jumpCooldownSec = zombie.jumpIntervalSec ?? 1.8;
+        }
+      } else if (zombie.telegraphSec > 0) {
+        // ── Telegraph wind-up: freeze in place ──
+        zombie.telegraphSec -= dt;
+        zombie.y = 0;
+        if (zombie.telegraphSec <= 0) {
+          // Launch pounce
+          zombie.pounceSec = POUNCE_DURATION_SEC;
+          zombie.pounceTargetX = state.player.x;
+          zombie.pounceTargetZ = state.player.z;
+        }
+      } else {
+        // ── Idle approach / decide to pounce ──
+        const canPounce =
+          targetPlayer &&
+          playerDist >= POUNCE_MIN_DIST &&
+          playerDist <= POUNCE_MAX_DIST &&
+          zombie.jumpCooldownSec <= 0;
+        if (canPounce) {
+          // Start telegraph
+          zombie.telegraphSec = POUNCE_TELEGRAPH_SEC;
+          zombie.telegraphType = "pounce";
+          // Don't move this frame (wind-up freeze)
+        } else {
+          // Normal creep approach
+          const zigzag = Math.sin(state.elapsedSec * 2.2 + _idSeq(zombie.id)) * 0.18;
+          zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * dt;
+          zombie.z += (tz / dist) * zombie.speedMps * dt;
+          zombie.y = 0;
+        }
+      }
+      continue;
+    }
+
+    // ── BOSS SLAM: charge-slam state machine (reuses telegraph / pounce fields) ──
+    if (BOSS_TYPE_IDS.has(zombie.type)) {
+      zombie.slamCooldownSec = Math.max(0, (zombie.slamCooldownSec ?? 0) - dt);
+
+      if (zombie.pounceSec > 0) {
+        // Charge phase
+        zombie.pounceSec -= dt;
+        const ptx = zombie.pounceTargetX - zombie.x;
+        const ptz = zombie.pounceTargetZ - zombie.z;
+        const pDist = Math.hypot(ptx, ptz) || 1;
+        const chargeSpeed = zombie.speedMps * SLAM_SPEED_MULT;
+        zombie.x += (ptx / pDist) * chargeSpeed * dt;
+        zombie.z += (ptz / pDist) * chargeSpeed * dt;
+        // Slam land: one-shot bonus hit when charge ends and within radius
+        if (zombie.pounceSec <= 0) {
+          zombie.telegraphType = "none";
+          zombie.slamCooldownSec = SLAM_COOLDOWN_SEC;
+          // Apply slam hit once if player is close (slamHitFired gates it per charge)
+          if (!zombie.slamHitFired) {
+            const landDist = Math.hypot(state.player.x - zombie.x, state.player.z - zombie.z);
+            if (landDist < SLAM_LAND_RADIUS) {
+              const slamDmg = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * 0.4);
+              const before = state.playerHp;
+              state.playerHp = Math.max(0, state.playerHp - slamDmg);
+              state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+            }
+            // Mark fired whether or not hit landed (distance gated per charge, not per frame)
+            zombie.slamHitFired = true;
+          }
+        }
+      } else if (zombie.telegraphSec > 0) {
+        // Telegraph wind-up
+        zombie.telegraphSec -= dt;
+        if (zombie.telegraphSec <= 0) {
+          zombie.pounceSec = SLAM_DURATION_SEC;
+          zombie.pounceTargetX = state.player.x;
+          zombie.pounceTargetZ = state.player.z;
+          zombie.slamHitFired = false;
+        }
+      } else {
+        // Decide to slam (only when targeting player and in a usable range)
+        const canSlam =
+          targetPlayer &&
+          playerDist < PLAYER_AGGRO_RADIUS * 0.6 &&
+          zombie.slamCooldownSec <= 0;
+        if (canSlam) {
+          zombie.telegraphSec = SLAM_TELEGRAPH_SEC;
+          zombie.telegraphType = "slam";
+        } else {
+          // Normal boss walk
+          zombie.x += (tx / dist) * zombie.speedMps * dt;
+          zombie.z += (tz / dist) * zombie.speedMps * dt;
+        }
+      }
+      continue;
+    }
+
+    // ── GROUND (walker, runner, skitter, brute, etc.) ─────────────────────
     const zigzag = zombie.type === "runner" || zombie.type === "skitter" ? Math.sin(state.elapsedSec * 3 + zombie.id.length) * 0.45 : 0;
     zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * dt;
     zombie.z += (tz / dist) * zombie.speedMps * dt;
+    zombie.y = 0;
   }
 }
 

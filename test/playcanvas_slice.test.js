@@ -754,6 +754,148 @@ describe("PlayCanvas campaign simulation", () => {
     expect(bossSnapshot.mutatedLandscapeIds).toHaveLength(3);
   });
 
+  // ── Enemy behaviour variety tests ────────────────────────────────────────
+
+  it("leaper at ~5m with cooldown ready telegraphs then pounces faster than a walker", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+
+    // Player at origin, leaper 5m away (within pounce window 2.5-8m)
+    state.player.x = 0;
+    state.player.z = 0;
+    const leaper = makeLeaper({ x: 0, z: -5, jumpCooldownSec: 0 });
+    // Reference walker that will travel the same elapsed time
+    const walker = makeWalker({ x: 0, z: -5 });
+    state.zombies = [leaper, walker];
+
+    // Step 1: one tick (0.05s) — leaper should enter telegraph, walker walks
+    stepSlice(state, idleInput(), 0.05);
+    expect(leaper.telegraphType).toBe("pounce");
+    expect(leaper.telegraphSec).toBeGreaterThan(0);
+
+    const leaperZAtTelegraph = leaper.z;
+    const walkerZAtTelegraph = walker.z;
+
+    // Step 2: burn off telegraph (0.40s) + full pounce (0.45s) + buffer for last tick
+    // stepSlice caps each call at 0.05s, so we loop at fixed 0.05s ticks.
+    // Need 20 ticks after the first one (first tick sets telegraphSec=0.40,
+    // which needs 8 ticks to drain, 1 to launch, 9 to complete, 1 slack = 19 more).
+    advanceSec(state, 0.40 + 0.45 + 0.10);
+
+    // Leaper should have covered more total ground than walker since telegraph
+    // started, because jumpSpeed (4.8) >> walkSpeed (1.55).
+    const leaperDisplacement = leaper.z - leaperZAtTelegraph;
+    const walkerDisplacement = walker.z - walkerZAtTelegraph;
+    expect(leaperDisplacement).toBeGreaterThan(walkerDisplacement);
+
+    // After pounce completes: cooldown reset, telegraphType cleared
+    expect(leaper.telegraphType).toBe("none");
+    expect(leaper.jumpCooldownSec).toBeGreaterThan(0);
+    expect(leaper.pounceSec).toBeLessThanOrEqual(0);
+  });
+
+  it("leaper telegraph transitions: none → pounce → none", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 0;
+    const leaper = makeLeaper({ x: 0, z: -5, jumpCooldownSec: 0 });
+    state.zombies = [leaper];
+
+    // First tick: should start telegraph
+    stepSlice(state, idleInput(), 0.05);
+    expect(leaper.telegraphType).toBe("pounce");
+
+    // Burn remaining telegraph (0.35s) + pounce (0.45s) + 2 ticks slack.
+    // stepSlice caps at 0.05s each call; need 19 more ticks after the first one.
+    advanceSec(state, 0.35 + 0.45 + 0.15);
+    expect(leaper.telegraphType).toBe("none");
+    expect(leaper.pounceSec).toBeLessThanOrEqual(0);
+  });
+
+  it("flyer y is approximately hoverHeight after a step", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 0;
+    const flyer = makeFlyer({ x: 0, z: -10, hoverHeight: 1.45 });
+    state.zombies = [flyer];
+
+    stepSlice(state, idleInput(), 0.05);
+
+    // y should be hoverHeight ± bob amplitude (0.12)
+    const bobAmp = 0.12;
+    expect(flyer.y).toBeGreaterThan(1.45 - bobAmp - 0.01);
+    expect(flyer.y).toBeLessThan(1.45 + bobAmp + 0.01);
+
+    // revenant style: higher hoverHeight
+    flyer.hoverHeight = 1.9;
+    stepSlice(state, idleInput(), 0.05);
+    expect(flyer.y).toBeGreaterThan(1.9 - bobAmp - 0.01);
+    expect(flyer.y).toBeLessThan(1.9 + bobAmp + 0.01);
+  });
+
+  it("boss (mini_boss) enters slam telegraph and charges faster than walk speed", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 0;
+    // Place boss at 6m — within PLAYER_AGGRO_RADIUS * 0.6 = 7.8m so slam triggers
+    const boss = makeBoss({ x: 0, z: -6, slamCooldownSec: 0 });
+    state.zombies = [boss];
+
+    // First tick: trigger slam telegraph
+    stepSlice(state, idleInput(), 0.05);
+    expect(boss.telegraphType).toBe("slam");
+    expect(boss.telegraphSec).toBeGreaterThan(0);
+
+    const zAfterTelegraphStart = boss.z;
+
+    // Burn telegraph (0.70s) then run charge for 0.3s
+    advanceSec(state, 0.70 + 0.30);
+
+    // Boss should have charged at 1.8× walk speed during charge phase
+    // 0.3s × 1.05 × 1.8 ≈ 0.567m toward player (z=0 from z=-6)
+    const displacement = boss.z - zAfterTelegraphStart;
+    const minimumExpected = 0.3 * 1.05 * 1.8 * 0.8; // 0.8 tolerance
+    expect(displacement).toBeGreaterThan(minimumExpected);
+  });
+
+  it("boss slam hit fires at most once per charge when player is in range", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 0;
+    state.playerHp = 100;
+
+    // Place boss 1.5m away — inside SLAM_LAND_RADIUS (2.0m)
+    const boss = makeBoss({ x: 0, z: -1.5, slamCooldownSec: 0 });
+    // Fast-forward: skip telegraph and put boss directly into charge phase
+    boss.telegraphSec = 0;
+    boss.pounceSec = 0.60;  // already charging for 0.60s
+    boss.pounceTargetX = 0;
+    boss.pounceTargetZ = 0;
+    boss.slamHitFired = false;
+    state.zombies = [boss];
+
+    const hpBefore = state.playerHp;
+
+    // Advance just enough to finish the charge (1 tick of 0.05s removes 0.05 from pounceSec,
+    // we need >0.60s to complete it — use 0.65s worth of ticks)
+    advanceSec(state, 0.65);
+
+    const hpAfter = state.playerHp;
+    // Slam should have landed (boss within SLAM_LAND_RADIUS at charge end)
+    expect(hpAfter).toBeLessThan(hpBefore);
+    expect(hpAfter).toBeGreaterThan(0);   // not instakill
+    expect(boss.slamHitFired).toBe(true);
+
+    // slamHitFired stays true until next charge cycle starts
+    const hpAfterExtra = state.playerHp;
+    stepSlice(state, idleInput(), 0.05);
+    expect(boss.slamHitFired).toBe(true); // not reset until next telegraph
+  });
+
   it("starts a secret boss phase after final wave and wins only after the boss is defeated", () => {
     const state = startSlice(createSliceState());
     state.waveIndex = 11;
@@ -813,4 +955,95 @@ function nearbyZombie() {
     biteCooldownSec: 0,
     dead: false,
   };
+}
+
+// ── Behaviour-variety test helpers ────────────────────────────────────────
+
+/** Run stepSlice at 0.05s fixed steps for a total of `sec` seconds. */
+function advanceSec(state, sec) {
+  const STEP = 0.05;
+  const n = Math.ceil(sec / STEP);
+  for (let i = 0; i < n; i++) {
+    stepSlice(state, idleInput(), STEP);
+  }
+}
+
+function _baseZombie(overrides = {}) {
+  return {
+    y: 0,
+    hitFlashSec: 0,
+    biteCooldownSec: 0,
+    dead: false,
+    jumpIntervalSec: 0,
+    jumpSpeed: 0,
+    jumpCooldownSec: 0,
+    telegraphSec: 0,
+    telegraphType: "none",
+    pounceSec: 0,
+    pounceTargetX: 0,
+    pounceTargetZ: 0,
+    hoverHeight: 0,
+    slamCooldownSec: 9999,
+    slamHitFired: false,
+    coinReward: 10,
+    aggroPlayerSec: 0,
+    ...overrides,
+  };
+}
+
+function makeLeaper(overrides = {}) {
+  return _baseZombie({
+    id: "leaper-99",
+    type: "leaper",
+    label: "Leaper",
+    x: 0, z: -5,
+    hp: 122, maxHp: 122,
+    speedMps: 1.95, attackDps: 14,
+    movementMode: "leaper", attackRange: 1.85,
+    jumpIntervalSec: 1.8, jumpSpeed: 4.8,
+    jumpCooldownSec: 9999, // won't pounce unless overridden
+    ...overrides,
+  });
+}
+
+function makeWalker(overrides = {}) {
+  return _baseZombie({
+    id: "walker-99",
+    type: "walker",
+    label: "Walker",
+    x: 0, z: -5,
+    hp: 98, maxHp: 98,
+    speedMps: 1.55, attackDps: 9,
+    movementMode: "ground", attackRange: 1.6,
+    ...overrides,
+  });
+}
+
+function makeFlyer(overrides = {}) {
+  return _baseZombie({
+    id: "flyer-3",
+    type: "flyer",
+    label: "Banshee Flyer",
+    x: 0, z: -10,
+    hp: 118, maxHp: 118,
+    speedMps: 2.35, attackDps: 14,
+    movementMode: "flyer", attackRange: 1.9,
+    hoverHeight: 1.45,
+    ...overrides,
+  });
+}
+
+function makeBoss(overrides = {}) {
+  return _baseZombie({
+    id: "mini_boss-1",
+    type: "mini_boss",
+    label: "Mini Boss",
+    x: 0, z: -6,
+    hp: 860, maxHp: 860,
+    speedMps: 1.05, attackDps: 34,
+    coinReward: 300,
+    movementMode: "ground", attackRange: 2.2,
+    slamCooldownSec: 9999, // won't slam unless overridden
+    ...overrides,
+  });
 }

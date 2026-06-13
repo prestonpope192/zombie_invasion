@@ -599,7 +599,8 @@ export function createZombieGlbEntity(app, zombie, container) {
   //   3. To switch clips at runtime, call baseLayer.play(stateName).
   // ---------------------------------------------------------------------------
 
-  const ANIM_PRIORITY = ["Walk", "Run", "Crawl", "Punch", "Idle_Attack", "Death", "HitReact", "Idle"];
+  // Jump added for leaper/pouncer pounce arc; Jump_Idle for flyer hover pose
+  const ANIM_PRIORITY = ["Walk", "Run", "Crawl", "Punch", "Idle_Attack", "Death", "HitReact", "Idle", "Jump", "Jump_Idle", "Jump_Land"];
 
   let animSetupOk = false;
   try {
@@ -683,10 +684,16 @@ function selectAnimState(zombie) {
   const type = zombie.type ?? "walker";
   const isCrawler = type === "crawler" || type.includes("chicken") || type.includes("pig");
   const isRunner = type === "runner" || type === "skitter" || type === "pouncer";
+  const isLeaper = zombie.movementMode === "leaper";
+  const isFlyer  = zombie.movementMode === "flyer";
   const isBiting = (zombie.biteCooldownSec ?? 0) > 0 ||
                    zombie.aiState === "attack_player" ||
                    zombie.aiState === "attack_village";
 
+  // Active pounce arc → Jump clip
+  if (isLeaper && (zombie.pounceSec ?? 0) > 0) return "Jump";
+  // Flyer in hover → Jump_Idle (stationary aerial pose) if available, else Walk
+  if (isFlyer) return "Jump_Idle";
   if (isCrawler) return "Crawl";
   if (isBiting) return "Punch";
   if (isRunner) return "Run";
@@ -758,12 +765,19 @@ export function animateZombieGlbEntity(root, zombie, elapsedSec) {
     // Skip the rest of the per-frame anim update — dead zombie stays frozen
     // Eye/hit-flash updates still run below for cleanup
   } else {
-    // Switch animation state if changed
+    // Switch animation state if changed.
+    // If the desired state's clip isn't in the GLB, fall back gracefully:
+    //   Jump → Run (leaper mid-pounce); Jump_Idle → Walk (flyer hover).
     if (animSetupOk && modelEntity.anim && desiredState !== glb.currentAnim) {
       try {
-        if (animMap.has(desiredState)) {
-          modelEntity.anim.baseLayer.play(desiredState);
-          glb.currentAnim = desiredState;
+        let playState = desiredState;
+        if (!animMap.has(playState)) {
+          if (playState === "Jump" || playState === "Jump_Land") playState = "Run";
+          else if (playState === "Jump_Idle") playState = "Walk";
+        }
+        if (animMap.has(playState)) {
+          modelEntity.anim.baseLayer.play(playState);
+          glb.currentAnim = desiredState; // track desired, not fallback
         }
       } catch (ex) {
         // Swallow — never crash the sim
