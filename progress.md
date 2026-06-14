@@ -2445,3 +2445,23 @@ Original prompt: build this game and deploy it to a docker container and spin it
 - Tests: +5 in playcanvas_slice.test.js (telegraph none→pounce→none, pounce out-distances a walker + cooldown reset, flyer y≈hoverHeight, boss charge faster than walk, slam fires once per charge). 158 total pass; npm run smoke:playcanvas exit 0 (wave 1 is walker-only so unaffected).
 - Live-GPU verified: flyer floats at hover height; leaper shows amber telegraph ring + crouch then arcs airborne (y~0.76 caught mid-pounce) with shadow grounded.
 - Balance note: slam-into-bite ~18 HP on unarmored with 3.5s cooldown — a survivable skill check, not an instakill. Bosses use BOSS_TYPE_IDS by id (movementMode stays "ground").
+
+## 2026-06-13 — Audio & ambience pass: 10 procedural SFX cues + night ambient bed
+
+- All cues in PlayCanvas layer only (src/playcanvas/main.js); audio3d.js untouched. Each new method guards `sfxEnabled===false` first (counter stays zero), then `!this.audio.ctx` (safe in locked/headless context).
+- Cue 1 — Hit confirm (_sfxHitConfirm): 1800→1400 Hz triangle, 28ms, gain 0.018. Fires on result.hit && !killCount in fire(). Distinct from the existing flesh impact (which continues to play).
+- Cue 2 — Kill (_sfxKill): 320→88 Hz triangle thud + 110→55 Hz sine sub-punch, 140ms/110ms, gains 0.045/0.022. Fires on killCount>0 in fire().
+- Cue 3 — Headshot (_sfxHeadshot): 1320→1100 Hz sine + 2200→1760 Hz triangle overlay, 180ms/90ms, gain 0.022/0.008. Layered on kill when result.headshot.
+- Cue 4 — Kill streak (_sfxStreak(count)): 4-note ascending triangle arpeggio (55ms spacing), root rises tier-by-tier (220/277/330/415 Hz) for x3/x5/x7/x10. Fires in _updateStreak on first crossing of each milestone.
+- Cue 5a — Reload start (_sfxReloadStart): 180→120 Hz sawtooth + 340→200 Hz square click, 38ms/22ms. Detects pendingReload false→true transition at top of update(), before stepSlice.
+- Cue 5b — Reload finish (_sfxReloadFinish): 260→160 Hz sawtooth + 520→280 Hz square click, 32ms/18ms. Detects pendingReload true→false transition in same location.
+- Cue 5c — Empty mag (_sfxEmpty): 280→220 Hz square click, 18ms. Fires when result.reason==="empty" — also made fire() early-return after this (previously weapon-shot audio played even on empty, a pre-existing bug, now fixed).
+- Cue 6 — Coin ching (_sfxCoin): 1560→1040 Hz sine + 2080→1560 Hz sine overtone, 120ms/70ms. Fires on coinsDelta>0 in fire(), layered with kill cue.
+- Cue 7 — Player damage (_sfxPlayerDamage): 88→52 Hz triangle body thud + 420→180 Hz sawtooth distress, 140ms/80ms. Wired in update() at same site as playerDamageFlashSec and _addShakeTrauma.
+- Cue 8 — Heartbeat (_sfxHeartbeatTick(dt)): two soft sine thumps (62→44 Hz / 54→40 Hz, 120ms/100ms) separated by a 70ms setTimeout. Period 1.8s → 0.9s as HP drops 25% → 0. Driven from update() when playerHp<25 && phase==="running"; phase accumulator resets above 25%.
+- Cue 9 — UI click (_sfxUiClick): 620→440 Hz triangle, 22ms, gain 0.012. Fires in startOrContinueCampaign, toggleShop, toggleHudSettings. Shop buy uses _sfxShopBuy (880→660 Hz triangle + 1320→880 Hz sine, 60ms/40ms, slightly richer).
+- Cue 10 — Night ambient bed (_startNightBed / _stopNightBed): three rotating sine chord voicings at 82/92.5/87 Hz roots (offsets 0/7/12, 0/5/10, 2/7/14 semitones), gain 0.003 on "music" channel, 4.2s duration, 3.8s interval, 350ms attack. Starts on first update with phase=running/intermission; stops on menu/lost/won and on reset. Also stops if musicEnabled toggled off. Does not use the stopProceduralMusic() timer list to avoid being killed by raid music transitions.
+- New constructor state: _heartbeatPhaseSec, _heartbeatActive (unused, kept for future), _wasReloading, _nightBedTimerId, _nightBedRunning, _nightBedPhase, _sfxCallCounts (12 keys for verification).
+- resetAudioTracking() extended to clear _wasReloading, _heartbeatPhaseSec, and _stopNightBed().
+- Verification: Playwright script (deleted after run) drove a headless Chromium session. Results: all 14 cue methods present; sfxEnabled=false guard: hitConfirm/kill/empty/coin/reloadStart/reloadFinish all stay at 0; musicEnabled=false stops nightBed; direct calls: hitConfirm=1, kill=1, headshot=1, streak=2 (x3+x5), reloadStart=1, reloadFinish=1, empty=1, coin=1, playerDamage=1, uiClick=2 (uiClick+shopBuy); start-campaign: uiClick≥1; nightBedStart=1 on running phase; reloadStart=1 + reloadFinish=1 after draining pistol mag; heartbeat=1 at 10 HP / 2s; heartbeat=0 at 80 HP; zero console errors; ALL CHECKS PASSED.
+- npx vitest run: 158/158 pass. npm run smoke:playcanvas: exit 0.

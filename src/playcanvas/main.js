@@ -222,6 +222,22 @@ export class PlayCanvasZombieSlice {
     this._lastKnownCoins = 0;
     // Low-HP vignette tracking
     this._vignetteActive = false;
+    // ── Audio cue state ────────────────────────────────────────────────────────
+    // Heartbeat: time-since-last-beat (drives the slow 2-thump loop)
+    this._heartbeatPhaseSec = 0;
+    this._heartbeatActive = false;
+    // Reload state tracking (to detect start / finish transitions)
+    this._wasReloading = false;
+    // Ambient night bed
+    this._nightBedTimerId = null;
+    this._nightBedPhase = 0;   // index into evolving pad sequence
+    this._nightBedRunning = false;
+    // SFX call counters (verification only — no overhead at runtime)
+    this._sfxCallCounts = {
+      hitConfirm: 0, kill: 0, headshot: 0, streak: 0,
+      reloadStart: 0, reloadFinish: 0, empty: 0,
+      coin: 0, playerDamage: 0, heartbeat: 0, uiClick: 0, nightBedStart: 0,
+    };
 
     this.buildDom();
     this.createApp();
@@ -1406,6 +1422,7 @@ export class PlayCanvasZombieSlice {
       } else if (button.dataset.shopType === "medkit") {
         buyMedKit(this.state);
       }
+      this._sfxShopBuy();
       this.updateHud();
       this.renderShop();
     });
@@ -1838,6 +1855,7 @@ export class PlayCanvasZombieSlice {
     } else {
       this.shopOpen = !this.shopOpen;
     }
+    this._sfxUiClick();
     this.updateHud();
   }
 
@@ -1893,6 +1911,7 @@ export class PlayCanvasZombieSlice {
     if (!this.settingsSheet) return;
     const isOpen = !this.settingsSheet.hidden;
     this.settingsSheet.hidden = isOpen;
+    this._sfxUiClick();
   }
 
   toggleMorePopover() {
@@ -1907,6 +1926,7 @@ export class PlayCanvasZombieSlice {
   startOrContinueCampaign({ pointerLock = false } = {}) {
     const previousPhase = this.state.phase;
     this.unlockAudio();
+    this._sfxUiClick();
     startSlice(this.state);
     this.shopOpen = false;
     if (this.state.phase === "running" && previousPhase !== "running") {
@@ -1977,6 +1997,12 @@ export class PlayCanvasZombieSlice {
     if (result.reason === "blocked") {
       return;
     }
+    if (result.reason === "empty") {
+      // Cue 5c: dry empty-mag click — no weapon shot, no visuals
+      this._sfxEmpty();
+      this.updateHud();
+      return;
+    }
     this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
     if (result.impact) {
       this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
@@ -1997,6 +2023,8 @@ export class PlayCanvasZombieSlice {
     if (result.hit) {
       // Hitmarker
       this._showHitmarker(result.killCount > 0, result.headshot);
+      // Cue 1: hit confirm (non-kill hits only — kill has its own heavier cue)
+      if (!result.killCount) this._sfxHitConfirm();
       // Hit-confirm haptic
       this._vibrate(result.killCount > 0 ? [0, 10, 20, 30] : 15);
     }
@@ -2005,6 +2033,12 @@ export class PlayCanvasZombieSlice {
       const coinsDelta = this.state.coins - coinsBefore;
       this._showKillFeedback(coinsDelta);
       this._updateStreak(result.killCount);
+      // Cue 2: kill thud
+      this._sfxKill();
+      // Cue 3: headshot ding (layered on kill)
+      if (result.headshot) this._sfxHeadshot();
+      // Cue 6: coin ching when coins were awarded
+      if (coinsDelta > 0) this._sfxCoin();
       // Kill haptic pattern
       this._vibrate([0, 15, 25, 45]);
     }
@@ -2526,6 +2560,9 @@ export class PlayCanvasZombieSlice {
     this.lastAudioVillageHp = this.state.villageHp;
     this.lastAudioPlayerHp = this.state.playerHp;
     this.lastAudioCueId = "";
+    this._wasReloading = false;
+    this._heartbeatPhaseSec = 0;
+    this._stopNightBed();
   }
 
   trackAudioDamage(previousVillageHp, previousPlayerHp) {
@@ -2611,8 +2648,16 @@ export class PlayCanvasZombieSlice {
         this.applyLookDelta(fakePixDx, fakePixDy);
       }
     }
+    const wasReloading = this._wasReloading;
     stepSlice(this.state, this.input, Math.min(dt, 0.05));
     this.input.jump = false;
+    // Cue 5: reload start / finish detection (pendingReload flag transition)
+    if (!wasReloading && this.state.pendingReload) {
+      this._sfxReloadStart();
+    } else if (wasReloading && !this.state.pendingReload) {
+      this._sfxReloadFinish();
+    }
+    this._wasReloading = this.state.pendingReload;
     this.trackAudioDamage(previousVillageHp, previousPlayerHp);
     if (this.state.playerHp < previousPlayerHp - 0.1) {
       this.playerDamageFlashSec = 0.45;
@@ -2620,6 +2665,8 @@ export class PlayCanvasZombieSlice {
       this._addShakeTrauma(0.38);
       // Damage haptic
       this._vibrate(45);
+      // Cue 7: player damage thud
+      this._sfxPlayerDamage();
     }
     if (this.state.villageHp < previousVillageHp - 0.1) {
       this.villageDamageFlashSec = 0.45;
@@ -2631,6 +2678,19 @@ export class PlayCanvasZombieSlice {
     // Juice: decay shake, update vignette
     this._decayShake(dt);
     this._updateVignette(this.state.playerHp);
+    // Cue 8: low-health heartbeat
+    if (this.state.playerHp < 25 && this.state.phase === "running") {
+      this._sfxHeartbeatTick(dt);
+    } else {
+      this._heartbeatPhaseSec = 0;
+    }
+    // Cue 10: ambient night bed — start on first wave, stop when not in active play
+    const isActiveCombat = this.state.phase === "running" || this.state.phase === "intermission";
+    if (isActiveCombat && !this._nightBedRunning) {
+      this._startNightBed();
+    } else if (!isActiveCombat && this._nightBedRunning) {
+      this._stopNightBed();
+    }
     this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - dt);
     if (this.state.phase === "intermission" && this.lastSummaryWave !== this.state.waveNumber) {
       this.lastSummaryWave = this.state.waveNumber;
@@ -3713,8 +3773,18 @@ export class PlayCanvasZombieSlice {
     if (now - this._streakLastKillTime > this._streakTimeoutMs) {
       this._streakCount = 0;
     }
+    const prevCount = this._streakCount;
     this._streakCount += newKills;
     this._streakLastKillTime = now;
+
+    // Cue 4: streak arpeggio — fire when crossing a milestone tier boundary
+    const STREAK_MILESTONES = [3, 5, 7, 10];
+    for (const milestone of STREAK_MILESTONES) {
+      if (prevCount < milestone && this._streakCount >= milestone) {
+        this._sfxStreak(milestone);
+        break; // only fire the highest newly-crossed milestone per update
+      }
+    }
 
     if (this._streakCount < 3 || !this.streakBadgeEl) {
       // Show nothing below x3 — keeps it uncluttered
@@ -3781,6 +3851,193 @@ export class PlayCanvasZombieSlice {
 
   _addShakeTrauma(amount) {
     this._shakeTrauma = Math.min(1, this._shakeTrauma + amount);
+  }
+
+  // ── Procedural SFX cues ───────────────────────────────────────────────────
+  // All cues: early-return when sfxEnabled=false AND when AudioContext is not
+  // yet unlocked (ctx===null) to ensure zero-throw behaviour before first click.
+
+  /** Cue 1: Hit confirm — crisp high tick on flesh hit (non-kill) */
+  _sfxHitConfirm() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.hitConfirm++;
+    if (!this.audio.ctx) return;
+    // Short high-pitched triangle blip — distinct from the flesh impact boom
+    this.audio.playTone({ freq: 1800, freqEnd: 1400, duration: 0.028, gain: 0.018, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 2: Kill — satisfying pitch-drop thud */
+  _sfxKill() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.kill++;
+    if (!this.audio.ctx) return;
+    // Low descending thud
+    this.audio.playTone({ freq: 320, freqEnd: 88, duration: 0.14, gain: 0.045, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
+    // Sub punch layer
+    this.audio.playTone({ freq: 110, freqEnd: 55, duration: 0.11, gain: 0.022, gainEnd: 0.0002, type: "sine", attack: 0.002, channel: "sfx" });
+  }
+
+  /** Cue 3: Headshot ding — bright overtone layered on kill */
+  _sfxHeadshot() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.headshot++;
+    if (!this.audio.ctx) return;
+    // Bright sine chime, decays fast
+    this.audio.playTone({ freq: 1320, freqEnd: 1100, duration: 0.18, gain: 0.022, gainEnd: 0.0002, type: "sine", attack: 0.002, channel: "sfx" });
+    this.audio.playTone({ freq: 2200, freqEnd: 1760, duration: 0.09, gain: 0.008, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 4: Kill streak arpeggio — escalates with tier (x3/x5/x7/x10) */
+  _sfxStreak(count) {
+    if (this.state.sfxEnabled === false) return;
+    if (count < 3) return;
+    this._sfxCallCounts.streak++;
+    if (!this.audio.ctx) return;
+    // Each tier: higher root, brighter chord
+    const tier = count >= 10 ? 3 : count >= 7 ? 2 : count >= 5 ? 1 : 0;
+    const roots = [220, 277.18, 329.63, 415.30];
+    const root = roots[tier];
+    const arpeggioNotes = [
+      root,
+      root * 1.2599, // minor third ≈ ×2^(3/12)
+      root * 1.4983, // perfect fifth ≈ ×2^(7/12)
+      root * 1.7818, // minor seventh ≈ ×2^(10/12)
+    ];
+    const delayMs = [0, 55, 110, 165];
+    for (let i = 0; i <= tier + 1 && i < arpeggioNotes.length; i++) {
+      const noteFreq = arpeggioNotes[i];
+      const delay = delayMs[i];
+      if (delay === 0) {
+        this.audio.playTone({ freq: noteFreq, freqEnd: noteFreq * 0.97, duration: 0.22, gain: 0.018, gainEnd: 0.0002, type: "triangle", attack: 0.005, channel: "sfx" });
+      } else {
+        setTimeout(() => {
+          if (this.state.sfxEnabled === false || !this.audio.ctx) return;
+          this.audio.playTone({ freq: noteFreq, freqEnd: noteFreq * 0.97, duration: 0.22, gain: 0.018, gainEnd: 0.0002, type: "triangle", attack: 0.005, channel: "sfx" });
+        }, delay);
+      }
+    }
+  }
+
+  /** Cue 5a: Reload start — mechanical click-clack */
+  _sfxReloadStart() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.reloadStart++;
+    if (!this.audio.ctx) return;
+    // Noisy low-mid click
+    this.audio.playTone({ freq: 180, freqEnd: 120, duration: 0.038, gain: 0.032, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
+    this.audio.playTone({ freq: 340, freqEnd: 200, duration: 0.022, gain: 0.014, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 5b: Reload finish — satisfying seating click */
+  _sfxReloadFinish() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.reloadFinish++;
+    if (!this.audio.ctx) return;
+    // Crisper, slightly higher than start
+    this.audio.playTone({ freq: 260, freqEnd: 160, duration: 0.032, gain: 0.036, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
+    this.audio.playTone({ freq: 520, freqEnd: 280, duration: 0.018, gain: 0.012, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 5c: Empty-mag click — dry single tick */
+  _sfxEmpty() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.empty++;
+    if (!this.audio.ctx) return;
+    this.audio.playTone({ freq: 280, freqEnd: 220, duration: 0.018, gain: 0.024, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 6: Coin pickup ching — light bright ring */
+  _sfxCoin() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.coin++;
+    if (!this.audio.ctx) return;
+    this.audio.playTone({ freq: 1560, freqEnd: 1040, duration: 0.12, gain: 0.014, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
+    this.audio.playTone({ freq: 2080, freqEnd: 1560, duration: 0.07, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 7: Player damage — low thud/grunt on bite */
+  _sfxPlayerDamage() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.playerDamage++;
+    if (!this.audio.ctx) return;
+    // Body-hit thud
+    this.audio.playTone({ freq: 88, freqEnd: 52, duration: 0.14, gain: 0.055, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
+    // High distress overtone
+    this.audio.playTone({ freq: 420, freqEnd: 180, duration: 0.08, gain: 0.018, gainEnd: 0.0001, type: "sawtooth", attack: 0.002, channel: "sfx" });
+  }
+
+  /** Cue 8: Low-health heartbeat — two soft low thumps; called from update loop.
+   *  dt: frame delta in seconds */
+  _sfxHeartbeatTick(dt) {
+    if (this.state.sfxEnabled === false) return;
+    // Heartbeat period scales with HP severity: lower HP = faster beat
+    const severity = Math.max(0, Math.min(1, 1 - this.state.playerHp / 25));
+    const period = 1.8 - severity * 0.9; // 1.8s at 25%HP, 0.9s at 0%HP
+    this._heartbeatPhaseSec = (this._heartbeatPhaseSec ?? 0) + dt;
+    if (this._heartbeatPhaseSec >= period) {
+      this._heartbeatPhaseSec = 0;
+      this._sfxCallCounts.heartbeat++;
+      if (!this.audio.ctx) return;
+      // First thump
+      this.audio.playTone({ freq: 62, freqEnd: 44, duration: 0.12, gain: 0.038, gainEnd: 0.0002, type: "sine", attack: 0.004, channel: "sfx" });
+      // Second thump (70ms later)
+      setTimeout(() => {
+        if (this.state.sfxEnabled === false || !this.audio.ctx) return;
+        this.audio.playTone({ freq: 54, freqEnd: 40, duration: 0.10, gain: 0.028, gainEnd: 0.0002, type: "sine", attack: 0.003, channel: "sfx" });
+      }, 70);
+    }
+  }
+
+  /** Cue 9: UI click — soft subtle click for primary button presses */
+  _sfxUiClick() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.uiClick++;
+    if (!this.audio.ctx) return;
+    this.audio.playTone({ freq: 620, freqEnd: 440, duration: 0.022, gain: 0.012, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
+  }
+
+  /** Cue 9b: UI shop-buy confirm — slightly richer */
+  _sfxShopBuy() {
+    if (this.state.sfxEnabled === false) return;
+    this._sfxCallCounts.uiClick++;
+    if (!this.audio.ctx) return;
+    this.audio.playTone({ freq: 880, freqEnd: 660, duration: 0.06, gain: 0.014, gainEnd: 0.0001, type: "triangle", attack: 0.003, channel: "sfx" });
+    this.audio.playTone({ freq: 1320, freqEnd: 880, duration: 0.04, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
+  }
+
+  /** Cue 10: Ambient night bed — slow evolving low pad on "music" channel.
+   *  Uses setInterval so it never clashes with the raid music timers list.
+   *  Gain kept very low (0.003) to stay under raid music layers. */
+  _startNightBed() {
+    if (this._nightBedRunning) return;
+    if (!this.state.musicEnabled) return;
+    this._nightBedRunning = true;
+    this._nightBedPhase = 0;
+    this._sfxCallCounts.nightBedStart++;
+    // Three evolving chord voicings that rotate slowly (~4s each)
+    const BED_ROOTS = [82, 92.5, 87];   // low A / B-flat / A# area
+    const BED_OFFSETS = [[0, 7, 12], [0, 5, 10], [2, 7, 14]];
+    const _playBed = () => {
+      if (!this._nightBedRunning || !this.state.musicEnabled) return;
+      if (!this.audio.ctx) return;
+      const phase = this._nightBedPhase % BED_ROOTS.length;
+      const root = BED_ROOTS[phase];
+      const offsets = BED_OFFSETS[phase];
+      const notes = offsets.map((s) => root * Math.pow(2, s / 12));
+      this.audio.playChord({ notes, duration: 4.2, gain: 0.003, gainEnd: 0.0002, type: "sine", attack: 0.35, channel: "music" });
+      this._nightBedPhase++;
+    };
+    _playBed();
+    this._nightBedTimerId = setInterval(_playBed, 3800);
+  }
+
+  _stopNightBed() {
+    if (!this._nightBedRunning) return;
+    this._nightBedRunning = false;
+    if (this._nightBedTimerId !== null) {
+      clearInterval(this._nightBedTimerId);
+      this._nightBedTimerId = null;
+    }
   }
 
   exposeAutomationHooks() {
