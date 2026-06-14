@@ -494,7 +494,7 @@ export function createSliceState(save = loadPlayCanvasSave()) {
     lastMutationEvent: null,
     nextZombieSeq: 1,
     waveSummary: null,
-    lastMessage: "Start the PlayCanvas campaign. Survive 12 waves in the new style.",
+    lastMessage: "Defend the village — survive all 12 waves.",
     stamina: 100,
     maxStamina: 100,
     waveGraceSec: 0,
@@ -609,12 +609,12 @@ export function stepSlice(state, input, dt) {
 
   if (state.playerHp <= 0) {
     state.phase = "lost";
-    state.lastMessage = "You were overrun. Restart the PlayCanvas campaign.";
+    state.lastMessage = "You were overrun. Restart the campaign to try again.";
     evaluateGoals(state);
     persistPlayCanvasSave(state);
   } else if (state.villageHp <= 0) {
     state.phase = "lost";
-    state.lastMessage = "The bell tower fell. Restart the PlayCanvas campaign.";
+    state.lastMessage = "The bell tower fell. Restart the campaign to try again.";
     evaluateGoals(state);
     persistPlayCanvasSave(state);
   } else if (state.phase === "secret_boss" && isSecretBossCleared(state)) {
