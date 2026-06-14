@@ -46,7 +46,12 @@ import {
   stepSlice,
   useOrdnance,
   useFlintAndSteel,
+  getPlayCanvasSummaryOffers,
+  getPlayCanvasGameOverOffers,
+  applyPlayCanvasRewardedOffer,
+  getGoalsSnapshot,
 } from "./sliceSimulation";
+import { showRewardedAd } from "../fps/systems/rewardedAds";
 import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
@@ -374,6 +379,7 @@ export class PlayCanvasZombieSlice {
               <span>Coins <b data-summary-coins>0</b></span>
               <span>Village <b data-summary-village>100%</b></span>
             </div>
+            <div class="pc-offer-list" data-offer-context="summary" aria-label="Bonus offers"></div>
           </div>
         </div>
         <!-- Guidance toast — auto-dismissing, replaces the old persistent guidance panel -->
@@ -427,15 +433,20 @@ export class PlayCanvasZombieSlice {
               </select>
             </label>
           </div>
+          <div class="pc-flow-goals" data-menu-section="goals" hidden>
+            <div class="pc-flow-goals-list" data-goals-list></div>
+          </div>
           <details class="pc-flow-help" data-menu-section="help">
             <summary>Controls &amp; How To Play</summary>
             <p><strong>Desktop:</strong> WASD move · Shift sprint · Ctrl crouch · Space jump (double-jump mid-air) · Left click / F fire · R reload · G grenade · T flint · E interact · V or right-click ADS · O cycle weapon · Q shop</p>
             <p><strong>Mobile:</strong> Left pad moves, right pad looks. Action pad: Run, Duck, Jump, ADS, Swap, Blast, Flint, Use, Map, Shop, Fire.</p>
           </details>
+          <div class="pc-offer-list" data-offer-context="gameover" aria-label="Ad offers"></div>
           <div class="pc-flow-actions">
             <button type="button" data-flow-action="primary">Start Campaign</button>
             <button type="button" data-flow-action="revive" hidden>Watch Ad to Revive</button>
             <button type="button" data-flow-action="stats">Stats</button>
+            <button type="button" data-flow-action="goals">Goals</button>
             <button type="button" data-flow-action="settings">Settings</button>
             <button type="button" data-flow-action="shop">Shop</button>
             <button type="button" data-flow-action="reset">Reset Run</button>
@@ -601,6 +612,7 @@ export class PlayCanvasZombieSlice {
       primary: this.root.querySelector('[data-flow-action="primary"]'),
       revive: this.root.querySelector('[data-flow-action="revive"]'),
       stats: this.root.querySelector('[data-flow-action="stats"]'),
+      goals: this.root.querySelector('[data-flow-action="goals"]'),
       settings: this.root.querySelector('[data-flow-action="settings"]'),
       shop: this.root.querySelector('[data-flow-action="shop"]'),
       reset: this.root.querySelector('[data-flow-action="reset"]'),
@@ -609,6 +621,9 @@ export class PlayCanvasZombieSlice {
       lifetimeTime: this.root.querySelector('[data-flow-field="lifetime-time"]'),
       lifetimeDamage: this.root.querySelector('[data-flow-field="lifetime-damage"]'),
     };
+    this.summaryOfferList = this.root.querySelector('[data-offer-context="summary"]');
+    this.gameOverOfferList = this.root.querySelector('[data-offer-context="gameover"]');
+    this.goalsListEl = this.root.querySelector('[data-goals-list]');
   }
 
   detectQualityProfile() {
@@ -1376,6 +1391,9 @@ export class PlayCanvasZombieSlice {
         this._triggerReviveAd();
       } else if (button.dataset.flowAction === "stats") {
         this._toggleMenuSection("lifetime");
+      } else if (button.dataset.flowAction === "goals") {
+        this._toggleMenuSection("goals");
+        this.renderGoals();
       } else if (button.dataset.flowAction === "settings") {
         this._toggleMenuSection("settings");
       } else if (button.dataset.flowAction === "shop") {
@@ -1400,6 +1418,21 @@ export class PlayCanvasZombieSlice {
         this.state.qualityPresetLabel = input.value;
       }
     });
+    // Rewarded-offer click handler (flow panel game-over offers + summary overlay offers)
+    const handleOfferClick = (event) => {
+      const btn = event.target.closest("button[data-offer-id]");
+      if (!btn || btn.disabled) return;
+      const offerId = btn.dataset.offerId;
+      const claimKey = btn.dataset.claimKey;
+      this._triggerOfferAd(offerId, claimKey, btn);
+    };
+    if (this.gameOverOfferList) {
+      this.gameOverOfferList.addEventListener("click", handleOfferClick);
+    }
+    if (this.summaryOfferList) {
+      this.summaryOfferList.addEventListener("click", handleOfferClick);
+    }
+
     this.shopItemsRoot.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-shop-type]");
       if (!button) {
@@ -2122,6 +2155,114 @@ export class PlayCanvasZombieSlice {
     }
   }
 
+  async _triggerOfferAd(offerId, claimKey, btn) {
+    if (!offerId || !claimKey) return;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Loading ad...";
+    let completed = false;
+    try {
+      const result = await showRewardedAd({ globalScope: window });
+      completed = Boolean(result?.completed);
+    } catch {
+      completed = false;
+    }
+    if (completed) {
+      const result = applyPlayCanvasRewardedOffer(this.state, offerId, claimKey);
+      if (result.applied) {
+        btn.textContent = "Claimed";
+        btn.classList.add("is-claimed");
+        this._showGoalToast(result.message);
+        this.updateHud();
+        // Re-render offers so claimed ones disappear
+        this.renderSummaryOffers();
+        this.renderGameOverOffers();
+        if (this.state.phase === "running") {
+          // Revive: hide the flow panel and resume
+          this.flowPanel.hidden = true;
+          this.canvas.requestPointerLock?.();
+        }
+      } else {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    } else {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  _buildOfferHtml(offer) {
+    return `<button class="pc-offer-btn" type="button" data-offer-id="${escapeHtml(offer.id)}" data-claim-key="${escapeHtml(offer.claimKey)}">${escapeHtml(offer.label)}</button>`;
+  }
+
+  renderSummaryOffers() {
+    if (!this.summaryOfferList) return;
+    const offers = getPlayCanvasSummaryOffers(this.state);
+    this.summaryOfferList.innerHTML = offers.map((offer) => this._buildOfferHtml(offer)).join("");
+    this.summaryOfferList.hidden = offers.length === 0;
+  }
+
+  renderGameOverOffers() {
+    if (!this.gameOverOfferList) return;
+    const phase = this.state.phase;
+    if (phase !== "lost" && phase !== "intermission") {
+      this.gameOverOfferList.innerHTML = "";
+      this.gameOverOfferList.hidden = true;
+      return;
+    }
+    const offers = phase === "lost"
+      ? getPlayCanvasGameOverOffers(this.state)
+      : getPlayCanvasSummaryOffers(this.state);
+    this.gameOverOfferList.innerHTML = offers.map((offer) => this._buildOfferHtml(offer)).join("");
+    this.gameOverOfferList.hidden = offers.length === 0;
+  }
+
+  renderGoals() {
+    if (!this.goalsListEl) return;
+    const goals = getGoalsSnapshot(this.state);
+    this.goalsListEl.innerHTML = goals.map((goal) => {
+      const prog = goal.progress;
+      const pct = prog.max > 0 ? Math.min(100, Math.round((prog.current / prog.max) * 100)) : 100;
+      const statusText = goal.completed
+        ? `Done +${goal.coinBonus} coins`
+        : `${prog.current}/${prog.max} ${prog.unit}`;
+      return `<div class="pc-goal-row ${goal.completed ? "is-done" : ""}" title="${escapeHtml(goal.description)}">
+        <span class="pc-goal-label">${escapeHtml(goal.label)}</span>
+        <span class="pc-goal-status">${escapeHtml(statusText)}</span>
+        ${goal.completed ? "" : `<div class="pc-goal-bar"><div class="pc-goal-bar-fill" style="width:${pct}%"></div></div>`}
+      </div>`;
+    }).join("");
+  }
+
+  _showGoalToast(message) {
+    // Reuse the guidance panel as a transient toast for goal/offer messages
+    if (this.guidancePanel) {
+      const stageEl = this.guidancePanel.querySelector('[data-guidance-field="stage"]');
+      const titleEl = this.guidancePanel.querySelector('[data-guidance-field="title"]');
+      const msgEl = this.guidancePanel.querySelector('[data-guidance-field="message"]');
+      if (stageEl) stageEl.textContent = "Reward";
+      if (titleEl) titleEl.textContent = "Offer Claimed";
+      if (msgEl) msgEl.textContent = message;
+      this.guidancePanel.hidden = false;
+      this._guidanceToastRemainSec = 3.0;
+    }
+  }
+
+  _checkAndAnnounceGoals(newlyCompletedIds) {
+    if (!newlyCompletedIds || newlyCompletedIds.length === 0) return;
+    const { GOAL_DEFS: goals } = { GOAL_DEFS: getGoalsSnapshot(this.state) };
+    // Just use getGoalsSnapshot to get completed labels
+    const snapshot = getGoalsSnapshot(this.state);
+    for (const id of newlyCompletedIds) {
+      const goal = snapshot.find((g) => g.id === id);
+      if (goal) {
+        this._showGoalToast(`Goal complete: ${goal.label}! +${goal.coinBonus} coins`);
+        break; // show one at a time (latest)
+      }
+    }
+  }
+
   // ── Shot-FX pool ─────────────────────────────────────────────────────────────
   // Pre-allocated entities recycled on each shot; no heap allocations after warmup.
   // Flash pool: 8 slots × 3 pieces (core sphere + 2 stretched arm boxes)
@@ -2649,8 +2790,14 @@ export class PlayCanvasZombieSlice {
       }
     }
     const wasReloading = this._wasReloading;
+    const goalCountBefore = Array.isArray(this.state.claimedGoalIds) ? this.state.claimedGoalIds.length : 0;
     stepSlice(this.state, this.input, Math.min(dt, 0.05));
     this.input.jump = false;
+    const goalCountAfter = Array.isArray(this.state.claimedGoalIds) ? this.state.claimedGoalIds.length : 0;
+    if (goalCountAfter > goalCountBefore) {
+      const newIds = this.state.claimedGoalIds.slice(goalCountBefore);
+      this._checkAndAnnounceGoals(newIds);
+    }
     // Cue 5: reload start / finish detection (pendingReload flag transition)
     if (!wasReloading && this.state.pendingReload) {
       this._sfxReloadStart();
@@ -2712,6 +2859,7 @@ export class PlayCanvasZombieSlice {
         if (this.summaryFields.kills) this.summaryFields.kills.textContent = s.kills ?? 0;
         if (this.summaryFields.coins) this.summaryFields.coins.textContent = s.coinsEarned ?? 0;
         if (this.summaryFields.village) this.summaryFields.village.textContent = `${Math.round((this.state.villageHp / Math.max(1, this.state.maxVillageHp)) * 100)}%`;
+        this.renderSummaryOffers();
       }
     }
     if (this.playerFlashOverlay) {
@@ -3597,14 +3745,15 @@ export class PlayCanvasZombieSlice {
     this.flowFields.shop.textContent = phaseCopy.shop;
     this.flowFields.reset.textContent = phaseCopy.reset;
     this.flowFields.shop.disabled = this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
+    if (this.flowFields.settings) this.flowFields.settings.hidden = !(this.state.phase === "ready");
+    // Legacy revive button is superseded by the new pc-offer-list; keep it hidden.
+    if (this.flowFields.revive) {
+      this.flowFields.revive.hidden = true;
+      this.flowFields.revive.disabled = true;
+    }
     const isReady = this.state.phase === "ready";
     if (this.flowFields.stats) this.flowFields.stats.hidden = !isReady;
-    if (this.flowFields.settings) this.flowFields.settings.hidden = !isReady;
-    if (this.flowFields.revive) {
-      const canRevive = this.state.phase === "lost" && !this.state.reviveUsed;
-      this.flowFields.revive.hidden = !canRevive;
-      this.flowFields.revive.disabled = !canRevive;
-    }
+    if (this.flowFields.goals) this.flowFields.goals.hidden = !isReady;
     if (isReady) {
       const ls = this.state.lifetimeStats ?? {};
       if (this.flowFields.lifetimeKills) this.flowFields.lifetimeKills.textContent = ls.kills ?? 0;
@@ -3623,6 +3772,7 @@ export class PlayCanvasZombieSlice {
     } else {
       this.flowPanel.querySelectorAll("[data-menu-section]").forEach((s) => { s.hidden = true; });
     }
+    this.renderGameOverOffers();
     this.flowPanel.dataset.phase = this.state.phase;
     this.flowPanel.dataset.liveZombies = String(live);
   }

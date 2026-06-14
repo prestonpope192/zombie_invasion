@@ -1466,6 +1466,7 @@ a {
 
   /* Group secondary buttons into a row */
   .pc-flow-actions button[data-flow-action="stats"],
+  .pc-flow-actions button[data-flow-action="goals"],
   .pc-flow-actions button[data-flow-action="settings"],
   .pc-flow-actions button[data-flow-action="shop"],
   .pc-flow-actions button[data-flow-action="reset"] {
@@ -2022,4 +2023,149 @@ a {
 .pc-slice-reticle::after {
   transform: scale(calc(0.6 + var(--spread-mult, 1) * 0.4));
   transition: transform 0.08s ease-out, opacity 0.08s;
+}
+
+/* ── Rewarded-ad offer buttons ──────────────────────────────────────────────── */
+.pc-offer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.pc-offer-list[hidden] {
+  display: none !important;
+}
+
+.pc-offer-btn {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid rgba(245, 197, 66, 0.55);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(245, 197, 66, 0.08);
+  color: var(--zi-coin);
+  font-family: var(--zi-font);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+  letter-spacing: 0.02em;
+}
+
+.pc-offer-btn::before {
+  content: "▶ Ad  ";
+  font-size: 0.7em;
+  opacity: 0.7;
+  letter-spacing: 0;
+}
+
+.pc-offer-btn:hover:not(:disabled) {
+  background: rgba(245, 197, 66, 0.18);
+  border-color: var(--zi-coin);
+}
+
+.pc-offer-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.pc-offer-btn.is-claimed {
+  border-color: rgba(70, 208, 127, 0.45);
+  background: rgba(70, 208, 127, 0.07);
+  color: var(--zi-hp);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.pc-offer-btn.is-claimed::before {
+  content: "✓  ";
+}
+
+/* Inside the summary overlay, offers sit below the stats row */
+.pc-summary-content .pc-offer-list {
+  margin-top: 12px;
+  padding: 0 4px;
+}
+
+/* ── Persistent Goals section ───────────────────────────────────────────────── */
+.pc-flow-goals {
+  background: rgba(13, 18, 24, 0.6);
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+}
+
+.pc-flow-goals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pc-goal-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 3px 8px;
+  padding: 6px 8px;
+  background: rgba(20, 28, 36, 0.7);
+  border: 1px solid var(--zi-border);
+  border-radius: var(--zi-radius-sm);
+  font-family: var(--zi-font);
+  font-size: 0.78rem;
+}
+
+.pc-goal-row.is-done {
+  border-color: rgba(70, 208, 127, 0.3);
+  background: rgba(70, 208, 127, 0.05);
+}
+
+.pc-goal-label {
+  color: var(--zi-text);
+  font-weight: 600;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.pc-goal-status {
+  color: var(--zi-text-dim);
+  font-size: 0.72rem;
+  text-align: right;
+  grid-column: 2;
+  grid-row: 1;
+  white-space: nowrap;
+}
+
+.pc-goal-row.is-done .pc-goal-status {
+  color: var(--zi-hp);
+  font-weight: 600;
+}
+
+.pc-goal-bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 3px;
+  background: rgba(150, 180, 160, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pc-goal-bar-fill {
+  height: 100%;
+  background: var(--zi-accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Mobile: also show Goals action button */
+@media (max-width: 767px) {
+  .pc-flow-actions button[data-flow-action="goals"] {
+    font-size: 0.78rem;
+    min-height: 34px;
+    padding: 0 10px;
+    flex: 1 1 auto;
+  }
 }

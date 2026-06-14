@@ -32,6 +32,11 @@ import {
   stepSlice,
   useOrdnance,
   useFlintAndSteel,
+  applyPlayCanvasRewardedOffer,
+  getPlayCanvasSummaryOffers,
+  getPlayCanvasGameOverOffers,
+  evaluateGoals,
+  getGoalsSnapshot,
 } from "../src/playcanvas/sliceSimulation";
 import weaponsConfig from "../src/fps/config/weapons_fps.json";
 import buildingsConfig from "../src/fps/config/buildings_fps.json";
@@ -924,6 +929,208 @@ describe("PlayCanvas campaign simulation", () => {
     expect(state.phase).toBe("won");
     expect(state.secretBossActive).toBe(false);
     expect(state.lastMessage).toContain("Secret boss defeated");
+  });
+
+  // ── Rewarded-ad offers (Deliverable A) ─────────────────────────────────────
+
+  it("DOUBLE_WAVE_COINS adds wave coins once; re-claim is blocked by claimKey", () => {
+    const state = createSliceState({ coins: 50 });
+    state.phase = "intermission";
+    state.waveSummary = { wave: 2, kills: 5, coins: 30 };
+    state.claimedOfferKeys = [];
+
+    const claimKey = "summary:2:double_wave_coins";
+    const result1 = applyPlayCanvasRewardedOffer(state, "double_wave_coins", claimKey);
+    expect(result1.applied).toBe(true);
+    expect(state.coins).toBe(80); // 50 + 30
+    expect(state.claimedOfferKeys).toContain(claimKey);
+
+    // Second attempt with same key is blocked
+    const result2 = applyPlayCanvasRewardedOffer(state, "double_wave_coins", claimKey);
+    expect(result2.applied).toBe(false);
+    expect(state.coins).toBe(80); // unchanged
+  });
+
+  it("FREE_MEDKIT heals player to full HP", () => {
+    const state = createSliceState();
+    state.phase = "intermission";
+    state.waveSummary = { wave: 3, kills: 2, coins: 10 };
+    state.playerHp = 45;
+    state.maxPlayerHp = 100;
+    state.claimedOfferKeys = [];
+
+    const claimKey = "summary:3:free_medkit";
+    const result = applyPlayCanvasRewardedOffer(state, "free_medkit", claimKey);
+    expect(result.applied).toBe(true);
+    expect(state.playerHp).toBe(100);
+    expect(state.claimedOfferKeys).toContain(claimKey);
+
+    // Re-claim blocked
+    state.playerHp = 50;
+    const result2 = applyPlayCanvasRewardedOffer(state, "free_medkit", claimKey);
+    expect(result2.applied).toBe(false);
+    expect(state.playerHp).toBe(50);
+  });
+
+  it("BONUS_GRENADES adds 3 frags to grenade inventory", () => {
+    const state = createSliceState();
+    state.phase = "intermission";
+    state.waveSummary = { wave: 1, kills: 3, coins: 15 };
+    state.claimedOfferKeys = [];
+    const before = state.grenadeInventory.frag ?? 5;
+
+    const claimKey = "summary:1:bonus_grenades";
+    const result = applyPlayCanvasRewardedOffer(state, "bonus_grenades", claimKey);
+    expect(result.applied).toBe(true);
+    expect(state.grenadeInventory.frag).toBe(before + 3);
+    expect(state.claimedOfferKeys).toContain(claimKey);
+
+    // Re-claim blocked
+    const result2 = applyPlayCanvasRewardedOffer(state, "bonus_grenades", claimKey);
+    expect(result2.applied).toBe(false);
+    expect(state.grenadeInventory.frag).toBe(before + 3);
+  });
+
+  it("REVIVE is one-per-run: succeeds once then blocks", () => {
+    const state = createSliceState();
+    state.phase = "lost";
+    state.playerHp = 0;
+    state.reviveUsed = false;
+
+    const result1 = applyPlayCanvasRewardedOffer(state, "revive", "run:revive");
+    expect(result1.applied).toBe(true);
+    expect(state.reviveUsed).toBe(true);
+    expect(state.playerHp).toBe(60);
+    expect(state.phase).toBe("running");
+
+    // Second attempt blocked
+    state.phase = "lost";
+    const result2 = applyPlayCanvasRewardedOffer(state, "revive", "run:revive");
+    expect(result2.applied).toBe(false);
+  });
+
+  it("getPlayCanvasSummaryOffers filters by claimed status and hides double-coins if waveCoins=0", () => {
+    const state = createSliceState();
+    state.phase = "intermission";
+    state.waveSummary = { wave: 4, kills: 8, coins: 0 }; // 0 coins this wave
+    state.playerHp = 80; // not full
+    state.claimedOfferKeys = [];
+
+    const offers = getPlayCanvasSummaryOffers(state);
+    // double_wave_coins hidden when waveCoins=0
+    expect(offers.find((o) => o.id === "double_wave_coins")).toBeUndefined();
+    // free_medkit and bonus_grenades present
+    expect(offers.find((o) => o.id === "free_medkit")).toBeDefined();
+    expect(offers.find((o) => o.id === "bonus_grenades")).toBeDefined();
+
+    // Claim bonus_grenades — it should disappear from offers
+    const grKey = "summary:4:bonus_grenades";
+    state.claimedOfferKeys.push(grKey);
+    const offers2 = getPlayCanvasSummaryOffers(state);
+    expect(offers2.find((o) => o.id === "bonus_grenades")).toBeUndefined();
+  });
+
+  it("getPlayCanvasGameOverOffers includes revive when not yet used, excludes when used", () => {
+    const state = createSliceState();
+    state.phase = "lost";
+    state.reviveUsed = false;
+    state.waveSummary = { wave: 2, kills: 4, coins: 25 };
+    state.claimedOfferKeys = [];
+
+    const offers = getPlayCanvasGameOverOffers(state);
+    expect(offers.find((o) => o.id === "revive")).toBeDefined();
+
+    state.reviveUsed = true;
+    const offers2 = getPlayCanvasGameOverOffers(state);
+    expect(offers2.find((o) => o.id === "revive")).toBeUndefined();
+  });
+
+  // ── Persistent Goals (Deliverable B) ───────────────────────────────────────
+
+  it("evaluateGoals completes reach_wave_5 when bestWave >= 5 and records it in claimedGoalIds", () => {
+    const state = createSliceState();
+    state.bestWave = 5;
+    state.claimedGoalIds = [];
+    state.coins = 0;
+
+    const completed = evaluateGoals(state);
+    expect(completed).toContain("reach_wave_5");
+    expect(state.claimedGoalIds).toContain("reach_wave_5");
+    // Coin bonus applied
+    expect(state.coins).toBeGreaterThan(0);
+  });
+
+  it("evaluateGoals does not re-fire a goal already in claimedGoalIds", () => {
+    const state = createSliceState();
+    state.bestWave = 5;
+    state.claimedGoalIds = ["reach_wave_5"];
+    const coinsBefore = state.coins;
+
+    const completed = evaluateGoals(state);
+    expect(completed).not.toContain("reach_wave_5");
+    expect(state.coins).toBe(coinsBefore); // no bonus re-applied
+  });
+
+  it("evaluateGoals completes kills_500 when lifetimeStats.kills >= 500", () => {
+    const state = createSliceState({ lifetimeStats: { kills: 500, damageDealt: 0, damageTaken: 0, villageDamageTaken: 0, wavesCleared: 0, playSeconds: 0 } });
+    state.claimedGoalIds = [];
+
+    const completed = evaluateGoals(state);
+    expect(completed).toContain("kills_500");
+    expect(state.claimedGoalIds).toContain("kills_500");
+  });
+
+  it("getGoalsSnapshot returns progress for all 6 goals with correct shape", () => {
+    const state = createSliceState();
+    state.bestWave = 3;
+    state.lifetimeStats = { kills: 120, damageDealt: 800, damageTaken: 50, villageDamageTaken: 10, wavesCleared: 5, playSeconds: 600 };
+    state.claimedGoalIds = ["reach_wave_5"];
+    state.rescuedVillagers = [];
+
+    const snapshot = getGoalsSnapshot(state);
+    expect(snapshot).toHaveLength(6);
+
+    const wave5Goal = snapshot.find((g) => g.id === "reach_wave_5");
+    expect(wave5Goal.completed).toBe(true);
+
+    const wave10Goal = snapshot.find((g) => g.id === "reach_wave_10");
+    expect(wave10Goal.completed).toBe(false);
+    expect(wave10Goal.progress.current).toBe(3);
+    expect(wave10Goal.progress.max).toBe(10);
+
+    const killsGoal = snapshot.find((g) => g.id === "kills_500");
+    expect(killsGoal.progress.current).toBe(120);
+  });
+
+  it("save round-trips claimedGoalIds and claimedOfferKeys; old save without fields loads cleanly", () => {
+    localStorage.clear();
+
+    // Old save without the new fields
+    localStorage.setItem(PLAYCANVAS_SAVE_KEY, JSON.stringify({
+      version: 2,
+      profileType: "playcanvas_village_v2",
+      coins: 100,
+      bestWave: 3,
+    }));
+
+    const loaded = loadPlayCanvasSave();
+    expect(loaded.claimedGoalIds).toEqual([]);
+    expect(loaded.claimedOfferKeys).toEqual([]);
+
+    // Now persist a state with populated fields
+    const state = createSliceState(loaded);
+    state.claimedGoalIds = ["reach_wave_5"];
+    state.claimedOfferKeys = ["summary:3:bonus_grenades"];
+    const persisted = persistPlayCanvasSave(state);
+    expect(persisted.claimedGoalIds).toEqual(["reach_wave_5"]);
+    expect(persisted.claimedOfferKeys).toEqual(["summary:3:bonus_grenades"]);
+
+    // Re-load and confirm round-trip
+    const reloaded = loadPlayCanvasSave();
+    expect(reloaded.claimedGoalIds).toEqual(["reach_wave_5"]);
+    expect(reloaded.claimedOfferKeys).toEqual(["summary:3:bonus_grenades"]);
+
+    localStorage.clear();
   });
 });
 

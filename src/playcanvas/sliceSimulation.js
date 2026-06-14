@@ -20,6 +20,10 @@ import {
   normalizeGrenadeInventory,
 } from "../fps/systems/grenadeLoadout";
 import {
+  REWARDED_OFFER_IDS,
+  getSummaryOfferClaimKey,
+} from "../fps/systems/rewardedAdOffers";
+import {
   VILLAGER_PERK_DEFS,
   computeDiscountedCost,
   computeEscortDamage,
@@ -152,6 +156,253 @@ const BREAKABLE_WINDOW_DEFS = createBreakableWindowDefs();
 const STRUCTURE_IMPACT_DEFS = createStructureImpactDefs();
 const LANDSCAPE_DEFS = createTransformableLandscapeDefs();
 
+// ── Persistent Goals (Deliverable B) ─────────────────────────────────────
+export const GOAL_DEFS = [
+  {
+    id: "reach_wave_5",
+    label: "Wave Survivor",
+    description: "Reach Wave 5",
+    evaluate: (stats, bestWave) => bestWave >= 5,
+    progress: (stats, bestWave) => ({ current: Math.min(bestWave, 5), max: 5, unit: "wave" }),
+    coinBonus: 50,
+  },
+  {
+    id: "reach_wave_10",
+    label: "Veteran Defender",
+    description: "Reach Wave 10",
+    evaluate: (stats, bestWave) => bestWave >= 10,
+    progress: (stats, bestWave) => ({ current: Math.min(bestWave, 10), max: 10, unit: "wave" }),
+    coinBonus: 100,
+  },
+  {
+    id: "kills_500",
+    label: "Exterminator",
+    description: "500 lifetime kills",
+    evaluate: (stats) => (stats.kills ?? 0) >= 500,
+    progress: (stats) => ({ current: Math.min(stats.kills ?? 0, 500), max: 500, unit: "kills" }),
+    coinBonus: 75,
+  },
+  {
+    id: "waves_cleared_10",
+    label: "Iron Endurance",
+    description: "Clear 10 waves total (across runs)",
+    evaluate: (stats) => (stats.wavesCleared ?? 0) >= 10,
+    progress: (stats) => ({ current: Math.min(stats.wavesCleared ?? 0, 10), max: 10, unit: "waves" }),
+    coinBonus: 60,
+  },
+  {
+    id: "survive_20min",
+    label: "Night Shift",
+    description: "Survive 20 minutes total",
+    evaluate: (stats) => (stats.playSeconds ?? 0) >= 1200,
+    progress: (stats) => ({ current: Math.min(Math.floor((stats.playSeconds ?? 0) / 60), 20), max: 20, unit: "min" }),
+    coinBonus: 80,
+  },
+  {
+    id: "rescue_6_villagers",
+    label: "Guardian of the Village",
+    description: "Rescue 6 villagers (across runs)",
+    evaluate: (stats, bestWave, rescuedVillagersCount) => rescuedVillagersCount >= 6,
+    progress: (stats, bestWave, rescuedVillagersCount) => ({ current: Math.min(rescuedVillagersCount, 6), max: 6, unit: "villagers" }),
+    coinBonus: 120,
+  },
+];
+
+/**
+ * Evaluate all goals against current state. Returns array of newly completed goal ids.
+ * Mutates state.claimedGoalIds and state.coins for bonus.
+ */
+export function evaluateGoals(state) {
+  if (!Array.isArray(state.claimedGoalIds)) {
+    state.claimedGoalIds = [];
+  }
+  const newlyCompleted = [];
+  const rescuedCount = Array.isArray(state.rescuedVillagers) ? state.rescuedVillagers.length : 0;
+  for (const goal of GOAL_DEFS) {
+    if (state.claimedGoalIds.includes(goal.id)) {
+      continue;
+    }
+    if (goal.evaluate(state.lifetimeStats ?? {}, state.bestWave ?? 1, rescuedCount)) {
+      state.claimedGoalIds.push(goal.id);
+      if (goal.coinBonus > 0) {
+        state.coins = Math.max(0, (state.coins ?? 0) + goal.coinBonus);
+      }
+      newlyCompleted.push(goal.id);
+    }
+  }
+  return newlyCompleted;
+}
+
+/**
+ * Returns a display snapshot of all goals (for UI rendering).
+ * No mutation.
+ */
+export function getGoalsSnapshot(state) {
+  const claimedIds = Array.isArray(state.claimedGoalIds) ? state.claimedGoalIds : [];
+  const rescuedCount = Array.isArray(state.rescuedVillagers) ? state.rescuedVillagers.length : 0;
+  return GOAL_DEFS.map((goal) => {
+    const completed = claimedIds.includes(goal.id);
+    const prog = goal.progress(state.lifetimeStats ?? {}, state.bestWave ?? 1, rescuedCount);
+    return {
+      id: goal.id,
+      label: goal.label,
+      description: goal.description,
+      completed,
+      coinBonus: goal.coinBonus,
+      progress: prog,
+    };
+  });
+}
+
+// ── Rewarded-offer pure helpers (PlayCanvas-native, Deliverable A) ─────────
+
+// Per-state claim helpers (work directly with state.claimedOfferKeys)
+function _isOfferClaimed(state, claimKey) {
+  return Array.isArray(state.claimedOfferKeys) && state.claimedOfferKeys.includes(claimKey);
+}
+
+function _markOfferClaimed(state, claimKey) {
+  if (!Array.isArray(state.claimedOfferKeys)) {
+    state.claimedOfferKeys = [];
+  }
+  if (!state.claimedOfferKeys.includes(claimKey)) {
+    state.claimedOfferKeys.push(claimKey);
+  }
+}
+
+/** Build the list of offers to show on the wave-clear summary overlay. */
+export function getPlayCanvasSummaryOffers(state) {
+  const wave = Math.max(1, Number.parseInt(state.waveSummary?.wave, 10) || 1);
+  const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coins, 10) || 0);
+  const hp = Math.max(0, Math.min(100, Number(state.playerHp ?? 100)));
+  const offers = [];
+
+  if (waveCoins > 0) {
+    const claimKey = getSummaryOfferClaimKey({ offerId: REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS, wave });
+    if (!_isOfferClaimed(state, claimKey)) {
+      offers.push({
+        id: REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS,
+        claimKey,
+        label: `+${waveCoins} Bonus Coins`,
+        description: `Watch an ad to add ${waveCoins} bonus coins from this wave.`,
+        claimed: false,
+      });
+    }
+  }
+
+  if (hp < 100) {
+    const claimKey = getSummaryOfferClaimKey({ offerId: REWARDED_OFFER_IDS.FREE_MEDKIT, wave });
+    if (!_isOfferClaimed(state, claimKey)) {
+      offers.push({
+        id: REWARDED_OFFER_IDS.FREE_MEDKIT,
+        claimKey,
+        label: "Free Med Kit",
+        description: `Watch an ad to heal from ${Math.round(hp)}/100 HP to full.`,
+        claimed: false,
+      });
+    }
+  }
+
+  const grenadeClaimKey = getSummaryOfferClaimKey({ offerId: REWARDED_OFFER_IDS.BONUS_GRENADES, wave });
+  if (!_isOfferClaimed(state, grenadeClaimKey)) {
+    offers.push({
+      id: REWARDED_OFFER_IDS.BONUS_GRENADES,
+      claimKey: grenadeClaimKey,
+      label: "+3 Frag Grenades",
+      description: "Watch an ad to add 3 bonus grenades for the next wave.",
+      claimed: false,
+    });
+  }
+
+  return offers;
+}
+
+/** Build the list of offers to show on the game-over panel. */
+export function getPlayCanvasGameOverOffers(state) {
+  const offers = [];
+  if (!state.reviveUsed) {
+    offers.push({
+      id: REWARDED_OFFER_IDS.REVIVE,
+      claimKey: "run:revive",
+      label: "Revive Once",
+      description: "Watch an ad to revive with 60 HP.",
+      claimed: Boolean(state.reviveUsed),
+    });
+  }
+  const wave = Math.max(1, Number.parseInt(state.waveSummary?.wave, 10) || (state.waveNumber ?? 1));
+  const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coins, 10) || 0);
+  if (waveCoins > 0) {
+    const claimKey = getSummaryOfferClaimKey({ offerId: REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS, wave });
+    if (!_isOfferClaimed(state, claimKey)) {
+      offers.push({
+        id: REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS,
+        claimKey,
+        label: `+${waveCoins} Wave Coins`,
+        description: `Watch an ad to salvage ${waveCoins} bonus coins from the last wave.`,
+        claimed: false,
+      });
+    }
+  }
+  const grenadeClaimKey = getSummaryOfferClaimKey({ offerId: REWARDED_OFFER_IDS.BONUS_GRENADES, wave });
+  if (!_isOfferClaimed(state, grenadeClaimKey)) {
+    offers.push({
+      id: REWARDED_OFFER_IDS.BONUS_GRENADES,
+      claimKey: grenadeClaimKey,
+      label: "+3 Frag Grenades",
+      description: "Watch an ad to start next run with bonus grenades.",
+      claimed: false,
+    });
+  }
+  return offers;
+}
+
+/**
+ * Apply a rewarded offer effect to PlayCanvas state (native — does NOT touch legacy game shape).
+ * Returns { applied, message, reward? }.
+ */
+export function applyPlayCanvasRewardedOffer(state, offerId, claimKey) {
+  if (!state || !offerId) return { applied: false, message: "Invalid offer." };
+
+  if (offerId === REWARDED_OFFER_IDS.REVIVE) {
+    if (state.reviveUsed) return { applied: false, message: "Revive already used." };
+    if (state.phase !== "lost") return { applied: false, message: "Not in lost state." };
+    state.reviveUsed = true;
+    state.playerHp = Math.min(state.maxPlayerHp ?? 100, 60);
+    state.invulnerableSec = 3;
+    state.phase = "running";
+    state.lastMessage = "Revived! Get back in there!";
+    return { applied: true, message: "Revived with 60 HP.", reward: { hp: 60 } };
+  }
+
+  if (offerId === REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS) {
+    if (_isOfferClaimed(state, claimKey)) return { applied: false, message: "Already claimed." };
+    const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coins, 10) || 0);
+    if (waveCoins <= 0) return { applied: false, message: "No wave coins to double." };
+    state.coins = Math.max(0, (state.coins ?? 0) + waveCoins);
+    _markOfferClaimed(state, claimKey);
+    persistPlayCanvasSave(state);
+    return { applied: true, message: `+${waveCoins} bonus coins added.`, reward: { coins: waveCoins } };
+  }
+
+  if (offerId === REWARDED_OFFER_IDS.FREE_MEDKIT) {
+    if (_isOfferClaimed(state, claimKey)) return { applied: false, message: "Already claimed." };
+    state.playerHp = state.maxPlayerHp ?? 100;
+    _markOfferClaimed(state, claimKey);
+    return { applied: true, message: "Healed to full HP.", reward: { hp: state.playerHp } };
+  }
+
+  if (offerId === REWARDED_OFFER_IDS.BONUS_GRENADES) {
+    if (_isOfferClaimed(state, claimKey)) return { applied: false, message: "Already claimed." };
+    state.grenadeInventory = state.grenadeInventory ?? {};
+    state.grenadeInventory[DEFAULT_GRENADE_TYPE_ID] = Math.max(0, (state.grenadeInventory[DEFAULT_GRENADE_TYPE_ID] ?? 0) + 3);
+    _markOfferClaimed(state, claimKey);
+    persistPlayCanvasSave(state);
+    return { applied: true, message: "+3 frag grenades added.", reward: { grenades: 3 } };
+  }
+
+  return { applied: false, message: "Unknown offer." };
+}
+
 export function createSliceState(save = loadPlayCanvasSave()) {
   const rawSave = save;
   const safeSave = sanitizePlayCanvasSave(save);
@@ -177,6 +428,8 @@ export function createSliceState(save = loadPlayCanvasSave()) {
   const nukeCount = Math.max(0, Math.round(Number(safeSave?.nukeCount ?? safeSave?.nukes ?? 0)));
   const activeOrdnanceId = normalizeActiveOrdnance(safeSave?.activeOrdnanceId ?? safeSave?.activeGrenadeId, grenadeInventory, c4Count, nukeCount);
   const lifetimeStats = normalizeLifetimeStats(safeSave?.lifetimeStats);
+  const claimedGoalIds = normalizeClaimedGoalIds(safeSave?.claimedGoalIds);
+  const claimedOfferKeys = normalizeClaimedOfferKeys(safeSave?.claimedOfferKeys);
 
   return {
     version: PLAYCANVAS_SAVE_VERSION,
@@ -246,6 +499,8 @@ export function createSliceState(save = loadPlayCanvasSave()) {
     maxStamina: 100,
     waveGraceSec: 0,
     reviveUsed: false,
+    claimedOfferKeys,
+    claimedGoalIds,
     player: {
       x: 0,
       z: 12,
@@ -355,10 +610,12 @@ export function stepSlice(state, input, dt) {
   if (state.playerHp <= 0) {
     state.phase = "lost";
     state.lastMessage = "You were overrun. Restart the PlayCanvas campaign.";
+    evaluateGoals(state);
     persistPlayCanvasSave(state);
   } else if (state.villageHp <= 0) {
     state.phase = "lost";
     state.lastMessage = "The bell tower fell. Restart the PlayCanvas campaign.";
+    evaluateGoals(state);
     persistPlayCanvasSave(state);
   } else if (state.phase === "secret_boss" && isSecretBossCleared(state)) {
     completeSecretBoss(state);
@@ -404,6 +661,7 @@ function completeWave(state) {
     weapon: getWeaponDef(state.equippedWeaponId).label,
   };
 
+  evaluateGoals(state);
   if (state.waveNumber >= FINAL_WAVE) {
     beginSecretBossPhase(state);
   } else {
@@ -447,6 +705,7 @@ function completeSecretBoss(state) {
   state.phase = "won";
   state.lastMessage = "Secret boss defeated. The village survives the night.";
   state.lifetimeStats.wavesCleared = Math.max(state.lifetimeStats.wavesCleared, FINAL_WAVE);
+  evaluateGoals(state);
   persistPlayCanvasSave(state);
 }
 
@@ -1921,6 +2180,8 @@ export function persistPlayCanvasSave(state) {
     musicEnabled: state.musicEnabled !== false,
     sfxEnabled: state.sfxEnabled !== false,
     lifetimeStats: normalizeLifetimeStats(state.lifetimeStats),
+    claimedOfferKeys: normalizeClaimedOfferKeys(state.claimedOfferKeys),
+    claimedGoalIds: normalizeClaimedGoalIds(state.claimedGoalIds),
   };
   const safe = sanitizePlayCanvasSave(save);
   localStorage.setItem(PLAYCANVAS_SAVE_KEY, JSON.stringify(safe));
@@ -1985,6 +2246,8 @@ export function sanitizePlayCanvasSave(raw) {
     sfxEnabled: raw.sfxEnabled !== false,
     totalKills: stats.kills,
     lifetimeStats: stats,
+    claimedOfferKeys: normalizeClaimedOfferKeys(raw.claimedOfferKeys),
+    claimedGoalIds: normalizeClaimedGoalIds(raw.claimedGoalIds),
   };
 }
 
@@ -2009,6 +2272,15 @@ function normalizeLifetimeStats(raw) {
     wavesCleared: Math.max(0, Math.round(Number(stats.wavesCleared ?? 0))),
     playSeconds: Math.max(0, Number(stats.playSeconds ?? 0)),
   };
+}
+
+function normalizeClaimedOfferKeys(raw) {
+  return Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : [];
+}
+
+function normalizeClaimedGoalIds(raw) {
+  const validIds = new Set(GOAL_DEFS.map((g) => g.id));
+  return Array.isArray(raw) ? raw.filter((id) => typeof id === "string" && validIds.has(id)) : [];
 }
 
 function clampNumber(value, min, max, fallback) {
