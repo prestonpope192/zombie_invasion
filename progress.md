@@ -2433,3 +2433,15 @@ Original prompt: build this game and deploy it to a docker container and spin it
   - Kill streak — badge at >=3 kills within 3s (COMBO/HOT STREAK/SLAYER/RAMPAGE), pops in and auto-hides.
 - Validation: npx vitest run 153/153, npm run smoke:playcanvas exit 0. Live-GPU confirmed: low-HP red vignette renders cleanly without obscuring the view; settings sheet shows the Haptics toggle; hitmarker/streak/floater DOM all wired (transient, verified by element presence + worker inline capture).
 - Minor tuning notes logged by worker: kill floater ~720ms could go ~900ms for readability at high FPS; per-shot shake is subtle by design (builds on rapid fire).
+
+## 2026-06-13 — Enemy behavior variety (expansive/engaging): leaper pounce, flyer hover, boss slam
+
+- User chose "Enemy variety & threat depth." Wired the authored-but-unused movementMode/jump/hover data from enemies_fps.json through the tested sim + render + tests. Sonnet worker; orchestrator reviewed the full sim diff and verified visuals live.
+- Sim (sliceSimulation.js, deterministic — no Math.random): spawnZombie carries jumpIntervalSec/jumpSpeed/hoverHeight + telegraph/pounce/slam runtime state. stepZombies branches on movementMode after the shared bite check:
+  - leaper/pouncer: idle→telegraph(0.4s freeze)→pounce(0.45s arc at jumpSpeed toward a locked target, parabolic y peaking 1.1m)→cooldown reset.
+  - flyer/revenant: hover y = hoverHeight + sin bob, straight approach.
+  - boss (mini_boss/mega_zombie/secret_boss by type id): telegraphed charge-slam (0.7s wind-up, 1.8x charge, one-shot bonus hit capped at min(9, attackDps*0.4) on land within 2m, 3.5s cooldown, slamHitFired-gated). Aerial state resets on bite.
+- Render (main.js/zombieGlb.js): zombie.y drives entity Y on both GLB + rig paths; GLB blob shadow counter-translated to stay grounded during lift; telegraph cue = additive ground ring (amber pounce / red slam) parented to app root + 0.85 y-crouch during wind-up; GLB Jump/Jump_Idle clips for pounce/hover with Walk/Run fallback.
+- Tests: +5 in playcanvas_slice.test.js (telegraph none→pounce→none, pounce out-distances a walker + cooldown reset, flyer y≈hoverHeight, boss charge faster than walk, slam fires once per charge). 158 total pass; npm run smoke:playcanvas exit 0 (wave 1 is walker-only so unaffected).
+- Live-GPU verified: flyer floats at hover height; leaper shows amber telegraph ring + crouch then arcs airborne (y~0.76 caught mid-pounce) with shadow grounded.
+- Balance note: slam-into-bite ~18 HP on unarmored with 3.5s cooldown — a survivable skill check, not an instakill. Bosses use BOSS_TYPE_IDS by id (movementMode stays "ground").
