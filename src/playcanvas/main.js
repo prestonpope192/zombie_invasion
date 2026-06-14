@@ -3863,7 +3863,7 @@ export class PlayCanvasZombieSlice {
     this._sfxCallCounts.hitConfirm++;
     if (!this.audio.ctx) return;
     // Short high-pitched triangle blip — distinct from the flesh impact boom
-    this.audio.playTone({ freq: 1800, freqEnd: 1400, duration: 0.028, gain: 0.018, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
+    this.audio.playTone({ freq: 1850, freqEnd: 1380, duration: 0.04, gain: 0.024, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
   }
 
   /** Cue 2: Kill — satisfying pitch-drop thud */
@@ -4024,7 +4024,7 @@ export class PlayCanvasZombieSlice {
       const root = BED_ROOTS[phase];
       const offsets = BED_OFFSETS[phase];
       const notes = offsets.map((s) => root * Math.pow(2, s / 12));
-      this.audio.playChord({ notes, duration: 4.2, gain: 0.003, gainEnd: 0.0002, type: "sine", attack: 0.35, channel: "music" });
+      this.audio.playChord({ notes, duration: 4.2, gain: 0.005, gainEnd: 0.0003, type: "sine", attack: 0.35, channel: "music" });
       this._nightBedPhase++;
     };
     _playBed();
