@@ -2483,3 +2483,18 @@ Original prompt: build this game and deploy it to a docker container and spin it
 - resetAudioTracking() extended to clear _wasReloading, _heartbeatPhaseSec, and _stopNightBed().
 - Verification: Playwright script (deleted after run) drove a headless Chromium session. Results: all 14 cue methods present; sfxEnabled=false guard: hitConfirm/kill/empty/coin/reloadStart/reloadFinish all stay at 0; musicEnabled=false stops nightBed; direct calls: hitConfirm=1, kill=1, headshot=1, streak=2 (x3+x5), reloadStart=1, reloadFinish=1, empty=1, coin=1, playerDamage=1, uiClick=2 (uiClick+shopBuy); start-campaign: uiClick≥1; nightBedStart=1 on running phase; reloadStart=1 + reloadFinish=1 after draining pistol mag; heartbeat=1 at 10 HP / 2s; heartbeat=0 at 80 HP; zero console errors; ALL CHECKS PASSED.
 - npx vitest run: 158/158 pass. npm run smoke:playcanvas: exit 0.
+
+## 2026-06-13 — Audio & ambience + Progression & meta (engaging + exploratory)
+
+User asked for both remaining directions, then to keep iterating.
+
+### Audio (commits 173bd8d, b486240)
+- 10 procedural Web-Audio cues composed from audio3d.js PUBLIC primitives (playTone/playChord) as PlayCanvasZombieSlice methods — the SHARED audio3d.js was NOT modified (protects the legacy route). All gate on sfxEnabled/musicEnabled.
+- Cues + trigger sites: hit-confirm (fire hit), kill thud + sub-punch (killCount>0), headshot ding (result.headshot), kill-streak arpeggio (x3/x5/x7/x10 milestones), reload start/finish + empty-mag click (fire reason="empty", which also fixed weapon audio playing on empty), coin ching (coin reward), player-damage thud (playerHp drop), low-HP heartbeat loop (<25% HP), UI click + shop-buy, slow night ambient pad (music channel, running/intermission only).
+- Verified functionally (audio can't be screenshotted): all 14 cue methods exist + fire on events (call-count assertions), sfxEnabled=false silences SFX, musicEnabled=false stops the bed, zero console errors before/after audio unlock, 158 tests + smoke green. Orchestrator bumped hit-confirm 28→40ms and night-bed gain 0.003→0.005 (worker flagged both as likely-inaudible). NOTE: actual sound quality needs the user's ears.
+
+### Progression & meta (commit 4458eba)
+- Rewarded-ad multi-offers wired into the PlayCanvas flow (audit MISSING gap): wave-clear summary offers DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES; game-over offers REVIVE (one-per-run) + bonus coins/grenades. Reuses route-agnostic REWARDED_OFFER_IDS + claim helpers from rewardedAdOffers.js; effects applied PlayCanvas-native on this.state via new applyPlayCanvasRewardedOffer; claim keys in state.claimedOfferKeys (persisted, sanitized for old saves); amber --zi ad-offer styling above the green primary CTA. Ad shim flow (loading→grant→claimed) with cancel-safe re-enable.
+- Persistent goals/challenges: 6 GOAL_DEFS (reach wave 5/10, 500 lifetime kills, clear 10 waves, 20 min survived, rescue 6 villagers) evaluated against lifetimeStats/bestWave at wave-clear/boss/loss; completed ids in state.claimedGoalIds (persisted, sanitized); modest coin bonus; a "Goals" menu section shows progress bars + done badges; completing one fires a toast.
+- Tests: +11 (169 total) — offer apply-once/re-claim-blocked, medkit heal, grenades, revive one-per-run, offer filtering, goal completion + no-refire + thresholds, snapshot shape, AND save round-trip with old-save-without-fields sanitize. smoke exit 0.
+- Live-GPU verified: game-over shows the 3 amber offers above RETRY; menu Goals panel lists all 6 with progress, in the --zi style.
