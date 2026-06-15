@@ -1,6 +1,6 @@
 # Current State
 
-**As of 2026-06-12** | Vitest: 153 pass (36 files) | Smoke: green
+**As of 2026-06-13** | Vitest: 169 pass (36 files) | Smoke: green
 
 ---
 
@@ -23,12 +23,22 @@ system modules under `src/fps/systems/`.
 - 12-wave defense loop + secret boss phase (post-wave-12)
 - Wave spawning from `waves_fps.json` (budget, composition, boss slot, mega slot)
 - All 17 enemy types from `enemies_fps.json` spawn with correct stats; wave-scaled HP/speed
+- **Enemy behavior variety** — `movementMode` branches in `stepZombies`:
+  - Leaper / pouncer: 0.4 s amber telegraph freeze → parabolic pounce arc (peak 1.1 m,
+    0.45 s airborne at `jumpSpeed`) toward locked target, cooldown reset on land
+  - Flyer / revenant: hover at `hoverHeight` with sine bob; straight approach at full speed
+  - Boss (mini_boss / mega_zombie / secret_boss by id): 0.7 s red charge-slam telegraph,
+    1.8× speed charge, one-shot bonus hit capped at `min(9, attackDps×0.4)` on land
+    within 2 m, 3.5 s cooldown; `slamHitFired` prevents double-trigger
+  - Ground / crawler / walker / runner / zigzag: prior behavior unchanged
 - Weapons: all 14 from `weapons_fps.json`; mag reload, ADS spread, headshot (2.2× at pitch <−8°)
 - Ordnance: frag/thermo/breacher/EMP grenades, C4, nuke (all types from `economy_fps.json`)
 - Armor: cloth/kevlar/ceramic tiers; damage reduction applied per hit
 - Gear: flashlight (visual), flint & steel (fire patches with TTL, DPS, merge, cap=3)
 - Shop economy: weapon buy/equip, armor, gear, village upgrade, med kit, ordnance packs
 - Village: HP with max determined by village level and villager perk modifiers
+- Village bite: `VILLAGE_BITE_MULTIPLIER = 0.34`, cap 3.4; `PLAYER_AGGRO_RADIUS = 13`;
+  aggro-on-hit (4 s window)
 - Villager escort: enter buildings, locate villager, escort to Town Hall, perk awarded on rescue
 - Villager perks: shop discount, kill coin multiplier, damage reduction, HP bonus, grenade bonus
 - Door system: exterior/interior door interaction with range check
@@ -37,85 +47,177 @@ system modules under `src/fps/systems/`.
 - Lifetime stats: kills, damage dealt/taken, village damage, waves cleared, play seconds
 - Adaptive music: `selectMusicCue` / `computeRaidThreatScore` from `musicDirector.js`
 - First-session guidance: enemy intro messages, shop recommendations, wave threat briefs
+- **Rewarded ads — multi-offer system** (was MISSING; now implemented):
+  - Wave-clear summary: DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES (per-wave claim keys)
+  - Game-over: REVIVE (one-per-run) + DOUBLE_WAVE_COINS + BONUS_GRENADES
+  - `getPlayCanvasSummaryOffers` / `getPlayCanvasGameOverOffers` / `applyPlayCanvasRewardedOffer`
+    in `sliceSimulation.js`; claim keys in `state.claimedOfferKeys` (persisted, sanitized for
+    old saves)
+  - Ad shim flow (loading → grant → claimed) with cancel-safe re-enable; amber `--zi` styling
+- **Persistent goals / challenges** (6 GOAL_DEFS exported from `sliceSimulation.js`):
+  - Wave Survivor (bestWave ≥ 5, +50 coins), Veteran Defender (bestWave ≥ 10, +100 coins),
+    Exterminator (lifetime kills ≥ 500, +75 coins), Iron Endurance (wavesCleared ≥ 10, +60 coins),
+    Night Shift (playSeconds ≥ 1200, +80 coins), Guardian of the Village (rescued ≥ 6, +120 coins)
+  - Evaluated at wave-clear/boss-defeat/game-over; completed ids in `state.claimedGoalIds`
+    (persisted, sanitized for old saves); coin bonus applied once; toast fires on completion
+  - "Goals" menu section shows progress bars and done badges
 - Rewarded ad — revive-on-death: CrazyGames / Poki / mock; one revive per run
 - Player movement: WASD, sprint (stamina drain), crouch (0.65× spread), double-jump with float window
 - Wave grace period (5.5 s countdown overlay at wave start)
+- Pointer-lock mouse-look (fixed; drag-look fallback when lock unavailable)
 
 ### Visual Layer (main.js — PlayCanvas Application)
 
 - **GLB zombie pipeline** (`?glb=0` to opt out): Quaternius CC0 skinned model
-  (`public/models/zombie-quaternius.glb`) — Walk/Run/Crawl/Punch animations per type;
-  procedural rig fallback while container loads or if `?glb=0`
+  (`public/models/zombie-quaternius.glb`) — Walk/Run/Crawl/Jump animations per type;
+  Jump/Jump_Idle clips play during pounce and hover; procedural rig fallback while container
+  loads or if `?glb=0`
 - Procedural humanoid rig (`zombieRig.js`): articulated joint hierarchy, hunched posture,
   walk cycle, glowing eyes, 3 shirt variants, per-zombie point light
 - Movement-based zombie facing: smooth 540°/s yaw interpolation; facing matches sim targeting rule
+- **Enemy behavior rendering**: `zombie.y` drives entity Y on both GLB and rig paths; GLB
+  blob shadow counter-translated to stay grounded during lift; telegraph cues drawn as additive
+  ground rings parented to app root (amber for pounce, red for boss slam); boss/brute visual
+  heavy differentiation; night-style lighting
+- **GLB villagers**: Quaternius skinned villager model with man/woman alternation by id hash;
+  smooth facing; primitive capsule+head rig fallback
 - Night-style environment: ACES tone mapping, linear fog (start 42, end 95), moon disc + halo,
   6 cloud clusters, ground-mist billboards, 32 lane trees (pines + deciduous clusters),
   24 rocks, 20 grass tufts
+- Additive eye / muzzle glow coronas; CameraFrame bloom gated behind `?bloom=1`
 - 9 first-person weapon viewmodels: sidearm, compact, rifle, shotgun, precision, heavy,
   launcher, flamethrower, pipe — each with gloved hands/forearms and camera fill light
 - Shot FX pool: star muzzle flash (8 slots), muzzle light pulse, emissive tracers (8 slots),
   material-tinted impact bursts (3 slots × 6 particles); zero per-shot allocations after warmup
-- Villager entities: primitive capsule+head rig with health bar; GLB path supported
-  (`animateVillagerGlbEntity`, smooth facing)
 - Damage flash overlays: player (red radial), village (orange top)
-- Minimap: canvas 2D with zombie/villager/door/fire/building layers
+- Minimap: canvas 2D with zombie/villager/door/fire/building layers (top-right, 3-dot legend)
 - Shop: in-raid side panel (all item types)
-- Mobile touch controls: DPAD move pad + 11-button action pad
 
-### Verified Baseline (2026-06-12)
+### UI/UX — Design Token System and HUD
+
+- **`--zi-*` CSS design token system** (`playcanvas.css :root`): color, spacing, typography,
+  border-radius, shadow tokens used throughout
+- **HUD rebuilt into 4 edge-anchored clusters** (replaced 16-stat grid):
+  - `.zi-hud-objective` (top-left): wave chip + village integrity bar
+  - `.zi-hud-meta` (top-right): coins + kills + gear icon settings button
+  - `.zi-hud-vitals` (bottom-left): health bar, stamina bar, weapon/ammo row
+  - Phase toast: compact wave-start / intermission overlay
+  - Bars driven by ratio with color thresholds (HP bar turns red when low)
+- In-game HUD clusters suppressed behind full-cover flow modals
+- Unified modal design language across menu / shop / game-over / victory panels
+- Lifetime stats table in game-over / summary flow
+
+### Mobile Controls (Redesigned)
+
+- **Left virtual joystick** (replaces 11-button d-pad wall): touch-down sets floating base;
+  knob tracks within `pc-joystick-zone` bottom-left; analog move applied per frame
+- **Right canvas look-zone** (top parity gap — now FULL): right 55% of canvas is the look zone
+  with dead-zone 0.24, response curve exponent 1.75, gain 0.62 — matching legacy
+  `mobileFpsControls.js` right-stick parameters
+- Big FIRE button (center-right)
+- BLAST / SWAP / SHOP primary cluster + "···" More popover (Run / Duck / Jump / ADS / Flint /
+  Map / Use)
+- **Settings/pause sheet** (gear icon in HUD meta): Music / Sound FX / Haptics / Fullscreen
+  toggles + Reset Run / Clear Save / Legacy Build link; Resume button
+- Desktop hides touch controls (`display:none` on `.pc-mobile-controls` for fine-pointer/hover)
+
+### Game-Feel Juice
+
+- **Reticle hitmarkers**: hit (white ticks expand/fade), kill (larger ticks + orange/white),
+  headshot (gold variant)
+- **Kill "+coins" floater**: text rises from center, 0.72 s animation
+- **HUD stat pops**: transient class toggles on coin/kill/ammo HUD elements
+- **Trauma-based screen shake**: `_shakeTrauma` decays each frame; additive pitch/yaw offset
+  applied to camera; `prefers-reduced-motion` respected (`window.matchMedia` on init)
+- **Low-HP red vignette**: pulsing radial-gradient edge when player HP < 30%; pulse rate and
+  amplitude scale with severity; damage flash restyled to inset edge vignette
+- **Mobile haptics** (`navigator.vibrate`, guarded): patterns for fire / hit / kill / bite /
+  ordnance; Haptics toggle in settings sheet; persisted to `localStorage zi_haptics`
+- **Kill-streak badges**: badge shows at ≥ 3 kills within 3 s (COMBO / HOT STREAK / SLAYER /
+  RAMPAGE milestones); pops in, auto-hides
+
+### Audio (Procedural Web Audio via audio3d.js Primitives)
+
+All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was not modified.
+
+| Cue | Trigger |
+|---|---|
+| Hit confirm (soft sine tone, 40 ms) | `_sfxHitConfirm` — hit without kill |
+| Kill thud + sub-punch | `_sfxKill` |
+| Headshot ding (bright ping) | `_sfxHeadshot` |
+| Streak arpeggio (4-note ascending triangle, root rises per tier) | `_sfxStreak` at ×3/×5/×7/×10 |
+| Reload start (click) | `_sfxReloadStart` |
+| Reload finish (clack) | `_sfxReloadFinish` |
+| Empty mag click | `_sfxEmpty` |
+| Coin ching | `_sfxCoin` |
+| Player damage thud | `_sfxPlayerDamage` |
+| Low-HP heartbeat loop (< 25% HP) | `_sfxHeartbeatTick` |
+| UI click / shop buy | `_sfxUiClick` / `_sfxShopBuy` |
+
+Night ambient bed (`_startNightBed` / `_stopNightBed`): evolving slow pad on music channel;
+runs during `running` and `intermission` phases; gated by `musicEnabled`.
+
+### Verified Baseline (2026-06-13)
 
 | Check | Result |
 |---|---|
-| `npx vitest run` | 36 files, 153 tests, all pass |
+| `npx vitest run` | 36 files, 169 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
+| GLB villager pipeline | Confirmed in source; async fallback to primitive rig |
 | Zombie facing (movement-based) | Confirmed via real-GPU test |
 | Weapon fire FX pool | Confirmed via `?fxslow=1` harness |
+| Leaper pounce + amber ring | Confirmed via live-GPU: `zombie.y ≈ 0.76` caught mid-arc, shadow grounded |
+| Flyer hover | Confirmed via live-GPU: entity floats at `hoverHeight` |
+| Rewarded-ad multi-offers | Confirmed: 11 new tests covering offer apply-once, medkit heal, grenades, goals, save round-trip |
+| Virtual left joystick | Confirmed in source; `.pc-joystick-base` / `.pc-joystick-knob` wired |
+| Right-zone canvas look | Confirmed: dead-zone 0.24, exponent 1.75, gain 0.62 matching legacy right-stick |
+| Hitmarker / streak / floater DOM | Confirmed: element presence + worker inline capture |
+| Low-HP vignette | Confirmed: renders without obscuring view |
+| Settings sheet haptics toggle | Confirmed via live-GPU: toggle visible and functional |
 
 ---
 
 ## Parity Status — Honest Assessment
 
-A full requirement-by-requirement audit was completed on 2026-06-12 and is
-documented in [`docs/parity-audit.md`](./parity-audit.md). Summary:
+A full requirement-by-requirement audit was completed on 2026-06-12 and updated on
+2026-06-13. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
 
 | Status | Count |
 |---|---|
-| FULL | 46 |
-| PARTIAL | 8 |
-| MISSING | 2 |
+| FULL | 50 |
+| PARTIAL | 4 |
+| MISSING | 1 |
 | N/A-BY-DESIGN | 5 |
-| **Total features audited** | **61** |
+| **Total features audited** | **60** |
+
+*(One feature (zigzag-strength) was re-confirmed PARTIAL; enemy-variety and multi-offer
+features previously PARTIAL/MISSING were promoted to FULL.)*
 
 **Full parity is not yet achieved.** The PlayCanvas route is feature-rich and
-playable end-to-end, but has gaps versus the legacy Three.js FPS route.
+playable end-to-end, but has residual gaps versus the legacy Three.js FPS route.
 
-### Most Important Gap (Player Impact)
+### Remaining MISSING Feature
 
-**Mobile look — no right-stick joystick.** The legacy route uses
-`mobileFpsControls.js` with an analog right-stick zone (dead-zone, response
-curve). The PlayCanvas route uses drag-on-canvas look, which is difficult to
-operate on mobile while simultaneously using the move pad. This is the highest
-player-impact gap given the stated mobile-first goal.
+- **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
+  `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
+  loss for ad effectiveness; no player-visible impact.
 
-### Other MISSING Features
+### Remaining PARTIAL Features (ranked by player impact)
 
-- Rewarded ad multi-offers (health refill / extra grenades / village repair at
-  wave summary and game-over). Only revive-on-death is wired.
-- Rewarded ad telemetry run-state (`zombie_invasion_rewarded_ad` custom events).
+1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
+   (fire/smoke visual indicators as village HP drops) not used in PlayCanvas. Village HP
+   meter updates correctly; no visual state change.
+2. **Boot loading indicator** (item 42): Legacy shows a loading bar. PlayCanvas starts with
+   the scene already rendered; GLB loads async in background with no user-visible indicator.
+3. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
+   0.45 rather than per-type `zigzagStrength` scalar from config.
+4. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan.
 
-### Notable PARTIAL Features
-
-- Flyer / Revenant enemies do not hover (approach at ground plane)
-- Leaper / Pouncer enemies do not jump-pounce (behave as fast walkers)
-- Village damage feedback stages (`villageFeedback.js` thresholds not used)
-- Game-over scene lacks lifetime stat table and multi-offer buttons
-- No right-stick virtual joystick for mobile look
-
-See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with
-per-feature delta notes and legacy source citations.
+See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with per-feature delta
+notes and legacy source citations.
 
 ---
 
@@ -124,12 +226,13 @@ per-feature delta notes and legacy source citations.
 These items are absent from the PlayCanvas route by explicit design decision
 (documented in `CLAUDE.md`):
 
-- **Rapier3D physics** — collision and movement use pure distance checks. No
-  physics capsule, no knockback on hit.
-- **Three.js render pipeline** — no bloom, DOF, or SSAO post-processing. PlayCanvas
-  uses ACES tone mapping natively.
-- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and
-  drag replaced by hitscan with distance falloff.
+- **Rapier3D physics** — collision and movement use pure distance checks. No physics capsule,
+  no knockback on hit.
+- **Three.js render pipeline** — no bloom, DOF, or SSAO post-processing. PlayCanvas uses ACES
+  tone mapping natively. Bloom is available behind `?bloom=1` via `pc.CameraFrame` but disabled
+  by default (eye/muzzle corona spheres deliver the halo look in the normal pipeline).
+- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag replaced
+  by hitscan with distance falloff.
 
 ---
 
@@ -137,21 +240,21 @@ These items are absent from the PlayCanvas route by explicit design decision
 
 ### Proven vs aspirational
 
-The PlayCanvas route is proven playable from start (wave 1) through win (secret
-boss defeated) in automated tests and smoke runs. The `progress.md` log records
-real-GPU inspection at each major milestone.
+The PlayCanvas route is proven playable from start (wave 1) through win (secret boss defeated)
+in automated tests and smoke runs. The `progress.md` log records real-GPU inspection at each
+major milestone.
 
 ### Local vs hosted
 
-Hosted proof on Vercel is not current. `progress.md` records that a prior
-Vercel preview was blocked by Vercel Authentication in Playwright. Local `npm
-run build` and `npm run preview` work; Docker `docker compose up --build -d`
-is configured. Treat hosted status as unverified unless re-tested.
+Hosted proof on Vercel is not current. `progress.md` records that a prior Vercel preview was
+blocked by Vercel Authentication in Playwright. Local `npm run build` and `npm run preview`
+work; Docker `docker compose up --build -d` is configured. Treat hosted status as unverified
+unless re-tested.
 
 ### Save key isolation
 
-The PlayCanvas route uses `zombie_invasion_playcanvas_save_v1`; the legacy FPS
-route uses `zombie_invasion_fps_save_v1`. They do not share saves.
+The PlayCanvas route uses `zombie_invasion_playcanvas_save_v1`; the legacy FPS route uses
+`zombie_invasion_fps_save_v1`. They do not share saves.
 
 ---
 

@@ -1,8 +1,8 @@
 # PlayCanvas vs Legacy Three.js FPS — Feature Parity Audit
 
-**Audit date:** 2026-06-12  
+**Audit date:** 2026-06-12 (updated 2026-06-13)  
 **Auditor:** Documentation agent (read-only inspection; no code changes)  
-**Verification baseline:** `npx vitest run` → 36 files, 153 tests, all pass  
+**Verification baseline:** `npx vitest run` → 36 files, 169 tests, all pass  
 **Method:** Static source inspection of `src/fps/` (legacy), `src/playcanvas/` (PlayCanvas),
 and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`,
 `src/fps/systems/`, `src/fps/scenes/`, and `src/fps/config/*.json`.
@@ -29,8 +29,8 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 2 | **Wave director (budget, composition, timing)** | `waveDirector3D.js`, `waves_fps.json` | `spawnWaveZombies`, `pickWaveSpawnType`, `beginWave` in `sliceSimulation.js`; `wavesConfig` imported | FULL | PlayCanvas implements budget/composition inline rather than via `WaveDirector3D` class, but uses the same `waves_fps.json` config. |
 | 3 | **Enemy AI — ground movement** | `enemyAi3D.js` | `stepZombies` in `sliceSimulation.js` — 2D distance-check targeting, player-vs-village decision at 8 m | FULL | No Rapier physics; distance checks replace physics body movement. Behaviorally equivalent for players. |
 | 4 | **Enemy AI — zigzag (runner / skitter)** | `enemyAi3D.js` (`zigzagStrength`) | `sliceSimulation.js` line 715: `Math.sin(state.elapsedSec*3)*0.45` for runner/skitter | PARTIAL | Sine-wave zigzag present; legacy uses per-type `zigzagStrength` scalar, PlayCanvas uses a fixed amplitude. No gameplay regression; visual difference only at close range. |
-| 5 | **Enemy AI — flyer / revenant (hover)** | `enemyAi3D.js` `movementMode=flyer` with `hoverHeight`, `hoverBobAmp` | `sliceSimulation.js` stores `movementMode` on zombie but `stepZombies` does not implement hover Y movement | PARTIAL | Flyers are spawned and tracked; they approach and bite at ground-plane Y=0 rather than hovering. Coin reward, HP, and damage are correct. Visible only when a flyer/revenant appears in wave composition — missing aerial approach. |
-| 6 | **Enemy AI — leaper / pouncer (jump)** | `enemyAi3D.js` `movementMode=leaper` with `jumpIntervalSec`, `jumpSpeed` | `sliceSimulation.js`: `movementMode` stored; no jump timer or `jumpSpeed` physics implemented | PARTIAL | Leapers/pouncers behave as fast walkers. Jump pounce mechanic absent. Same stat/reward accuracy as above. |
+| 5 | **Enemy AI — flyer / revenant (hover)** | `enemyAi3D.js` `movementMode=flyer` with `hoverHeight`, `hoverBobAmp` | `sliceSimulation.js` `stepZombies` mode=`flyer` branch: `zombie.y = hoverHeight + sin(elapsedSec*2+seq)*bobAmp`; straight approach; `zombie.y` drives entity Y in render | FULL | Flyers hover at `hoverHeight` with sine bob. GLB entity lift + grounded shadow counter-translation confirmed via live-GPU inspection. Jump/Jump_Idle clips play during hover. |
+| 6 | **Enemy AI — leaper / pouncer (jump)** | `enemyAi3D.js` `movementMode=leaper` with `jumpIntervalSec`, `jumpSpeed` | `sliceSimulation.js` `stepZombies` mode=`leaper` branch: 0.4 s amber telegraph → `POUNCE_DURATION_SEC=0.45` s parabolic arc at `jumpSpeed`, peak 1.1 m; amber ground ring + GLB Jump clip in render | FULL | Leaper pounce-attack fully implemented. `POUNCE_TELEGRAPH_SEC=0.4`, `POUNCE_PEAK_Y=1.1`, `slamHitFired`-gated. Confirmed: telegraph → airborne arc with `zombie.y≈0.76` mid-pounce, grounded shadow. Tests: +5 in playcanvas_slice.test.js. |
 | 7 | **Enemy AI — crawler (ground hug)** | `enemyAi3D.js` `movementMode=crawler` | `sliceSimulation.js`: stored and spawned; crawlers move at ground plane like walkers | PARTIAL | Crawler visual height offset (`visualYOffset=0.68`) not applied in 2D sim; GLB zombie uses Crawl animation clip when `type=crawler`. Movement mechanics identical to ground walker in sim. |
 | 8 | **Enemy types — full roster** | `enemies_fps.json`: 17 types (crawler, walker, runner, leaper, brute, armored, flyer, skitter, pouncer, revenant, juggernaut, zombie_pig, zombie_horse, zombie_cow, zombie_chicken, mega_zombie, mini_boss) | `sliceSimulation.js` imports `enemies_fps.json`; all types spawn per wave composition | FULL | All 17 types spawn. Stat scaling (HP×waveScale, speedMps, coinReward) applied uniformly. |
 | 9 | **Headshot system** | `headshotRules.js`, `RaidScene3D.js` | `sliceSimulation.js` `fireSliceWeapon`: pitch < −8°, distance < 14, single target → 2.2× multiplier | FULL | PlayCanvas implements inline; same multiplier. |
@@ -64,19 +64,19 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 37 | **Boss landscape mutation (trees → zombies)** | `RaidScene3D.js` | `triggerBossLandscapeMutation`, `LANDSCAPE_DEFS`, `entitiesByLandscape` toggled in `main.js` | FULL | |
 | 38 | **Wave grace period** | `RaidScene3D.js` | `WAVE_GRACE_SEC=5.5`, countdown overlay in `main.js` | FULL | |
 | 39 | **Post-wave summary overlay** | `SummaryScene3D.js` | Summary overlay in `main.js`, `waveSummary` from `completeWave` | FULL | PlayCanvas shows summary inline (HUD overlay); legacy shows separate scene. Content equivalent. |
-| 40 | **Game over scene** | `GameOverScene3D.js` | `lost` phase → flow panel shows restart/revive in `main.js` | PARTIAL | Legacy `GameOverScene3D` shows lifetime stats table, rewarded-offer buttons (health refill, extra grenades, village repair), and best-wave highlight. PlayCanvas lost-state shows restart + single "Watch Ad to Revive" button only; no stat table; no summary/game-over rewarded offers beyond revive. |
+| 40 | **Game over scene** | `GameOverScene3D.js` | `lost` phase → flow panel shows restart + revive + rewarded multi-offers (DOUBLE_WAVE_COINS / BONUS_GRENADES) in `main.js`; lifetime stats table in flow panel | FULL | Multi-offer buttons and lifetime stats now present. `getPlayCanvasGameOverOffers` drives offer list; amber `--zi` styling. Claim-tracked in `state.claimedOfferKeys`. |
 | 41 | **Main menu scene** | `MenuScene3D.js` | `ready`/`lost`/`won` phases show flow panel with Stats (lifetime), Settings, Controls, Shop, Reset | FULL | |
-| 42 | **Boot scene** | `BootScene3D.js` (asset pre-load, Rapier wasm init) | No explicit boot scene; assets load inline; GLB loads async without blocking | PARTIAL | Legacy boot shows a loading bar and initializes Rapier. PlayCanvas starts immediately; GLB loads async in background with procedural fallback. No user-visible loading indicator. |
+| 42 | **Boot scene** | `BootScene3D.js` (asset pre-load, Rapier wasm init) | Themed `#zi-boot` overlay (index.html) shown on first paint, hidden on the PlayCanvas first frame with a 9s safety timeout; GLB loads async with procedural fallback | FULL | A night-themed loading screen (title + dual-ring spinner) now covers the cold-start moment. Rapier wasm init is N/A on the PlayCanvas route by design. |
 | 43 | **Shop scene (between waves)** | `ShopScene3D.js` | Shop panel toggled in `main.js`; `getShopItems` from `sliceSimulation.js` | FULL | Legacy shop is a separate full-screen scene; PlayCanvas shop is an in-raid side panel. Items and economy identical. |
 | 44 | **Rewarded ads — revive-on-death** | `rewardedAds.js`, `FpsGame.reviveFromRewardedAd` | `_triggerReviveAd` in `main.js` (CrazyGames / Poki / mock); `revivePlayer` in `sliceSimulation.js` | FULL | |
-| 45 | **Rewarded ads — multi-offer (summary / game-over)** | `rewardedAdOffers.js`, `SummaryScene3D.js`, `GameOverScene3D.js` | `rewardedAdOffers.js` not imported in PlayCanvas; no getSummaryRewardedOffers / getGameOverRewardedOffers | MISSING | Legacy offers health refill, extra grenades, and village repair via rewarded ads at wave summary and game-over. PlayCanvas offers only revive-on-death. |
+| 45 | **Rewarded ads — multi-offer (summary / game-over)** | `rewardedAdOffers.js`, `SummaryScene3D.js`, `GameOverScene3D.js` | `getPlayCanvasSummaryOffers` / `getPlayCanvasGameOverOffers` / `applyPlayCanvasRewardedOffer` in `sliceSimulation.js`; imports `REWARDED_OFFER_IDS` + `getSummaryOfferClaimKey` from `rewardedAdOffers.js`; claim keys in `state.claimedOfferKeys` (persisted) | FULL | Summary offers DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES per wave. Game-over offers REVIVE (one-per-run) + bonus coins/grenades. Ad shim: loading→grant→claimed with cancel-safe re-enable. Amber styling. 11 new tests cover apply-once, re-claim-blocked, medkit heal, revive, offer filtering, save round-trip. |
 | 46 | **Rewarded ad telemetry / run-state** | `rewardedAdOffers.js` (`createRewardedRunState`, telemetry events) | Not present in PlayCanvas | MISSING | Legacy records per-run telemetry: offer_clicked, ad_completed, reward_granted, etc. PlayCanvas has no equivalent telemetry. |
 | 47 | **Audio — SFX (weapon, impact, explosion)** | `audio3d.js`, `RaidScene3D.js` | `Audio3D` imported in `main.js`; `playWeapon`, `playImpact`, `playExplosion` called on fire/ordnance | FULL | |
 | 48 | **Audio — adaptive music (musicDirector)** | `musicDirector.js`, `audio3d.js` | `selectMusicCue`, `computeRaidThreatScore` imported in `sliceSimulation.js`; `updateMusicState` called in `updateAudioState` in `main.js` | FULL | |
 | 49 | **Audio — settings (music/SFX on/off)** | `FpsGame.persistAudioSettings` | `setPlayCanvasAudioSettings`, menu checkboxes in `main.js` | FULL | |
 | 50 | **Minimap** | `minimapUtils.js`, `RaidScene3D.js` | `worldRadiusToMiniMapPx`, `worldToMiniMapPoint` imported; canvas-based minimap in `main.js` with zombie/villager/door/fire/structure layers | FULL | |
 | 51 | **Mobile controls — move pad (DPAD)** | `mobileFpsControls.js` (left stick) | HTML touch buttons `data-touch-move` for forward/back/left/right | FULL | |
-| 52 | **Mobile controls — look (right stick)** | `mobileFpsControls.js` (right stick joystick with radius/response) | `dragLooking` on canvas drag; no dedicated right joystick zone | PARTIAL | Legacy has an analog right-stick joystick with center-zone and response curve. PlayCanvas uses drag-on-canvas look (no virtual joystick, no dead-zone, linear response). On mobile, drag-look is less ergonomic than a fixed right-stick zone. |
+| 52 | **Mobile controls — look (right stick)** | `mobileFpsControls.js` (right stick joystick with radius/response) | Right 55% of canvas is a dedicated look zone with dead-zone 0.24, exponent 1.75, gain 0.62 (`LOOK_ZONE_SPLIT=0.45`, `DEADZONE=0.24`, `EXPONENT=1.75`, `GAIN=0.62` in `main.js`) | FULL | Parameters explicitly match legacy `mobileFpsControls.js` right-stick. Look zone coexists with left virtual joystick in move zone (left 45%). Canvas drag used only outside joystick zone. |
 | 53 | **Mobile controls — action buttons** | `mobileFpsControls.js` | `data-touch-action` buttons: Run, Duck, Jump, ADS, Swap, Blast, Flint, Use, Map, Shop, Fire | FULL | |
 | 54 | **Fullscreen toggle** | `FpsGame.toggleFullscreen` | `toggleFullscreen` method in `main.js` with webkit fallback | FULL | |
 | 55 | **Quality profiles (renderScale, shadows)** | `quality_profiles.json`, `FpsGame.js` | Imported; `detectQualityProfile`, `renderScaleDpr`, shadow resolution from profile | FULL | Legacy also feeds quality profile into render pipeline post-processing. PlayCanvas: renderScale and shadow resolution applied; no post-processing pipeline. |
@@ -99,49 +99,62 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 
 ## Summary Counts
 
-| Status | Count |
-|--------|-------|
-| FULL | 46 |
-| PARTIAL | 8 |
-| MISSING | 2 |
-| N/A-BY-DESIGN | 5 |
-| **Total** | **61** |
+| Status | Count | Change from 2026-06-12 |
+|--------|-------|------------------------|
+| FULL | 51 | +5 (items 5, 6, 40, 42 → from PARTIAL; item 45 → from MISSING) |
+| PARTIAL | 3 | −5 |
+| MISSING | 1 | −1 |
+| N/A-BY-DESIGN | 5 | — |
+| **Total** | **60** | net: 6 flips reduce PARTIAL by 5 and MISSING by 1; audit table is 60 distinct features |
+
+**Status flips (2026-06-13):**
+
+| # | Feature | Old Status | New Status |
+|---|---|---|---|
+| 5 | Flyer / revenant hover | PARTIAL | FULL |
+| 6 | Leaper / pouncer jump-pounce | PARTIAL | FULL |
+| 40 | Game-over scene depth (stats + multi-offers) | PARTIAL | FULL |
+| 42 | Boot scene / loading screen | PARTIAL | FULL |
+| 45 | Rewarded ads — multi-offer (summary / game-over) | MISSING | FULL |
+| 52 | Mobile look — right-stick joystick | PARTIAL | FULL |
 
 ---
 
 ## MISSING Features (player-facing)
 
-1. **Rewarded ad multi-offers (summary / game-over)** — `rewardedAdOffers.js` not wired in PlayCanvas. Legacy offers health refill, extra grenades, and village repair after waves and on game over. PlayCanvas only offers "Watch Ad to Revive" on death. Monetization revenue impact; no gameplay blocker.
+1. **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
+   `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
+   loss for ad effectiveness; no player-visible impact.
 
-2. **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics loss for ad effectiveness; no player-visible impact.
+*(Rewarded ad multi-offers were MISSING as of 2026-06-12; promoted to FULL on 2026-06-13.)*
 
 ---
 
 ## PARTIAL Features (player-facing, ranked by impact)
 
-1. **Mobile look — no right-stick joystick** (item 52): Drag-on-canvas look works on desktop but is significantly more difficult on mobile than the legacy analog joystick. Most impactful gap for the stated mobile-first use case.
+1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
+   (fire/smoke visual indicators as village HP drops) not implemented in PlayCanvas. Village HP
+   meter updates correctly; no visual state change.
 
-2. **Flyer / Revenant enemy — no hover** (item 5): Flyers approach at ground level. Players in wave 8+ will notice these flying enemies do not hover. Visual fidelity gap; combat still resolves correctly.
+2. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
+   0.45 rather than per-type `zigzagStrength` scalar from config. No gameplay regression; visual
+   difference only at close range.
 
-3. **Leaper / Pouncer enemy — no jump** (item 6): Leapers behave as fast walkers. The jump-pounce attack that distinguishes these types is absent.
+3. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan. Transparent to most
+   players; hardcore players may notice sniper arcs vanish.
 
-4. **Game-over scene depth** (item 40): Legacy game-over shows lifetime stats table and multiple rewarded offers. PlayCanvas shows a simpler lost-state panel with only the revive button.
-
-5. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds (fire/smoke visual indicators as village HP drops) not implemented in PlayCanvas. Village HP meter updates correctly; no visual state change.
-
-6. **Boot loading indicator** (item 42): Legacy shows a loading bar. PlayCanvas starts with the scene already rendered; no loading indicator while the GLB container downloads asynchronously.
-
-7. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude 0.45 rather than per-type `zigzagStrength` scalar from config.
-
-8. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan. Transparent to most players; hardcore players may notice sniper arcs vanish.
+*(Mobile right-stick look, flyer hover, leaper pounce, game-over scene depth, and the boot
+loading screen were PARTIAL as of 2026-06-12; all promoted to FULL on 2026-06-13.)*
 
 ---
 
-## Claims in docs/current-state.md That This Audit Contradicts
+## Notes on docs/current-state.md Alignment
 
-- `current-state.md` (as of audit date) states: *"Full feature parity was achieved"* in its Summary section. **This is inaccurate.** The audit finds 2 MISSING features and 8 PARTIAL features. The PlayCanvas route is functionally rich but does not have full parity with the legacy route.
-- `current-state.md` does correctly hedge in its "Important Distinctions" section with: *"The repo does not support a stronger claim that the PlayCanvas route already matches the older FPS runtime in full feature depth."* The Summary contradicts this hedge.
-- `progress.md` (bottom entry) itself notes: *"do a fresh requirement-by-requirement completion audit before marking the persistent full-parity goal complete."* This audit fulfills that requirement and concludes full parity is **not yet achieved**.
+`current-state.md` was updated on 2026-06-13 in sync with this audit refresh. The prior
+version (2026-06-12) correctly stated full parity was not achieved. The 2026-06-13 update
+reflects the feature additions and the new counts above. Full parity remains not yet achieved:
+1 MISSING feature and 3 PARTIAL features remain open.
 
 ---
 

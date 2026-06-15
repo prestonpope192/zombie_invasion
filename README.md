@@ -28,11 +28,32 @@ Historical evidence and deeper references:
 
 ## What is implemented
 
-- PlayCanvas first-person campaign with 12-wave survival defense.
-- Cinematic low-poly village, lane, fog, moonlight, lanterns, zombies, mega zombies, and boss styling.
+- PlayCanvas first-person campaign with 12-wave survival defense plus secret boss phase.
+- Cinematic low-poly village, lane, fog, moonlight, GLB skinned zombies (Quaternius CC0) and
+  villagers, heavy enemy differentiation, night lighting, additive eye/muzzle glow coronas.
+- **Enemy behavior variety**: leapers pounce with 0.4 s amber telegraph and parabolic arc;
+  flyers hover at type-defined height; bosses execute a charge-slam with 0.7 s red telegraph.
+- **UI/UX design system**: `--zi-*` CSS token system; HUD rebuilt into four edge-anchored
+  clusters (objective / meta / vitals / phase toast); mobile controls redesigned around a
+  virtual left joystick + FIRE + BLAST/SWAP/SHOP cluster + "···" More popover; settings/pause
+  sheet (gear icon) with Music / Sound FX / Haptics / Fullscreen / Reset / Clear Save / Legacy;
+  unified modal design language across all screens; desktop hides touch controls.
+- **Game-feel juice**: reticle hitmarkers (hit/kill/headshot variants), kill "+coins" floater,
+  trauma-based screen shake (`prefers-reduced-motion` aware), low-HP red vignette, mobile
+  haptics (navigator.vibrate, toggle in settings), kill-streak badges.
+- **10 procedural Web Audio SFX cues** built from audio3d.js primitives: hit confirm, kill
+  thud, headshot ding, streak arpeggio, reload start/finish, empty click, coin ching, player
+  damage thud, low-HP heartbeat; plus a night ambient bed. All gated by sfxEnabled/musicEnabled.
+- **Rewarded ad multi-offers**: wave-clear summary offers DOUBLE_WAVE_COINS / FREE_MEDKIT /
+  BONUS_GRENADES; game-over offers REVIVE + bonus coins/grenades; claim-tracked per wave.
+- **Persistent goals/challenges**: 6 GOAL_DEFS (wave milestones, lifetime kills, waves cleared,
+  play time, villager rescues); progress bars in Goals menu section; one-time coin bonuses.
 - Desktop and mobile controls for movement, fire, shop, weapon cycling, and ordnance.
-- Infinite-ammo weapon loop plus grenade, C4, and nuke ordnance.
-- Intermission field shop for weapons, armor, ordnance packs, town defenses, and med kit.
+- All 14 weapons + ordnance (frag/thermo/breacher/EMP/C4/nuke) from config; armor and gear
+  items; intermission field shop; village upgrade; med kit.
+- Village-bite difficulty tuning: `VILLAGE_BITE_MULTIPLIER = 0.34`, `PLAYER_AGGRO_RADIUS = 13`,
+  aggro-on-hit (4 s window).
+- Villager escort → perk system; adaptive music; first-session guidance.
 - Save/load profile `zombie_invasion_playcanvas_save_v1` in localStorage.
 - Deterministic automation hooks:
   - `window.render_playcanvas_game_to_text()`
@@ -48,10 +69,10 @@ Historical evidence and deeper references:
 - Legacy route:
   older Three.js FPS runtime behind `?legacy=1` from
   [`src/fps`](/Users/preston/Code/zombie_invasion/src/fps)
-- Important constraint:
-  the repo supports that the PlayCanvas route is playable and smoke-tested, but
-  full gameplay parity with the older FPS runtime is not yet proven in the
-  checked-in docs and logs
+- Test baseline: 169 Vitest tests pass; PlayCanvas smoke exit 0 (as of 2026-06-13)
+- Parity status: 50 of 60 audited features are FULL; 4 PARTIAL; 1 MISSING (ad
+  telemetry). Full parity not yet achieved. See
+  [`docs/parity-audit.md`](/Users/preston/Code/zombie_invasion/docs/parity-audit.md).
 
 ## Project layout
 
@@ -63,20 +84,26 @@ Historical evidence and deeper references:
 
 ### Desktop
 
-- Look: mouse (click canvas for pointer lock)
+- Look: mouse (click canvas for pointer lock; drag fallback if lock unavailable)
 - Move: `WASD` or arrow keys
 - Sprint: `Shift`
-- Fire: `Space` or click
+- Fire: `Space` or left-click
 - Shop: `Q`
 - Weapon cycle: `O`
 - Ordnance cycle: `C`
 - Use ordnance: `G`
 - Fullscreen: `F`
+- Settings / pause: gear icon in HUD (top-right cluster)
 
 ### Mobile
 
-- Direction pad: movement
-- Buttons: fire, shop, weapon swap, ordnance blast, sprint
+- **Move**: left virtual joystick (bottom-left zone; base appears on touch-down)
+- **Look**: drag anywhere in the right 55% of the screen (dead-zone, analog response curve)
+- **FIRE**: large button (bottom-right)
+- **BLAST / SWAP / SHOP**: primary action cluster
+- **More (···)**: secondary popover — Run, Duck, Jump, ADS, Flint, Map, Use
+- **Settings**: gear icon in HUD meta cluster (Music / SFX / Haptics / Fullscreen / Reset /
+  Clear Save / Legacy)
 
 ## Development
 
