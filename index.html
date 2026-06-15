@@ -3172,9 +3172,103 @@
           padding: 7px 10px;
         }
       }
+
+      /* ── Boot / loading overlay ──────────────────────────────────────────── */
+      #zi-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background:
+          radial-gradient(circle at 18% 14%, #27343c 0%, rgba(39, 52, 60, 0.18) 26%, transparent 56%),
+          radial-gradient(circle at 82% 78%, #2e201a 0%, rgba(46, 32, 26, 0.14) 22%, transparent 55%),
+          linear-gradient(165deg, #05090d 0%, #0a1217 48%, #071014 100%);
+        transition: opacity 400ms ease;
+        opacity: 1;
+        /* Always pointer-events:none — the overlay is purely cosmetic; clicks pass through to the game */
+        pointer-events: none;
+        user-select: none;
+      }
+
+      #zi-boot.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #zi-boot.is-gone {
+        display: none;
+      }
+
+      .zi-boot-title {
+        font-family: var(--font-heading);
+        font-size: clamp(2rem, 8vw, 3.6rem);
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #9bd64a;
+        text-shadow:
+          0 0 28px rgba(155, 214, 74, 0.38),
+          0 4px 16px rgba(0, 0, 0, 0.7);
+        margin: 0;
+        line-height: 1;
+      }
+
+      .zi-boot-subtitle {
+        font-family: var(--font-body);
+        font-size: clamp(0.75rem, 2.4vw, 0.95rem);
+        font-weight: 600;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(241, 249, 240, 0.48);
+        margin: -8px 0 0;
+      }
+
+      .zi-boot-spinner {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        margin-top: 8px;
+      }
+
+      .zi-boot-spinner::before,
+      .zi-boot-spinner::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+      }
+
+      /* Outer ring — amber accent, slow spin */
+      .zi-boot-spinner::before {
+        border: 2px solid rgba(240, 168, 56, 0.18);
+        border-top-color: #f0a838;
+        animation: zi-spin 1.4s linear infinite;
+      }
+
+      /* Inner ring — lime accent, counter-spin */
+      .zi-boot-spinner::after {
+        inset: 8px;
+        border: 2px solid rgba(155, 214, 74, 0.14);
+        border-bottom-color: #9bd64a;
+        animation: zi-spin 0.9s linear infinite reverse;
+      }
+
+      @keyframes zi-spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body>
+    <!-- Boot overlay — shown immediately on first paint, before module JS loads -->
+    <div id="zi-boot" aria-label="Loading Zombie Invasion" role="status">
+      <h1 class="zi-boot-title">Zombie Invasion</h1>
+      <p class="zi-boot-subtitle">Hold the village through the night</p>
+      <div class="zi-boot-spinner" aria-hidden="true"></div>
+    </div>
     <div id="app"></div>
     <div id="rotate-prompt">Rotate your phone to landscape to play Zombie Invasion.</div>
     <script type="module" src="/src/main.js"></script>

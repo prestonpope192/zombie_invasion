@@ -667,7 +667,19 @@ export class PlayCanvasZombieSlice {
     this.app.scene.fog.start = 42;
     this.app.scene.fog.end = 95;
     this.app.start();
-    this.app.on("update", (dt) => this.update(dt));
+    // Hide the boot overlay on the first rendered frame — the canvas is live at this point.
+    // GLB models may still be streaming (they use procedural fallback until ready), but the
+    // scene is interactive and the menu panel is visible, so the overlay is no longer needed.
+    let _bootHidden = false;
+    this.app.on("update", (dt) => {
+      if (!_bootHidden) {
+        _bootHidden = true;
+        if (typeof window.__ziBootHide === "function") {
+          window.__ziBootHide();
+        }
+      }
+      this.update(dt);
+    });
     window.addEventListener("resize", () => this.app.resizeCanvas());
   }
 
@@ -1520,6 +1532,13 @@ export class PlayCanvasZombieSlice {
       if (this.state.phase === "ready") {
         this.startOrContinueCampaign();
       }
+      // Only grab the pointer / fire while we're in active combat. During
+      // intermission (and other menu phases) the flow panel + shop are up, so a
+      // background click must not re-lock the pointer or fire — that would hide
+      // the cursor and re-engage mouse-look behind the modal.
+      if (!isActivePlayPhase(this.state.phase)) {
+        return;
+      }
       this.requestPointerLock();
       this.fire();
     });
@@ -1541,6 +1560,12 @@ export class PlayCanvasZombieSlice {
   }
 
   applyLookDelta(dx, dy) {
+    // Single chokepoint for every look source (pointer-lock, mouse drag, touch).
+    // Suppress look entirely outside active combat so the camera can't be moved
+    // while the intermission / menu panels are up.
+    if (!isActivePlayPhase(this.state.phase)) {
+      return;
+    }
     this.yaw -= dx * 0.0022;
     this.pitch = clamp(this.pitch - dy * 0.11, -34, 24);
     this.state.player.yaw = this.yaw;
@@ -2793,6 +2818,15 @@ export class PlayCanvasZombieSlice {
     const goalCountBefore = Array.isArray(this.state.claimedGoalIds) ? this.state.claimedGoalIds.length : 0;
     stepSlice(this.state, this.input, Math.min(dt, 0.05));
     this.input.jump = false;
+    // When combat ends (e.g. a wave clears into intermission), release the
+    // pointer lock so the cursor reappears for the regroup panel / shop instead
+    // of staying captured for mouse-look behind the modal.
+    if (this._lastPlayPhase !== this.state.phase) {
+      this._lastPlayPhase = this.state.phase;
+      if (!isActivePlayPhase(this.state.phase) && document.pointerLockElement === this.canvas) {
+        document.exitPointerLock?.();
+      }
+    }
     const goalCountAfter = Array.isArray(this.state.claimedGoalIds) ? this.state.claimedGoalIds.length : 0;
     if (goalCountAfter > goalCountBefore) {
       const newIds = this.state.claimedGoalIds.slice(goalCountBefore);
@@ -3687,6 +3721,8 @@ export class PlayCanvasZombieSlice {
     // to suppress the in-game HUD clusters. Keep HUD visible during intermission.
     const isFullCover = visible && this.state.phase !== "intermission";
     this.root.classList.toggle("is-menu", isFullCover);
+    // Blur the 3D scene behind the intermission panel (HUD clusters stay sharp).
+    this.root.classList.toggle("is-intermission", visible && this.state.phase === "intermission");
     if (!visible) {
       return;
     }
