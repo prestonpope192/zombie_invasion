@@ -6,6 +6,11 @@ import {
   createVillagerGlbEntity,
   animateVillagerGlbEntity,
 } from "./villagerGlb";
+import {
+  loadAnimalGlbContainers,
+  createAnimalGlbEntity,
+  animateAnimalGlbEntity,
+} from "./animalGlb";
 import buildingsConfig from "../fps/config/buildings_fps.json";
 import qualityProfiles from "../fps/config/quality_profiles.json";
 import { Audio3D } from "../fps/systems/audio3d";
@@ -209,6 +214,12 @@ export class PlayCanvasZombieSlice {
     /** @type {{man: pc.Asset|null, woman: pc.Asset|null}|null} */
     this.villagerGlbContainers = null;
 
+    // Animal GLB containers — loaded once; each animal type independently null-able.
+    // createAnimalGlbEntity returns null if a specific animal isn't loaded;
+    // createZombieEntity falls back to zombie GLB / procedural rig gracefully.
+    /** @type {{cow: pc.Asset|null, pig: pc.Asset|null, horse: pc.Asset|null, chicken: pc.Asset|null}|null} */
+    this.animalGlbContainers = null;
+
     // ── Juice layer state ────────────────────────────────────────────────────
     // Screen shake — trauma^2 model, decays each frame
     this._shakeTrauma = 0;
@@ -284,6 +295,18 @@ export class PlayCanvasZombieSlice {
           console.log("[PlayCanvas] Villager GLB containers ready (man:", !!containers.man, "woman:", !!containers.woman, ").");
         } else {
           console.warn("[PlayCanvas] Villager GLB load failed — using primitive villager fallback.");
+        }
+      });
+
+      // Animal GLB load — falls back per-type if a model is missing
+      loadAnimalGlbContainers(this.app).then((containers) => {
+        const anyLoaded = Object.values(containers).some(Boolean);
+        if (anyLoaded) {
+          this.animalGlbContainers = containers;
+          const loaded = Object.entries(containers).filter(([, v]) => v).map(([k]) => k);
+          console.log("[PlayCanvas] Animal GLB containers ready:", loaded.join(", "));
+        } else {
+          console.warn("[PlayCanvas] All animal GLB loads failed — using zombie GLB fallback for animals.");
         }
       });
     }
@@ -1361,8 +1384,27 @@ export class PlayCanvasZombieSlice {
 
   createZombieEntity(zombie) {
     let root;
+
+    // Animal-type zombie: use dedicated animal GLB if the container is ready.
+    // Falls through to zombie GLB / procedural rig on any failure or missing model.
+    const ANIMAL_TYPES = new Set(["zombie_cow", "zombie_pig", "zombie_horse", "zombie_chicken"]);
+    if (ANIMAL_TYPES.has(zombie.type) && this.useGlbZombies && this.animalGlbContainers) {
+      try {
+        const animalRoot = createAnimalGlbEntity(this.app, zombie, this.animalGlbContainers);
+        if (animalRoot) {
+          // Animal GLB root uses the same _glb interface as zombieGlb.js.
+          // No bloom corona spheres on animals (they have smaller eye structures).
+          this.entitiesByZombie.set(zombie.id, animalRoot);
+          return animalRoot;
+        }
+        // null → fall through to zombie GLB / procedural
+      } catch (ex) {
+        console.warn("[PlayCanvas] createAnimalGlbEntity failed, using fallback:", ex);
+      }
+    }
+
     if (this.useGlbZombies && this.glbContainer) {
-      // GLB path — skinned Quaternius model
+      // GLB path — skinned Quaternius humanoid model
       root = createZombieGlbEntity(this.app, zombie, this.glbContainer);
       // Attach bloom corona spheres alongside the GLB eye entities.
       // zombieGlb.js cannot be modified (in-flight), so we add them here.
@@ -3078,23 +3120,31 @@ export class PlayCanvasZombieSlice {
               }
             }
           }
-          // Always drive death animation (animateZombieGlbEntity handles hit-flash
-          // guard and clears red tint on first dead frame).
-          animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
-          // Bloom coronas off while dead
+          // Always drive death animation.
+          // Animals use animateAnimalGlbEntity; humanoid GLB uses animateZombieGlbEntity.
+          if (entity._glb?.isAnimal) {
+            animateAnimalGlbEntity(entity, zombie, this.state.elapsedSec);
+          } else {
+            animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+          }
+          // Bloom coronas off while dead (animals have no bloom coronas)
           if (entity._bloomCoronaL) entity._bloomCoronaL.enabled = false;
           if (entity._bloomCoronaR) entity._bloomCoronaR.enabled = false;
         } else {
           // ── Living zombie ────────────────────────────────────────────────────
           entity._deathFadeSec = undefined; // reset in case entity is reused
-          // Quaternius model's face is on its +Z side, opposite the -Z forward
-          // convention, hence the 180° offset.
+          // All Quaternius animal models (and humanoid) face +Z at rest (opposite the -Z
+          // forward convention), hence the 180° yaw offset applies to animals too.
           const telegraphing = (zombie.telegraphSec ?? 0) > 0;
           // Wind-up crouch: squash Y slightly during telegraph
           const yScale = telegraphing ? 0.85 : 1.0;
           entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt) + 180, 0);
           entity.setLocalScale(1, yScale, 1);
-          animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+          if (entity._glb?.isAnimal) {
+            animateAnimalGlbEntity(entity, zombie, this.state.elapsedSec);
+          } else {
+            animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+          }
           // Keep blob shadow fixed at ground level (y=0) even when body lifts.
           const glbShadow = entity._glb?.shadow;
           if (glbShadow && zombieY > 0) {
