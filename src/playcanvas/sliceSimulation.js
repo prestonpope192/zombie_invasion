@@ -923,10 +923,15 @@ function movePlayer(state, input, dt) {
     const yaw = state.player.yaw;
     const sin = Math.sin(yaw);
     const cos = Math.cos(yaw);
-    const localX = strafe / length;
-    const localZ = -forward / length;
-    state.player.x += (localX * cos - localZ * sin) * speed * dt;
-    state.player.z += (localX * sin + localZ * cos) * speed * dt;
+    // Move relative to where the camera looks. Camera forward is
+    // (-sin, -cos) and camera right is (cos, -sin) — the SAME basis the
+    // aim/shot direction uses (forwardX=-sin, forwardZ=-cos). The previous
+    // mapping mismatched this on the X axis, so W/A/S/D inverted once the
+    // player turned ~90° away from the spawn heading.
+    const f = forward / length;
+    const s = strafe / length;
+    state.player.x += (f * -sin + s * cos) * speed * dt;
+    state.player.z += (f * -cos + s * -sin) * speed * dt;
   }
 
   const activeBuilding = getActiveBuilding(state);

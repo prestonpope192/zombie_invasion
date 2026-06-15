@@ -60,6 +60,30 @@ describe("PlayCanvas campaign simulation", () => {
     expect(state.phase).toBe("running");
   });
 
+  it("moves relative to the camera heading (W/strafe match the aim basis at any yaw)", () => {
+    // Regression: movement used to mismatch the camera/aim basis on the X axis,
+    // so forward/strafe inverted once the player turned ~90deg from spawn.
+    // Camera/aim forward is (-sin, -cos); camera right is (cos, -sin). The move
+    // delta must point along those vectors (positive dot product) at every yaw.
+    for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2, 2.3]) {
+      const sin = Math.sin(yaw);
+      const cos = Math.cos(yaw);
+      const fwd = startSlice(createSliceState());
+      fwd.player.yaw = yaw;
+      const fx0 = fwd.player.x, fz0 = fwd.player.z;
+      stepSlice(fwd, { ...idleInput(), forward: 1 }, 0.05);
+      const fdot = (fwd.player.x - fx0) * -sin + (fwd.player.z - fz0) * -cos;
+      expect(fdot).toBeGreaterThan(0.001);
+
+      const str = startSlice(createSliceState());
+      str.player.yaw = yaw;
+      const sx0 = str.player.x, sz0 = str.player.z;
+      stepSlice(str, { ...idleInput(), right: 1 }, 0.05);
+      const sdot = (str.player.x - sx0) * cos + (str.player.z - sz0) * -sin;
+      expect(sdot).toBeGreaterThan(0.001);
+    }
+  });
+
   it("fires along the player forward vector and records a hit", () => {
     const state = startSlice(createSliceState());
     state.waveGraceSec = 0;
