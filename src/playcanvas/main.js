@@ -244,11 +244,25 @@ export class PlayCanvasZombieSlice {
       coin: 0, playerDamage: 0, heartbeat: 0, uiClick: 0, nightBedStart: 0,
     };
 
+    // ── Village-distress visual state ──────────────────────────────────────────
+    // Smoothed HP ratio (0–1); drives all staged visuals.  Initialised to 1 (pristine).
+    this._villageDistressRatio = 1;
+    // Per-window cloned material instances so we can dim them independently of
+    // the shared MATERIALS.windowGlow entry.  Populated in _initVillageDistress().
+    this._windowGlowMats = [];           // Array<{ entity, mat: pc.StandardMaterial }>
+    // Pooled smoke column entities — lazy-created, capped at DISTRESS_SMOKE_CAP.
+    this._distressSmokePool = [];
+    // Red danger omni light near the village (active below ~20% HP).
+    this._distressDangerLight = null;
+    // Ember glow at village base (active below ~55%).
+    this._distressEmberLight = null;
+
     this.buildDom();
     this.createApp();
     this.createMaterials();
     this.createScene();
     this._initCameraFrame();
+    this._initVillageDistress();
 
     // Kick off GLB container loads asynchronously — never blocks startup.
     // Zombie and villager GLB loads run in parallel (both are ~1MB assets).
@@ -2909,6 +2923,7 @@ export class PlayCanvasZombieSlice {
     this.updateVillagers(dt);
     this.updateLandscapeMutationVisuals();
     this.updateWindowImpactVisuals();
+    this.updateVillageDistress(dt);
     this.updateGearVisuals();
     this.drawMiniMap();
     this.updateFx(dt);
@@ -3203,6 +3218,251 @@ export class PlayCanvasZombieSlice {
     const mutated = new Set(this.state.mutatedLandscapeIds ?? []);
     for (const [id, entity] of this.entitiesByLandscape.entries()) {
       entity.enabled = !mutated.has(id);
+    }
+  }
+
+  // ── Village-distress system ──────────────────────────────────────────────────
+  // Max pooled smoke columns; kept small for mobile.
+  static get DISTRESS_SMOKE_CAP() { return 5; }
+
+  /**
+   * Called once after createScene() to clone per-entity window materials and
+   * build the smoke / danger-light pool.  Runs in the same JS tick as the
+   * constructor — no async.
+   */
+  _initVillageDistress() {
+    // ── 1. Per-entity window glow material clones ────────────────────────────
+    const baseWG = this.materials.get("windowGlow");
+    for (const [, entity] of this.entitiesByWindow.entries()) {
+      const mat = baseWG.clone();
+      mat.update();
+      // Assign to this entity's render component so it no longer shares the
+      // global material instance.
+      if (entity.render) {
+        entity.render.material = mat;
+      }
+      this._windowGlowMats.push({ entity, mat });
+    }
+
+    // ── 2. Smoke column pool ─────────────────────────────────────────────────
+    // Pre-create all smoke entities disabled so there's no per-frame allocation
+    // after warmup.
+    const cap = PlayCanvasZombieSlice.DISTRESS_SMOKE_CAP;
+    // Spread smoke positions over the village — houses, bell tower, flanks.
+    // offsets are [dx, 0, dz] relative to SLICE_WORLD.villageZ.
+    // Houses are at x≈±10–16, z=villageZ-10..+12; bell tower at z=villageZ-12.
+    const smokeOffsets = [
+      [-9.5, 0, -10.0],  // house-0 roof
+      [ 9.4, 0,  -8.8],  // house-1 roof
+      [-13.2, 0,  -1.0], // house-2 roof
+      [ 13.4, 0,   0.2], // house-3 roof
+      [  0.0, 0, -12.0], // bell tower
+    ];
+    for (let i = 0; i < cap; i += 1) {
+      const off = smokeOffsets[i] ?? [0, 0, 0];
+      const vz = SLICE_WORLD.villageZ;
+      // Smoke is a translucent dark-grey sphere that drifts upward via scale
+      // and opacity modulation each frame.
+      const smoke = new pc.Entity(`distress-smoke-${i}`);
+      smoke.addComponent("render", {
+        type: "sphere",
+        castShadows: false,
+        receiveShadows: false,
+      });
+      // Clone a material for this smoke puff — dark grey translucent billow.
+      const smokeMat = new pc.StandardMaterial();
+      smokeMat.diffuse = new pc.Color(0.22, 0.20, 0.18);
+      smokeMat.emissive = new pc.Color(0.10, 0.07, 0.04);
+      smokeMat.emissiveIntensity = 1.0;
+      smokeMat.opacity = 0;
+      smokeMat.blendType = pc.BLEND_NORMAL;
+      smokeMat.depthWrite = false;
+      smokeMat.useFog = false; // don't let scene fog wash out the smoke read
+      smokeMat.update();
+      smoke.render.material = smokeMat;
+      smoke.setLocalPosition(off[0], off[1], vz + off[2]);
+      smoke.enabled = false;
+      smoke._distressSmokeMat = smokeMat;
+      smoke._distressSmokePhase = i / cap; // stagger animation phase (0, 0.2, 0.4, 0.6, 0.8)
+      smoke._distressSmokeBaseX = off[0];
+      smoke._distressSmokeBaseZ = vz + off[2];
+      this.app.root.addChild(smoke);
+      this._distressSmokePool.push(smoke);
+    }
+
+    // ── 3. Ember / fire-glow light at village base (low-mid distress) ────────
+    const ember = new pc.Entity("distress-ember-light");
+    ember.addComponent("light", {
+      type: "omni",
+      castShadows: false,
+      range: 22,
+      intensity: 0,
+      color: new pc.Color(1.0, 0.38, 0.06),
+    });
+    ember.setLocalPosition(0, 0.8, SLICE_WORLD.villageZ - 4);
+    this.app.root.addChild(ember);
+    this._distressEmberLight = ember;
+
+    // ── 4. Red danger omni light (very-low HP pulse) ─────────────────────────
+    const danger = new pc.Entity("distress-danger-light");
+    danger.addComponent("light", {
+      type: "omni",
+      castShadows: false,
+      range: 28,
+      intensity: 0,
+      color: new pc.Color(1.0, 0.10, 0.04),
+    });
+    danger.setLocalPosition(0, 2.0, SLICE_WORLD.villageZ);
+    this.app.root.addChild(danger);
+    this._distressDangerLight = danger;
+  }
+
+  /**
+   * updateVillageDistress(dt)
+   *
+   * Drives three staged visual degradation tiers purely from
+   * this.state.villageHp / this.state.maxVillageHp each frame.
+   *
+   * Separation from bullet-impact system: we never touch entitiesByWindow's
+   * enabled flag, entitiesByImpact, brokenWindows, structureHits, or
+   * activeImpactFx counters.  We only mutate the cloned material instances in
+   * _windowGlowMats and the dedicated distress entities created in
+   * _initVillageDistress().
+   */
+  updateVillageDistress(dt) {
+    const maxHp = Math.max(1, this.state.maxVillageHp);
+    const rawRatio = Math.max(0, Math.min(1, this.state.villageHp / maxHp));
+
+    // Smooth the ratio so visuals don't snap at exact thresholds.
+    // Recover fast when healing (~3/s), degrade a bit slower (~1.5/s) for drama.
+    const lerpSpeed = rawRatio > this._villageDistressRatio ? 3.0 : 1.5;
+    this._villageDistressRatio += (rawRatio - this._villageDistressRatio) * Math.min(1, lerpSpeed * dt);
+    const r = this._villageDistressRatio; // 0=destroyed, 1=pristine
+    const t = this.state.elapsedSec ?? 0;
+
+    // ── 1. Window glow ───────────────────────────────────────────────────────
+    // Stages:
+    //   r >= 0.82 → full warm glow (pristine)
+    //   r  0.82→0.35 → dims from 1.0 → 0.12 with per-window flicker
+    //   r  0.35→0.00 → near-dark guttering (0.12 → 0.05)
+    // Base emissive from MATERIALS.windowGlow = [2.2, 0.95, 0.28]
+    const WG_BASE_R = 2.2;
+    const WG_BASE_G = 0.95;
+    const WG_BASE_B = 0.28;
+
+    for (let i = 0; i < this._windowGlowMats.length; i += 1) {
+      const { entity, mat } = this._windowGlowMats[i];
+      const phase = i * 1.57 + 0.4; // unique phase per window
+
+      let intensity;
+      if (r >= 0.82) {
+        intensity = 1.0;
+      } else if (r >= 0.35) {
+        // Aggressive dim: 1.0 at r=0.82 → 0.12 at r=0.35
+        const band = (r - 0.35) / (0.82 - 0.35); // 0 at r=0.35, 1 at r=0.82
+        const flickerAmt = (1 - band) * 0.25;
+        const flicker = this._reducedMotion ? 0 : Math.sin(t * 4.8 + phase) * flickerAmt;
+        intensity = 0.12 + band * 0.88 + flicker;
+      } else {
+        // Critical guttering: 0.12 at r=0.35 → 0.05 at r=0
+        const band = r / 0.35; // 0 at r=0, 1 at r=0.35
+        const flicker = this._reducedMotion ? 0 : Math.sin(t * 8.2 + phase) * 0.06 * band;
+        intensity = 0.05 + band * 0.07 + flicker;
+      }
+
+      // Never fully zero — avoids a pitch-black square artifact.
+      intensity = Math.max(0.05, intensity);
+
+      mat.emissive.set(WG_BASE_R * intensity, WG_BASE_G * intensity, WG_BASE_B * intensity);
+      // Diffuse also shifts cooler/darker as windows go out.
+      const diffuseDim = 0.40 + 0.60 * intensity;
+      mat.diffuse.set(diffuseDim, diffuseDim * 0.72, diffuseDim * 0.32);
+      mat.update();
+
+      void entity; // keep reference (impact system may set enabled=false on this entity)
+    }
+
+    // ── 2. Smoke columns ─────────────────────────────────────────────────────
+    // Smoke starts below r=0.72; scales to full 5 columns at r=0.
+    // Opacity is kept high enough (≥0.20 when active) so it reads clearly.
+    const cap = PlayCanvasZombieSlice.DISTRESS_SMOKE_CAP;
+    let targetSmokeCount = 0;
+    if (r < 0.72) {
+      const smokeT = Math.max(0, (0.72 - r) / 0.72); // 0→1 as r drops 0.72→0
+      targetSmokeCount = Math.min(cap, Math.ceil(smokeT * cap));
+    }
+
+    for (let i = 0; i < this._distressSmokePool.length; i += 1) {
+      const smoke = this._distressSmokePool[i];
+      const active = i < targetSmokeCount;
+      smoke.enabled = active;
+      if (!active) continue;
+
+      // Slow rise cycle: ~5s period per column (staggered by phase).
+      const cyclePeriod = 0.18; // cycles/sec  → period ≈ 5.6s
+      const ph = (t * cyclePeriod + smoke._distressSmokePhase) % 1;
+      // Rise fraction: 0→1 over the full cycle (column keeps rising).
+      const riseFrac = ph;
+      // Opacity: ramp in over first 8%, hold through 75%, ramp out last 25%.
+      const fadeFrac = ph < 0.08 ? ph / 0.08 : ph < 0.75 ? 1 : Math.max(0, (1 - ph) / 0.25);
+
+      // Deeper damage → higher opacity, more opaque smoke.
+      const distressDepth = Math.max(0, (0.72 - r) / 0.72); // 0→1
+      const baseOpacity = this._reducedMotion ? 0.12 : 0.30;
+      const maxOpacity  = this._reducedMotion ? 0.24 : 0.62;
+      const opacity = (baseOpacity + distressDepth * (maxOpacity - baseOpacity)) * fadeFrac;
+
+      // Scale: large puff that grows as it rises — must be big enough to read
+      // at the 15–30u viewing distance (houses are at x≈±10–14, z≈villageZ–10).
+      // baseScale starts at 2.5 and scales up with distress depth.
+      const baseScale = 2.5 + distressDepth * 2.5;
+      const scaleX = baseScale * (1 + riseFrac * 0.5);
+      const scaleY = baseScale * (0.55 + riseFrac * 1.8); // stretch tall as it rises
+      const scaleZ = baseScale * (1 + riseFrac * 0.5);
+
+      // Position: start at roof height (~4u), rise to ~10u so it clears the roofline.
+      const baseY = 4.0;
+      const riseY = riseFrac * 6.0;
+      smoke.setLocalPosition(smoke._distressSmokeBaseX, baseY + riseY, smoke._distressSmokeBaseZ);
+      smoke.setLocalScale(scaleX, scaleY, scaleZ);
+
+      const smokeMat = smoke._distressSmokeMat;
+      smokeMat.opacity = Math.max(0, Math.min(0.75, opacity));
+      // Warm ember tinge at mid-distress (orange smoke reads against dark sky);
+      // transitions to near-black at critical HP.
+      const tinge = Math.max(0, 0.18 - distressDepth * 0.12);
+      smokeMat.emissive.set(tinge + 0.06, tinge * 0.55 + 0.04, 0.02);
+      smokeMat.update();
+    }
+
+    // ── 3. Ember glow light (below ~70%) ─────────────────────────────────────
+    if (this._distressEmberLight?.light) {
+      const el = this._distressEmberLight.light;
+      if (r >= 0.72) {
+        el.intensity = 0;
+      } else {
+        const emberT = Math.max(0, (0.72 - r) / 0.72); // 0→1 as r 0.72→0
+        const flicker = this._reducedMotion ? 0 : Math.sin(t * 6.4 + 0.3) * 0.30 * emberT;
+        el.intensity = Math.max(0, emberT * 3.5 + flicker);
+        // Orange→deep-red shift as HP falls.
+        el.color.set(1.0, Math.max(0.08, 0.50 - emberT * 0.42), 0.05);
+      }
+    }
+
+    // ── 4. Red danger pulsing light (below ~25%) ─────────────────────────────
+    if (this._distressDangerLight?.light) {
+      const dl = this._distressDangerLight.light;
+      if (r >= 0.26) {
+        dl.intensity = 0;
+      } else {
+        const dangerT = Math.max(0, (0.26 - r) / 0.26); // 0→1 as r 0.26→0
+        // 1.5 Hz heartbeat-like pulse; reduced-motion gets a steady glow.
+        const pulse = this._reducedMotion
+          ? 1
+          : 0.45 + 0.55 * Math.sin(t * Math.PI * 1.5);
+        dl.intensity = dangerT * 3.8 * pulse;
+        dl.color.set(1.0, 0.06, 0.02);
+      }
     }
   }
 
