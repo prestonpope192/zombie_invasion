@@ -549,6 +549,34 @@ export class PlayCanvasZombieSlice {
           <button type="button" data-action="shop" tabindex="-1">Shop</button>
           <button type="button" data-action="map" tabindex="-1">Map</button>
         </div>
+        <!-- First-run onboarding overlay — shown only on first visit (zi_onboarded flag).
+             pointer-events: none on the backdrop so [data-flow-action="primary"] stays
+             clickable even when the overlay is visible. Only the "Got it" button has
+             pointer-events so the smoke's click on primary still works. -->
+        <div class="zi-onboarding" id="zi-onboarding" role="dialog" aria-modal="false" aria-label="How to Survive" hidden>
+          <div class="zi-onboarding-card">
+            <div class="zi-onboarding-eyebrow">New Survivor</div>
+            <h2 class="zi-onboarding-title">How to Survive</h2>
+            <!-- Desktop control list — hidden on touch devices via CSS -->
+            <ul class="zi-onboarding-list zi-onboarding-desktop">
+              <li><span class="zi-onboarding-key">WASD</span><span class="zi-onboarding-desc">Move</span></li>
+              <li><span class="zi-onboarding-key">Mouse</span><span class="zi-onboarding-desc">Look</span></li>
+              <li><span class="zi-onboarding-key">Click / F</span><span class="zi-onboarding-desc">Fire</span></li>
+              <li><span class="zi-onboarding-key">G</span><span class="zi-onboarding-desc">Grenade</span></li>
+              <li><span class="zi-onboarding-key">Q</span><span class="zi-onboarding-desc">Shop</span></li>
+            </ul>
+            <!-- Mobile control list — hidden on non-touch devices via CSS -->
+            <ul class="zi-onboarding-list zi-onboarding-mobile">
+              <li><span class="zi-onboarding-key">Left pad</span><span class="zi-onboarding-desc">Move</span></li>
+              <li><span class="zi-onboarding-key">Right drag</span><span class="zi-onboarding-desc">Look</span></li>
+              <li><span class="zi-onboarding-key">FIRE</span><span class="zi-onboarding-desc">Fire weapon</span></li>
+              <li><span class="zi-onboarding-key">BLAST</span><span class="zi-onboarding-desc">Grenade</span></li>
+              <li><span class="zi-onboarding-key">SHOP</span><span class="zi-onboarding-desc">Buy upgrades</span></li>
+            </ul>
+            <p class="zi-onboarding-hint">Defend the village through 12 waves. Spend coins between waves.</p>
+            <button type="button" class="zi-onboarding-btn" data-action="onboarding-dismiss">GOT IT — PLAY</button>
+          </div>
+        </div>
       </div>
     `;
     this.canvas = this.root.querySelector("canvas.pc-slice-canvas");
@@ -638,6 +666,22 @@ export class PlayCanvasZombieSlice {
     this.summaryOfferList = this.root.querySelector('[data-offer-context="summary"]');
     this.gameOverOfferList = this.root.querySelector('[data-offer-context="gameover"]');
     this.goalsListEl = this.root.querySelector('[data-goals-list]');
+    // First-run onboarding overlay
+    this.onboardingOverlay = this.root.querySelector('#zi-onboarding');
+    this._shopNudgeFired = false;
+    // Show only on first visit; zi_onboarded flag tracks dismissal
+    const alreadyOnboarded = typeof localStorage !== 'undefined' && localStorage.getItem('zi_onboarded') === '1';
+    if (!alreadyOnboarded && this.onboardingOverlay) {
+      this.onboardingOverlay.hidden = false;
+      // Auto-dismiss on ANY first pointerdown (capture phase, before click fires).
+      // This lets the smoke's click on [data-flow-action="primary"] still work:
+      // pointerdown removes the overlay → click reaches the button underneath.
+      const _onFirstPointerDown = () => {
+        this._dismissOnboarding();
+        document.removeEventListener('pointerdown', _onFirstPointerDown, true);
+      };
+      document.addEventListener('pointerdown', _onFirstPointerDown, true);
+    }
   }
 
   detectQualityProfile() {
@@ -1401,6 +1445,11 @@ export class PlayCanvasZombieSlice {
     const resumeBtn = this.root.querySelector('[data-action="settings-resume"]');
     if (resumeBtn) {
       resumeBtn.addEventListener("click", () => this.toggleHudSettings());
+    }
+    // Onboarding overlay dismiss button
+    const onboardingDismissBtn = this.root.querySelector('[data-action="onboarding-dismiss"]');
+    if (onboardingDismissBtn) {
+      onboardingDismissBtn.addEventListener("click", () => this._dismissOnboarding());
     }
     this.flowPanel.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-flow-action]");
@@ -2274,6 +2323,15 @@ export class PlayCanvasZombieSlice {
     }).join("");
   }
 
+  _dismissOnboarding() {
+    if (this.onboardingOverlay) {
+      this.onboardingOverlay.hidden = true;
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('zi_onboarded', '1');
+    }
+  }
+
   _showGoalToast(message) {
     // Reuse the guidance panel as a transient toast for goal/offer messages
     if (this.guidancePanel) {
@@ -2890,6 +2948,20 @@ export class PlayCanvasZombieSlice {
     if (this.state.phase === "intermission" && this.lastSummaryWave !== this.state.waveNumber) {
       this.lastSummaryWave = this.state.waveNumber;
       this.summaryDisplaySec = 4.0;
+      // Wave-1 shop nudge — fires once ever (gated by zi_shop_nudged localStorage flag)
+      if (this.state.waveNumber === 1 && !this._shopNudgeFired) {
+        this._shopNudgeFired = true;
+        const alreadyNudged = typeof localStorage !== 'undefined' && localStorage.getItem('zi_shop_nudged') === '1';
+        if (!alreadyNudged) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('zi_shop_nudged', '1');
+          }
+          // Show after a short delay so the wave-clear summary is visible first
+          setTimeout(() => {
+            this._showGoalToast('Spend your coins in the Shop between waves!');
+          }, 4200);
+        }
+      }
     }
     if (this.graceOverlay) {
       const graceActive = (this.state.waveGraceSec ?? 0) > 0;

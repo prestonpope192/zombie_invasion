@@ -2177,3 +2177,184 @@ a {
     flex: 1 1 auto;
   }
 }
+
+/* ── First-run onboarding overlay ────────────────────────────────────────────
+   Sits above everything (z-index 35) but uses pointer-events: none on the
+   outer wrapper so any click still reaches elements beneath it — including the
+   flow panel's [data-flow-action="primary"] button (needed for smoke compat).
+   Only the card itself (and its dismiss button) capture pointer events.        */
+.zi-onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The entire overlay (including the card) is click-through except for the
+     dismiss button — this keeps [data-flow-action="primary"] reachable even
+     when the overlay is showing (required for smoke test compatibility).     */
+  pointer-events: none;
+  /* Soft dark backdrop — rendered as a pseudo-element */
+  background: transparent;
+}
+
+.zi-onboarding::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
+.zi-onboarding[hidden] {
+  display: none;
+}
+
+.zi-onboarding-card {
+  position: relative;
+  /* Card is also click-through; only the dismiss button re-enables pointer events */
+  pointer-events: none;
+  width: min(400px, calc(100vw - 32px));
+  padding: 24px 24px 20px;
+  box-sizing: border-box;
+  background: var(--zi-bg-raised);
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.08), 0 0 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--zi-font);
+  animation: zi-onboard-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes zi-onboard-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.zi-onboarding-eyebrow {
+  color: var(--zi-accent);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.zi-onboarding-title {
+  margin: 0;
+  color: var(--zi-text);
+  font-size: clamp(1.35rem, 4vw, 1.75rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+/* Control list — shared styles */
+.zi-onboarding-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zi-onboarding-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.zi-onboarding-key {
+  flex-shrink: 0;
+  min-width: 80px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: 6px;
+  background: rgba(155, 214, 74, 0.07);
+  color: var(--zi-accent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.zi-onboarding-desc {
+  color: var(--zi-text);
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+/* Desktop list: hide on pointer:coarse (touch) devices */
+.zi-onboarding-desktop {
+  display: flex;
+}
+
+.zi-onboarding-mobile {
+  display: none;
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .zi-onboarding-desktop {
+    display: none;
+  }
+  .zi-onboarding-mobile {
+    display: flex;
+  }
+}
+
+.zi-onboarding-hint {
+  margin: 0;
+  color: var(--zi-text-dim);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.zi-onboarding-btn {
+  /* Re-enable pointer events only on the dismiss button */
+  pointer-events: auto;
+  min-height: 48px;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius-sm);
+  background: var(--zi-accent);
+  color: #0d1218;
+  font-size: 0.96rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.14s, transform 0.1s;
+  width: 100%;
+}
+
+.zi-onboarding-btn:hover {
+  background: #b5e85e;
+}
+
+.zi-onboarding-btn:active {
+  transform: scale(0.98);
+}
+
+/* Mobile safe-area adjustments */
+@media (max-width: 640px), (pointer: coarse) {
+  .zi-onboarding-card {
+    padding: 20px 18px 18px;
+    width: min(380px, calc(100vw - 24px));
+    /* Keep card above safe-area bottom on notched phones */
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .zi-onboarding-key {
+    min-width: 72px;
+    font-size: 0.72rem;
+  }
+
+  .zi-onboarding-btn {
+    min-height: 52px;
+    font-size: 1rem;
+  }
+}
