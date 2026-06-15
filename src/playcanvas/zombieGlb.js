@@ -810,6 +810,15 @@ export function animateZombieGlbEntity(root, zombie, elapsedSec) {
   }
 
   // --- Hit flash ---
+  // Dead zombies must NEVER show the red flash — hitFlashSec freezes at death
+  // because the sim stops ticking dead zombies.  Force-clear on first dead frame.
+  if (zombie.dead) {
+    if (glb.hitFlashActive) {
+      glb.hitFlashActive = false;
+      applyGlbHitFlash(glb, false);
+    }
+    return; // remaining hit-flash logic skipped for corpses
+  }
   const hitFlash = (zombie.hitFlashSec ?? 0) > 0;
   if (hitFlash !== glb.hitFlashActive) {
     glb.hitFlashActive = hitFlash;

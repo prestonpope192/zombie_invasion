@@ -2457,26 +2457,13 @@ export class PlayCanvasZombieSlice {
     const ttl = (this.fxSlowMo ? 10 : 1) * (isBlast ? 0.09 : 0.065);
     const rollDeg = Math.random() * 360;
 
-    // Compute muzzle world position analytically: camera pos + forward * ~1u + right * 0.48 + up * -0.46
-    // This avoids relying on PlayCanvas transform-hierarchy sync during scripted updates.
-    const camPos = this.camera.getPosition();
-    const camFwd = this.camera.forward;
-    const camRight = this.camera.right;
-    const camUp = this.camera.up;
-    const model = this.weaponModels?.get(this.activeWeaponViewModel);
-    const muzzleLocal = model?._muzzle ?? [0, 0.04, -1.35];
-    // weaponRoot local offset from camera: [0.48, -0.5, -0.95] + muzzleLocal (approx)
-    const rootOff = model?._rootPosition ?? [0.48, -0.5, -0.95];
-    // Approximate world pos: camera + right*rootOff.x + up*rootOff.y + forward*(-rootOff.z)
-    // + right*muzzle.x + up*muzzle.y + forward*(-muzzle.z)
-    const totalX = rootOff[0] + muzzleLocal[0];
-    const totalY = rootOff[1] + muzzleLocal[1];
-    const totalZ = -(rootOff[2] + muzzleLocal[2]); // negate Z because forward is -Z in view space
-    const mwx = camPos.x + camRight.x * totalX + camUp.x * totalY + camFwd.x * totalZ;
-    const mwy = camPos.y + camRight.y * totalX + camUp.y * totalY + camFwd.y * totalZ;
-    const mwz = camPos.z + camRight.z * totalX + camUp.z * totalY + camFwd.z * totalZ;
+    // Use the muzzle flash entity's actual world position — it is a child of
+    // weaponRoot (child of camera) and its local position is updated every frame
+    // by updateWeaponVisuals() to match the active weapon's _muzzle offset.
+    // getPosition() returns a live shared Vec3; clone it immediately.
+    const muzzleWorldPos = this.muzzleFlash.getPosition().clone();
 
-    slot.setPosition(mwx, mwy, mwz);
+    slot.setPosition(muzzleWorldPos.x, muzzleWorldPos.y, muzzleWorldPos.z);
     slot.setEulerAngles(0, 0, rollDeg);
     slot.enabled = true;
 
@@ -2579,21 +2566,12 @@ export class PlayCanvasZombieSlice {
   }
 
   _spawnTracer(weapon, forward, origin, hit, result, isPellet) {
-    // Compute muzzle world pos analytically (same approach as flashMuzzle)
-    const camPos = this.camera.getPosition();
-    const camFwd = this.camera.forward;
-    const camRight = this.camera.right;
-    const camUp = this.camera.up;
-    const model = this.weaponModels?.get(this.activeWeaponViewModel);
-    const muzzleLocal = model?._muzzle ?? [0, 0.04, -1.35];
-    const rootOff = model?._rootPosition ?? [0.48, -0.5, -0.95];
-    const totalX = rootOff[0] + muzzleLocal[0];
-    const totalY = rootOff[1] + muzzleLocal[1];
-    const totalZ = -(rootOff[2] + muzzleLocal[2]);
-    const mwx = camPos.x + camRight.x * totalX + camUp.x * totalY + camFwd.x * totalZ;
-    const mwy = camPos.y + camRight.y * totalX + camUp.y * totalY + camFwd.y * totalZ;
-    const mwz = camPos.z + camRight.z * totalX + camUp.z * totalY + camFwd.z * totalZ;
-    const muzzleWorld = { x: mwx, y: mwy, z: mwz };
+    // Source the muzzle world position from the actual muzzle flash entity.
+    // updateWeaponVisuals() keeps its local position synced to the active weapon's
+    // _muzzle offset each frame, so getPosition() returns the true barrel tip in
+    // world space.  Clone immediately — PlayCanvas reuses the Vec3 internally.
+    const muzzlePos = this.muzzleFlash.getPosition().clone();
+    const muzzleWorld = { x: muzzlePos.x, y: muzzlePos.y, z: muzzlePos.z };
 
     const impactDist = this._resolveImpactDistance(hit, result);
     // Clamp trace length: pellets spread further, others cap at 40u
@@ -3068,11 +3046,47 @@ export class PlayCanvasZombieSlice {
 
       if (entity._glb) {
         // ── GLB path ──────────────────────────────────────────────────────────
-        entity.enabled = true; // always keep root enabled; GLB manages dead state internally
-        // Use zombie.y for hover/pounce lift; shadow stays at y=0 (it's on the root entity
-        // but we pin the GLB shadow entity to ground-level inside _updateZombieTelegraph).
+        entity.enabled = true; // always keep root enabled; fade logic disables after completion
         entity.setLocalPosition(zombie.x, zombieY, zombie.z);
-        if (!zombie.dead) {
+
+        if (zombie.dead) {
+          // ── Death fade lifecycle ─────────────────────────────────────────────
+          // Phase 1 (0–1.5 s): death animation plays, no visual change.
+          // Phase 2 (1.5–2.7 s, 1.2 s duration): sink 0.4 m + shrink to 0.
+          // After 2.7 s: disable entity.
+          const FADE_START = 1.5;
+          const FADE_DUR   = 1.2;
+          const FADE_END   = FADE_START + FADE_DUR;
+          if (entity._deathFadeSec === undefined) entity._deathFadeSec = 0;
+          entity._deathFadeSec += dt;
+
+          if (entity._deathFadeSec >= FADE_END) {
+            entity.enabled = false;
+          } else if (entity._deathFadeSec >= FADE_START) {
+            const t = (entity._deathFadeSec - FADE_START) / FADE_DUR; // 0→1
+            const scale = 1.0 - t;
+            const sinkY  = -t * 0.4;
+            entity.setLocalPosition(zombie.x, sinkY, zombie.z);
+            entity.setLocalScale(scale, scale, scale);
+            // Fade shadow opacity
+            const glbShadow = entity._glb?.shadow;
+            if (glbShadow) {
+              const shadowMat = glbShadow.render?.meshInstances?.[0]?.material;
+              if (shadowMat) {
+                shadowMat.opacity = Math.max(0, 0.55 * (1 - t));
+                shadowMat.update();
+              }
+            }
+          }
+          // Always drive death animation (animateZombieGlbEntity handles hit-flash
+          // guard and clears red tint on first dead frame).
+          animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+          // Bloom coronas off while dead
+          if (entity._bloomCoronaL) entity._bloomCoronaL.enabled = false;
+          if (entity._bloomCoronaR) entity._bloomCoronaR.enabled = false;
+        } else {
+          // ── Living zombie ────────────────────────────────────────────────────
+          entity._deathFadeSec = undefined; // reset in case entity is reused
           // Quaternius model's face is on its +Z side, opposite the -Z forward
           // convention, hence the 180° offset.
           const telegraphing = (zombie.telegraphSec ?? 0) > 0;
@@ -3080,35 +3094,53 @@ export class PlayCanvasZombieSlice {
           const yScale = telegraphing ? 0.85 : 1.0;
           entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt) + 180, 0);
           entity.setLocalScale(1, yScale, 1);
-        }
-        animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
-        // Keep blob shadow fixed at ground level (y=0) even when body lifts.
-        // The GLB shadow is a child of the root which now moves on Y, so we
-        // counter-translate it back to y=0.
-        const glbShadow = entity._glb?.shadow;
-        if (glbShadow && zombieY > 0) {
-          glbShadow.setLocalPosition(0, -zombieY + 0.03, 0);
-        } else if (glbShadow) {
-          glbShadow.setLocalPosition(0, 0.03, 0);
-        }
-        // Sync bloom coronas to GLB eye positions (set by animateZombieGlbEntity above).
-        // Coronas provide a wider emissive seed for CameraFrame bloom.
-        const eyeLEnt = entity.findByName("glb-eye-l");
-        const eyeREnt = entity.findByName("glb-eye-r");
-        if (entity._bloomCoronaL && eyeLEnt) {
-          entity._bloomCoronaL.setLocalPosition(eyeLEnt.getLocalPosition());
-          entity._bloomCoronaL.enabled = !zombie.dead;
-        }
-        if (entity._bloomCoronaR && eyeREnt) {
-          entity._bloomCoronaR.setLocalPosition(eyeREnt.getLocalPosition());
-          entity._bloomCoronaR.enabled = !zombie.dead;
+          animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+          // Keep blob shadow fixed at ground level (y=0) even when body lifts.
+          const glbShadow = entity._glb?.shadow;
+          if (glbShadow && zombieY > 0) {
+            glbShadow.setLocalPosition(0, -zombieY + 0.03, 0);
+          } else if (glbShadow) {
+            glbShadow.setLocalPosition(0, 0.03, 0);
+          }
+          // Sync bloom coronas to GLB eye positions (set by animateZombieGlbEntity above).
+          const eyeLEnt = entity.findByName("glb-eye-l");
+          const eyeREnt = entity.findByName("glb-eye-r");
+          if (entity._bloomCoronaL && eyeLEnt) {
+            entity._bloomCoronaL.setLocalPosition(eyeLEnt.getLocalPosition());
+            entity._bloomCoronaL.enabled = true;
+          }
+          if (entity._bloomCoronaR && eyeREnt) {
+            entity._bloomCoronaR.setLocalPosition(eyeREnt.getLocalPosition());
+            entity._bloomCoronaR.enabled = true;
+          }
         }
       } else {
-        // ── Procedural rig path (default) ─────────────────────────────────────
-        entity.enabled = !zombie.dead;
+        // ── Procedural rig path ───────────────────────────────────────────────
         if (zombie.dead) {
+          // Death fade: sink + shrink over 1.2 s then disable.
+          // No death animation on the procedural rig — immediately start fading.
+          const FADE_DUR = 1.2;
+          if (entity._deathFadeSec === undefined) entity._deathFadeSec = 0;
+          entity._deathFadeSec += dt;
+
+          if (entity._deathFadeSec >= FADE_DUR) {
+            entity.enabled = false;
+          } else {
+            entity.enabled = true;
+            const t     = entity._deathFadeSec / FADE_DUR; // 0→1
+            const scale = 1.0 - t;
+            const sinkY  = -t * 0.4;
+            entity.setLocalPosition(zombie.x, sinkY, zombie.z);
+            entity.setLocalScale(scale, scale, scale);
+            // Apply rig materials WITHOUT hit flash tint (dead = normal color)
+            const skinMat    = entity._rig?.skinMat ?? "zombieFlesh";
+            const shirtMatKey = entity._rig?.shirtMatKey ?? "zombieShirtGrey";
+            applyZombieRigMaterials(entity, this.materials, skinMat, shirtMatKey, false);
+          }
           continue;
         }
+        entity._deathFadeSec = undefined;
+        entity.enabled = true;
         entity.setLocalPosition(zombie.x, zombieY, zombie.z);
         entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt), 0);
         // Wind-up crouch: squash Y during telegraph
