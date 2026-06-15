@@ -57,6 +57,7 @@ import {
   getGoalsSnapshot,
 } from "./sliceSimulation";
 import { showRewardedAd } from "../fps/systems/rewardedAds";
+import { SfxSampleManager } from "./sfxSamples";
 import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
@@ -154,6 +155,9 @@ export class PlayCanvasZombieSlice {
     this.audio = new Audio3D(null);
     this.audio.setMusicEnabled(this.state.musicEnabled);
     this.audio.setSfxEnabled(this.state.sfxEnabled);
+    this.samples = new SfxSampleManager();
+    // Zombie ambient groan throttle — emit at most one groan per 4s
+    this._zombieGroanCooldownSec = 0;
     this.audioDamagePulseSec = 0;
     this.audioPlayerDamagePulseSec = 0;
     this.lastAudioVillageHp = this.state.villageHp;
@@ -2048,6 +2052,11 @@ export class PlayCanvasZombieSlice {
 
   unlockAudio() {
     this.audio.unlockAudio?.();
+    // Kick off sample loading on first audio unlock (AudioContext is now live).
+    if (this.audio.ctx && !this._samplesLoading) {
+      this._samplesLoading = true;
+      this.samples.loadAll(this.audio.ctx);
+    }
   }
 
   toggleMusic() {
@@ -2174,11 +2183,29 @@ export class PlayCanvasZombieSlice {
       this.updateHud();
       return;
     }
-    this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
+    // Gunshot — try real sample first, fall back to synth profile
+    if (!this.audio.ctx || !this.samples.playSample(
+      Math.random() < 0.5 ? "gunshot-1" : "gunshot-2",
+      this.audio.ctx,
+      this.audio.ctx.destination,
+      { gainScale: 0.82, pitchVariance: 1.2, gainVariance: 0.1 },
+    )) {
+      this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
+    }
     if (result.impact) {
-      this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
+      // Bullet impact on structure — concrete/stone sample
+      if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
+        gainScale: 0.5, pitchVariance: 2, gainVariance: 0.1,
+      })) {
+        this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
+      }
     } else if (result.hit) {
-      this.audio.playImpact("flesh", this.getAudioPositionAhead(7));
+      // Bullet impact on zombie flesh
+      if (!this.audio.ctx || !this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
+        gainScale: 0.55, pitchVariance: 1.5, gainVariance: 0.1,
+      })) {
+        this.audio.playImpact("flesh", this.getAudioPositionAhead(7));
+      }
     }
     this.flashMuzzle();
     this.spawnShotFx(result.hit, result);
@@ -2971,6 +2998,22 @@ export class PlayCanvasZombieSlice {
       this._startNightBed();
     } else if (!isActiveCombat && this._nightBedRunning) {
       this._stopNightBed();
+    }
+    // Zombie ambient groans — emit from a random live nearby zombie ~every 4s
+    this._zombieGroanCooldownSec = Math.max(0, (this._zombieGroanCooldownSec ?? 0) - dt);
+    if (this.state.sfxEnabled !== false && this.state.phase === "running" && this._zombieGroanCooldownSec <= 0 && this.audio.ctx) {
+      const liveZombies = this.state.zombies.filter((z) => !z.dead);
+      if (liveZombies.length > 0) {
+        const randomZombie = liveZombies[Math.floor(Math.random() * liveZombies.length)];
+        const groanId = `zombie-groan-${1 + Math.floor(Math.random() * 3)}`;
+        const played = this.samples.playSample(groanId, this.audio.ctx, this.audio.ctx.destination, {
+          gainScale: 0.22, pitchVariance: 3, gainVariance: 0.08,
+        });
+        if (played) {
+          // Vary cooldown 3–5s so groans don't feel metronomic
+          this._zombieGroanCooldownSec = 3 + Math.random() * 2;
+        }
+      }
     }
     this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - dt);
     if (this.state.phase === "intermission" && this.lastSummaryWave !== this.state.waveNumber) {
@@ -4482,8 +4525,14 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.hitConfirm++;
     if (!this.audio.ctx) return;
-    // Short high-pitched triangle blip — distinct from the flesh impact boom
-    this.audio.playTone({ freq: 1850, freqEnd: 1380, duration: 0.04, gain: 0.024, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
+    // Sample: flesh hit; synth fallback if not loaded
+    const usedSample = this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.45, pitchVariance: 2, gainVariance: 0.1,
+    });
+    if (!usedSample) {
+      // Short high-pitched triangle blip — distinct from the flesh impact boom
+      this.audio.playTone({ freq: 1850, freqEnd: 1380, duration: 0.04, gain: 0.024, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
+    }
   }
 
   /** Cue 2: Kill — satisfying pitch-drop thud */
@@ -4491,10 +4540,16 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.kill++;
     if (!this.audio.ctx) return;
-    // Low descending thud
-    this.audio.playTone({ freq: 320, freqEnd: 88, duration: 0.14, gain: 0.045, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
-    // Sub punch layer
-    this.audio.playTone({ freq: 110, freqEnd: 55, duration: 0.11, gain: 0.022, gainEnd: 0.0002, type: "sine", attack: 0.002, channel: "sfx" });
+    // Sample: heavy flesh impact for kill confirmation; synth fallback if not loaded
+    const usedSample = this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.85, pitchVariance: 1.5, gainVariance: 0.12,
+    });
+    if (!usedSample) {
+      // Low descending thud
+      this.audio.playTone({ freq: 320, freqEnd: 88, duration: 0.14, gain: 0.045, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
+      // Sub punch layer
+      this.audio.playTone({ freq: 110, freqEnd: 55, duration: 0.11, gain: 0.022, gainEnd: 0.0002, type: "sine", attack: 0.002, channel: "sfx" });
+    }
   }
 
   /** Cue 3: Headshot ding — bright overtone layered on kill */
@@ -4543,9 +4598,15 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.reloadStart++;
     if (!this.audio.ctx) return;
-    // Noisy low-mid click
-    this.audio.playTone({ freq: 180, freqEnd: 120, duration: 0.038, gain: 0.032, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
-    this.audio.playTone({ freq: 340, freqEnd: 200, duration: 0.022, gain: 0.014, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+    // Sample: mechanical switch click; synth fallback if not loaded
+    const usedSample = this.samples.playSample("reload", this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.7, pitchVariance: 1, gainVariance: 0.08,
+    });
+    if (!usedSample) {
+      // Noisy low-mid click
+      this.audio.playTone({ freq: 180, freqEnd: 120, duration: 0.038, gain: 0.032, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
+      this.audio.playTone({ freq: 340, freqEnd: 200, duration: 0.022, gain: 0.014, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+    }
   }
 
   /** Cue 5b: Reload finish — satisfying seating click */
@@ -4553,9 +4614,15 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.reloadFinish++;
     if (!this.audio.ctx) return;
-    // Crisper, slightly higher than start
-    this.audio.playTone({ freq: 260, freqEnd: 160, duration: 0.032, gain: 0.036, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
-    this.audio.playTone({ freq: 520, freqEnd: 280, duration: 0.018, gain: 0.012, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+    // Sample: slightly higher-pitched click for "mag seated"; synth fallback if not loaded
+    const usedSample = this.samples.playSample("reload", this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.85, pitchVariance: 1.5, gainVariance: 0.08,
+    });
+    if (!usedSample) {
+      // Crisper, slightly higher than start
+      this.audio.playTone({ freq: 260, freqEnd: 160, duration: 0.032, gain: 0.036, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
+      this.audio.playTone({ freq: 520, freqEnd: 280, duration: 0.018, gain: 0.012, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+    }
   }
 
   /** Cue 5c: Empty-mag click — dry single tick */
@@ -4563,7 +4630,13 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.empty++;
     if (!this.audio.ctx) return;
-    this.audio.playTone({ freq: 280, freqEnd: 220, duration: 0.018, gain: 0.024, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+    // Sample: dry click for empty mag; synth fallback if not loaded
+    const usedSample = this.samples.playSample("empty", this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.6, pitchVariance: 0.5, gainVariance: 0.06,
+    });
+    if (!usedSample) {
+      this.audio.playTone({ freq: 280, freqEnd: 220, duration: 0.018, gain: 0.024, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
+    }
   }
 
   /** Cue 6: Coin pickup ching — light bright ring */
@@ -4571,19 +4644,32 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.coin++;
     if (!this.audio.ctx) return;
-    this.audio.playTone({ freq: 1560, freqEnd: 1040, duration: 0.12, gain: 0.014, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
-    this.audio.playTone({ freq: 2080, freqEnd: 1560, duration: 0.07, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.001, channel: "sfx" });
+    // Sample: coin ching; synth fallback if not loaded
+    const usedSample = this.samples.playSample("coin", this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.65, pitchVariance: 2, gainVariance: 0.1,
+    });
+    if (!usedSample) {
+      this.audio.playTone({ freq: 1560, freqEnd: 1040, duration: 0.12, gain: 0.014, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
+      this.audio.playTone({ freq: 2080, freqEnd: 1560, duration: 0.07, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.001, channel: "sfx" });
+    }
   }
 
-  /** Cue 7: Player damage — low thud/grunt on bite */
+  /** Cue 7: Player damage — zombie groan + thud on bite */
   _sfxPlayerDamage() {
     if (this.state.sfxEnabled === false) return;
     this._sfxCallCounts.playerDamage++;
     if (!this.audio.ctx) return;
-    // Body-hit thud
-    this.audio.playTone({ freq: 88, freqEnd: 52, duration: 0.14, gain: 0.055, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
-    // High distress overtone
-    this.audio.playTone({ freq: 420, freqEnd: 180, duration: 0.08, gain: 0.018, gainEnd: 0.0001, type: "sawtooth", attack: 0.002, channel: "sfx" });
+    // Sample: zombie groan on player bite — pick randomly from 3 variants
+    const groanId = `zombie-groan-${1 + Math.floor(Math.random() * 3)}`;
+    const usedSample = this.samples.playSample(groanId, this.audio.ctx, this.audio.ctx.destination, {
+      gainScale: 0.7, pitchVariance: 1.5, gainVariance: 0.12,
+    });
+    if (!usedSample) {
+      // Body-hit thud
+      this.audio.playTone({ freq: 88, freqEnd: 52, duration: 0.14, gain: 0.055, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
+      // High distress overtone
+      this.audio.playTone({ freq: 420, freqEnd: 180, duration: 0.08, gain: 0.018, gainEnd: 0.0001, type: "sawtooth", attack: 0.002, channel: "sfx" });
+    }
   }
 
   /** Cue 8: Low-health heartbeat — two soft low thumps; called from update loop.
@@ -4625,16 +4711,21 @@ export class PlayCanvasZombieSlice {
     this.audio.playTone({ freq: 1320, freqEnd: 880, duration: 0.04, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
   }
 
-  /** Cue 10: Ambient night bed — slow evolving low pad on "music" channel.
-   *  Uses setInterval so it never clashes with the raid music timers list.
-   *  Gain kept very low (0.003) to stay under raid music layers. */
+  /** Cue 10: Ambient night bed — crickets loop (real sample) or synth pad fallback.
+   *  The real sample plays on the music channel destination (ctx.destination, gated by
+   *  musicEnabled).  The synth fallback uses setInterval as before. */
   _startNightBed() {
     if (this._nightBedRunning) return;
     if (!this.state.musicEnabled) return;
     this._nightBedRunning = true;
     this._nightBedPhase = 0;
     this._sfxCallCounts.nightBedStart++;
-    // Three evolving chord voicings that rotate slowly (~4s each)
+    // Try real sample first
+    if (this.audio.ctx && this.samples.isReady("ambient-night")) {
+      this.samples.startNightBed(this.audio.ctx, this.audio.ctx.destination, 0.14);
+      return;
+    }
+    // Synth fallback: evolving low pad chords (unchanged from before)
     const BED_ROOTS = [82, 92.5, 87];   // low A / B-flat / A# area
     const BED_OFFSETS = [[0, 7, 12], [0, 5, 10], [2, 7, 14]];
     const _playBed = () => {
@@ -4654,6 +4745,11 @@ export class PlayCanvasZombieSlice {
   _stopNightBed() {
     if (!this._nightBedRunning) return;
     this._nightBedRunning = false;
+    // Stop real sample bed
+    if (this.audio.ctx) {
+      this.samples.stopNightBed(this.audio.ctx);
+    }
+    // Stop synth fallback (no-op if sample was used)
     if (this._nightBedTimerId !== null) {
       clearInterval(this._nightBedTimerId);
       this._nightBedTimerId = null;
@@ -4777,6 +4873,7 @@ export class PlayCanvasZombieSlice {
         `waveSummary=${this.state.waveSummary ? `${this.state.waveSummary.wave}:${this.state.waveSummary.kills}` : "none"}`,
         `spawned=${this.state.spawnedThisWave}`,
         `liveZombies=${live}`,
+        `samplesLoaded=${this.samples.loadedCount}`,
         `message=${this.state.lastMessage}`,
       ].join("\\n");
     };
