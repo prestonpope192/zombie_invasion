@@ -1210,12 +1210,38 @@ a {
 /* ── Shop header row ─────────────────────────────────────────────────────── */
 .pc-shop-panel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--zi-border);
+}
+
+.pc-shop-head-text {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pc-shop-close {
+  flex: none;
+  padding: 6px 16px;
+  border: 1px solid var(--zi-border-bright);
+  border-radius: var(--zi-radius-sm);
+  background: rgba(155, 214, 74, 0.1);
+  color: var(--zi-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pc-shop-close:hover {
+  background: rgba(155, 214, 74, 0.22);
 }
 
 /* Eyebrow: "FIELD SHOP" */

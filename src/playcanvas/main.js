@@ -497,8 +497,11 @@ export class PlayCanvasZombieSlice {
         </div>
         <div class="pc-shop-panel" data-panel="shop" hidden>
           <div class="pc-shop-panel-head">
-            <span data-shop-guide-title>Field Shop</span>
-            <strong data-shop-guide-body>Upgrade whenever you have coins</strong>
+            <div class="pc-shop-head-text">
+              <span data-shop-guide-title>Field Shop</span>
+              <strong data-shop-guide-body>Upgrade whenever you have coins</strong>
+            </div>
+            <button type="button" class="pc-shop-close" data-action="shop-close" aria-label="Close shop">Done</button>
           </div>
           <div class="pc-shop-grid" data-shop-items></div>
         </div>
@@ -1419,6 +1422,11 @@ export class PlayCanvasZombieSlice {
     this.root.querySelector('[data-action="haptics"]').addEventListener("click", () => this.toggleHaptics());
     this.root.querySelector('[data-action="fullscreen"]').addEventListener("click", () => this.toggleFullscreen());
     this.root.querySelector('[data-action="shop"]').addEventListener("click", () => this.toggleShop());
+    this.root.querySelector('[data-action="shop-close"]')?.addEventListener("click", () => {
+      this.shopOpen = false;
+      this._sfxUiClick?.();
+      this.updateHud();
+    });
     this.root.querySelector('[data-action="map"]').addEventListener("click", () => this.toggleMiniMap());
     const hudSettingsBtn = this.root.querySelector('[data-action="hud-settings"]');
     if (hudSettingsBtn) {
@@ -2971,7 +2979,11 @@ export class PlayCanvasZombieSlice {
       }
     }
     if (this.summaryOverlay) {
-      const show = this.summaryDisplaySec > 0 && this.state.waveSummary;
+      // The intermission "Regroup" flow card already presents the wave-clear
+      // summary, so suppress the separate overlay there to avoid two stacked
+      // panels. (summaryDisplaySec is only set at intermission today, so this
+      // effectively retires the redundant overlay.)
+      const show = this.summaryDisplaySec > 0 && this.state.waveSummary && this.state.phase !== "intermission";
       this.summaryOverlay.hidden = !show;
       if (show && this.summaryFields) {
         const s = this.state.waveSummary;
@@ -4028,9 +4040,13 @@ export class PlayCanvasZombieSlice {
     if (this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
     }
-    if (this.state.phase === "intermission") {
-      this.shopOpen = true;
+    // Intermission starts on the Regroup card (shop closed); the player opens the
+    // shop on demand via OPEN SHOP. Card and shop never show at once — see
+    // renderFlowPanel — so the two panels can't overlap.
+    if (this.state.phase === "intermission" && this._lastShopPhase !== "intermission") {
+      this.shopOpen = false;
     }
+    this._lastShopPhase = this.state.phase;
     this.shopPanel.hidden = !this.shopOpen;
     if (this.shopOpen) {
       this.renderShop();
@@ -4041,7 +4057,11 @@ export class PlayCanvasZombieSlice {
   }
 
   renderFlowPanel(live) {
-    const visible = !isActivePlayPhase(this.state.phase);
+    // At intermission the shop replaces the Regroup card (mutually exclusive) so
+    // the two panels never overlap. Other menu phases always show the card.
+    const visible =
+      !isActivePlayPhase(this.state.phase) &&
+      !(this.state.phase === "intermission" && this.shopOpen);
     this.flowPanel.hidden = !visible;
     // The bottom action bar duplicates the modal's Start/Shop/Reset on the
     // menu, so hide it whenever the flow modal is up; it returns for in-game
