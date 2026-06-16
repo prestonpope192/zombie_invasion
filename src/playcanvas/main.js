@@ -2967,14 +2967,18 @@ export class PlayCanvasZombieSlice {
     }
     this._wasReloading = this.state.pendingReload;
     this.trackAudioDamage(previousVillageHp, previousPlayerHp);
+    // Throttle the audible/physical bite feedback so being swarmed by many
+    // zombies doesn't machine-gun groans + screen shake. The visual flash
+    // stays per-hit (it's brief and reads as "I'm getting hurt").
+    this._playerHurtFxCdSec = Math.max(0, (this._playerHurtFxCdSec ?? 0) - dt);
     if (this.state.playerHp < previousPlayerHp - 0.1) {
       this.playerDamageFlashSec = 0.45;
-      // Shake on player bite — medium trauma
-      this._addShakeTrauma(0.38);
-      // Damage haptic
-      this._vibrate(45);
-      // Cue 7: player damage thud
-      this._sfxPlayerDamage();
+      if (this._playerHurtFxCdSec <= 0) {
+        this._addShakeTrauma(0.3);
+        this._vibrate(45);
+        this._sfxPlayerDamage();
+        this._playerHurtFxCdSec = 0.7;
+      }
     }
     if (this.state.villageHp < previousVillageHp - 0.1) {
       this.villageDamageFlashSec = 0.45;
@@ -3007,11 +3011,11 @@ export class PlayCanvasZombieSlice {
         const randomZombie = liveZombies[Math.floor(Math.random() * liveZombies.length)];
         const groanId = `zombie-groan-${1 + Math.floor(Math.random() * 3)}`;
         const played = this.samples.playSample(groanId, this.audio.ctx, this.audio.ctx.destination, {
-          gainScale: 0.22, pitchVariance: 3, gainVariance: 0.08,
+          gainScale: 0.16, pitchVariance: 3, gainVariance: 0.08,
         });
         if (played) {
-          // Vary cooldown 3–5s so groans don't feel metronomic
-          this._zombieGroanCooldownSec = 3 + Math.random() * 2;
+          // Vary cooldown 5–8s so ambient groans stay sparse, even in a swarm
+          this._zombieGroanCooldownSec = 5 + Math.random() * 3;
         }
       }
     }
@@ -4662,7 +4666,7 @@ export class PlayCanvasZombieSlice {
     // Sample: zombie groan on player bite — pick randomly from 3 variants
     const groanId = `zombie-groan-${1 + Math.floor(Math.random() * 3)}`;
     const usedSample = this.samples.playSample(groanId, this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.7, pitchVariance: 1.5, gainVariance: 0.12,
+      gainScale: 0.48, pitchVariance: 1.5, gainVariance: 0.12,
     });
     if (!usedSample) {
       // Body-hit thud
