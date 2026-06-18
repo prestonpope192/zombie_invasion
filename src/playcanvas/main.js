@@ -1597,8 +1597,13 @@ export class PlayCanvasZombieSlice {
     window.addEventListener("pointerup", () => {
       this.input.dragLooking = false;
     });
-    window.addEventListener("blur", () => {
-      this.input.dragLooking = false;
+    // Losing focus (alt-tab, click another window) or backgrounding the tab
+    // (mobile app-switch) means held-key `keyup` events never arrive, which used
+    // to leave movement stuck on — controls felt "locked up" mid-game. Clear ALL
+    // input on focus/visibility loss so nothing gets stuck down.
+    window.addEventListener("blur", () => this._clearAllInput());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this._clearAllInput();
     });
     // pointerlockchange / pointerlockerror fire on document, not window.
     document.addEventListener("pointerlockchange", () => {
@@ -1659,6 +1664,31 @@ export class PlayCanvasZombieSlice {
       this.requestPointerLock();
       this.fire();
     });
+  }
+
+  // Zero every movement/look input. Called on focus/visibility loss so a key or
+  // touch that was "down" when focus left can't stay stuck (the matching keyup/
+  // pointerup never fires in that case).
+  _clearAllInput() {
+    if (!this.input) return;
+    this.input.forward = 0;
+    this.input.back = 0;
+    this.input.left = 0;
+    this.input.right = 0;
+    this.input.sprint = false;
+    this.input.crouch = false;
+    this.input.jump = false;
+    this.input.ads = false;
+    this.input.dragLooking = false;
+    this.input.lookTouch = null;
+    this.input.lookVelX = 0;
+    this.input.lookVelY = 0;
+    // Release the virtual joystick if a touch was mid-drag.
+    if (this._joystickPointerId != null) {
+      this._joystickPointerId = null;
+      this._joystickBase?.classList.remove("is-active");
+      if (this._joystickKnob) this._joystickKnob.style.transform = "translate(-50%, -50%)";
+    }
   }
 
   handleLookMove(event) {
