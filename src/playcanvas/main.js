@@ -149,6 +149,10 @@ const MATERIALS = {
   glove: { diffuse: [0.16, 0.13, 0.10], emissive: [0.07, 0.05, 0.04], emissiveIntensity: 0.9, roughness: 0.88 },
   sleeve: { diffuse: [0.22, 0.24, 0.17], emissive: [0.08, 0.09, 0.06], emissiveIntensity: 0.8, roughness: 0.93 },
   muzzle: { diffuse: [1, 0.88, 0.44], emissive: [2.2, 1.4, 0.25], roughness: 0.18 },
+  blastFire: { diffuse: [1, 0.55, 0.16], emissive: [3.2, 1.5, 0.35], roughness: 1, opacity: 0.9, blend: "additive" },
+  blastSmoke: { diffuse: [0.18, 0.16, 0.15], emissive: [0.05, 0.04, 0.035], roughness: 1, opacity: 0.55 },
+  blastRing: { diffuse: [1, 0.78, 0.4], emissive: [2.6, 1.7, 0.6], roughness: 1, opacity: 0.8, blend: "additive" },
+  blastEmber: { diffuse: [1, 0.7, 0.25], emissive: [3.0, 1.6, 0.4], roughness: 1, opacity: 1, blend: "additive" },
   impactGlass: { diffuse: [0.72, 0.92, 1], emissive: [0.5, 0.8, 1.15], roughness: 0.18, opacity: 0.7 },
   impactWood: { diffuse: [0.86, 0.48, 0.22], emissive: [0.28, 0.09, 0.025], roughness: 0.7 },
   impactConcrete: { diffuse: [0.66, 0.64, 0.58], emissive: [0.16, 0.14, 0.12], roughness: 0.88 },
@@ -2132,8 +2136,18 @@ export class PlayCanvasZombieSlice {
     } else {
       this.shopOpen = !this.shopOpen;
     }
+    // Opening the shop mid-combat must free the cursor — otherwise the pointer
+    // stays locked to the canvas for mouse-look and you can't click shop items.
+    if (this.shopOpen) this._releasePointerLockForUi();
     this._sfxUiClick();
     this.updateHud();
+  }
+
+  // Release pointer lock so the cursor is usable for an interactive overlay.
+  _releasePointerLockForUi() {
+    if (typeof document !== "undefined" && document.pointerLockElement === this.canvas) {
+      document.exitPointerLock?.();
+    }
   }
 
   toggleMiniMap() {
@@ -2194,6 +2208,7 @@ export class PlayCanvasZombieSlice {
     if (!this.settingsSheet) return;
     const isOpen = !this.settingsSheet.hidden;
     this.settingsSheet.hidden = isOpen;
+    if (!isOpen) this._releasePointerLockForUi();
     this._sfxUiClick();
   }
 
@@ -2890,13 +2905,68 @@ export class PlayCanvasZombieSlice {
   }
 
   spawnBlastFx(ordnanceId) {
-    const scale = ordnanceId === "nuke" ? 1.2 : ordnanceId === "c4" ? 0.72 : 0.46;
-    const blast = this.addPrimitive(`blast-fx-${performance.now()}`, "sphere", [0, 0.8, -10], [scale, scale, scale], ordnanceId === "nuke" ? "muzzle" : "lantern");
+    // Blast centre = a bit ahead of the player, on the ground.
     const forward = this.camera.forward.clone();
     const origin = this.camera.getPosition().clone();
-    blast.setLocalPosition(origin.x + forward.x * 10, 0.8, origin.z + forward.z * 10);
-    blast._sliceTtl = 0.28;
-    this.fx.push(blast);
+    const dist = ordnanceId === "nuke" ? 13 : ordnanceId === "c4" ? 9 : 9;
+    const cx = origin.x + forward.x * dist;
+    const cz = origin.z + forward.z * dist;
+    // Per-ordnance blast radius.
+    const R = ordnanceId === "nuke" ? 8.5 : ordnanceId === "c4" ? 4.6 : 3.2;
+    const seq = Math.round(performance.now());
+
+    // 1) Core fireball — expands fast + fades.
+    const core = this.addPrimitive(`blast-core-${seq}`, "sphere", [cx, 1.1, cz], [0.3, 0.3, 0.3], "blastFire");
+    core._sliceTtl = 0.45; core._sliceMaxTtl = 0.45; core._sliceExpand = true;
+    core._sliceStartScale = [0.4, 0.4, 0.4]; core._sliceBaseScale = [R * 1.5, R * 1.5, R * 1.5];
+    core._sliceFadeFrom = 0.95;
+    this.fx.push(core);
+
+    // 2) Smoke ball — bigger, slower, lingers behind the fire.
+    const smoke = this.addPrimitive(`blast-smoke-${seq}`, "sphere", [cx, 1.4, cz], [0.5, 0.5, 0.5], "blastSmoke");
+    smoke._sliceTtl = 0.9; smoke._sliceMaxTtl = 0.9; smoke._sliceExpand = true;
+    smoke._sliceStartScale = [0.6, 0.6, 0.6]; smoke._sliceBaseScale = [R * 1.7, R * 1.5, R * 1.7];
+    smoke._sliceFadeFrom = 0.55;
+    this.fx.push(smoke);
+
+    // 3) Ground shockwave ring — flat disc that expands outward.
+    const ring = this.addPrimitive(`blast-ring-${seq}`, "cylinder", [cx, 0.18, cz], [0.6, 0.06, 0.6], "blastRing");
+    ring._sliceTtl = 0.5; ring._sliceMaxTtl = 0.5; ring._sliceExpand = true;
+    ring._sliceStartScale = [0.6, 0.06, 0.6]; ring._sliceBaseScale = [R * 2.4, 0.06, R * 2.4];
+    ring._sliceFadeFrom = 0.8;
+    this.fx.push(ring);
+
+    // 4) Ember sparks flying outward (with gravity).
+    const emberCount = ordnanceId === "nuke" ? 16 : 10;
+    for (let i = 0; i < emberCount; i += 1) {
+      const ang = (i / emberCount) * Math.PI * 2 + (seq % 7);
+      const spd = R * (1.8 + (i % 3) * 0.6);
+      const ember = this.addPrimitive(`blast-ember-${seq}-${i}`, "box", [cx, 1.0, cz], [0.18, 0.18, 0.18], "blastEmber");
+      ember._sliceTtl = 0.55; ember._sliceMaxTtl = 0.55; ember._sliceExpand = true;
+      ember._sliceStartScale = [0.22, 0.22, 0.22]; ember._sliceBaseScale = [0.05, 0.05, 0.05];
+      ember._sliceFadeFrom = 1;
+      ember._sliceVel = [Math.cos(ang) * spd, 3.2 + (i % 4), Math.sin(ang) * spd];
+      this.fx.push(ember);
+    }
+
+    // 5) Bright flash light at the blast.
+    const flash = new pc.Entity(`blast-light-${seq}`);
+    flash.addComponent("light", {
+      type: "omni",
+      color: new pc.Color(1, 0.6, 0.25),
+      intensity: ordnanceId === "nuke" ? 10 : 6,
+      range: R * 3,
+      castShadows: false,
+    });
+    flash.setLocalPosition(cx, 1.4, cz);
+    this.app.root.addChild(flash);
+    flash._sliceTtl = 0.3;
+    const fadeLight = () => {
+      flash._sliceTtl -= 1 / 60;
+      if (flash.light) flash.light.intensity = Math.max(0, (ordnanceId === "nuke" ? 10 : 6) * (flash._sliceTtl / 0.3));
+      if (flash._sliceTtl > 0) { requestAnimationFrame(fadeLight); } else { flash.destroy(); }
+    };
+    requestAnimationFrame(fadeLight);
   }
 
   reset() {
@@ -4181,7 +4251,26 @@ export class PlayCanvasZombieSlice {
       }
       entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
       const baseScale = entity._sliceBaseScale;
-      if (baseScale) {
+      if (entity._sliceExpand) {
+        // Explosion-style FX: grow from start→base over life (ease-out) + fade.
+        const maxTtl = Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl);
+        const lifeT = Math.min(1, Math.max(0, 1 - entity._sliceTtl / maxTtl));
+        const e = 1 - (1 - lifeT) * (1 - lifeT); // ease-out
+        const s0 = entity._sliceStartScale ?? [0.1, 0.1, 0.1];
+        const s1 = baseScale ?? [1, 1, 1];
+        entity.setLocalScale(
+          s0[0] + (s1[0] - s0[0]) * e,
+          s0[1] + (s1[1] - s0[1]) * e,
+          s0[2] + (s1[2] - s0[2]) * e,
+        );
+        if (entity._sliceVel) {
+          const p = entity.getLocalPosition();
+          entity.setLocalPosition(p.x + entity._sliceVel[0] * dt, p.y + entity._sliceVel[1] * dt, p.z + entity._sliceVel[2] * dt);
+          entity._sliceVel[1] -= 9 * dt; // gravity on ember sparks
+        }
+        const mat = entity.render?.meshInstances?.[0]?.material;
+        if (mat) { mat.opacity = Math.max(0, (entity._sliceFadeFrom ?? 1) * (1 - lifeT)); mat.update(); }
+      } else if (baseScale) {
         const progress = Math.max(0.01, entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl));
         entity.setLocalScale(baseScale[0] * progress, baseScale[1] * progress, baseScale[2] * progress);
       } else {
