@@ -81,7 +81,7 @@ const WEAPON_SLOT_BINDINGS = [
 ];
 
 // Sky/backdrop materials that should not receive scene fog
-const NO_FOG_MATERIALS = new Set(["skyBand", "cloud", "cloudDark", "moon", "moonHalo", "moonPool"]);
+const NO_FOG_MATERIALS = new Set(["skyBand", "cloud", "cloudDark", "moon", "moonHalo", "moonHaloInner", "moonHaloMid", "moonHaloOuter", "moonPool"]);
 
 const MATERIALS = {
   skyBand: { diffuse: [0.05, 0.18, 0.34], emissive: [0.035, 0.12, 0.24], roughness: 1 },
@@ -130,6 +130,11 @@ const MATERIALS = {
   pine: { diffuse: [0.06, 0.14, 0.1], emissive: [0.005, 0.016, 0.016], roughness: 0.92 },
   stone: { diffuse: [0.45, 0.42, 0.36], emissive: [0.035, 0.035, 0.035], roughness: 0.86 },
   stoneDark: { diffuse: [0.3, 0.29, 0.26], emissive: [0.018, 0.018, 0.016], roughness: 0.9 },
+  // Graduated moon glow — three nested spheres, opacity falls off with radius
+  moonHaloInner: { diffuse: [0.65, 0.78, 1], emissive: [0.10, 0.18, 0.35], roughness: 1, opacity: 0.22 },
+  moonHaloMid:   { diffuse: [0.55, 0.68, 1], emissive: [0.06, 0.11, 0.24], roughness: 1, opacity: 0.11 },
+  moonHaloOuter: { diffuse: [0.42, 0.58, 0.92], emissive: [0.03, 0.06, 0.14], roughness: 1, opacity: 0.05 },
+  // Legacy key kept in case anything else references it
   moonHalo: { diffuse: [0.58, 0.72, 1], emissive: [0.08, 0.14, 0.28], roughness: 1, opacity: 0.18 },
   groundMist: { diffuse: [0.32, 0.44, 0.64], emissive: [0.06, 0.11, 0.20], roughness: 1, opacity: 0.16 },
   // Barrel/scope — warm-cool steel, slightly brighter than frame for visual pop
@@ -847,8 +852,12 @@ export class PlayCanvasZombieSlice {
 
     this.addSkyLayers();
     this.addPrimitive("moon-disc", "sphere", [0, 27, -72], [4.8, 4.8, 4.8], "moon");
-    // Task 5: Moon halo — large translucent glow sphere behind the disc
-    this.addPrimitive("moon-halo", "sphere", [0, 27, -71], [10, 10, 10], "moonHalo");
+    // Moon glow: 3 nested halo spheres with decreasing opacity = soft graduated falloff.
+    // Inner halo (r8, op 0.22) → mid halo (r13, op 0.11) → outer corona (r20, op 0.05).
+    // Placed just behind the disc (z -71) so they layer behind it visually.
+    this.addPrimitive("moon-halo-inner", "sphere", [0, 27, -71], [8, 8, 8], "moonHaloInner");
+    this.addPrimitive("moon-halo-mid",   "sphere", [0, 27, -70], [13, 13, 13], "moonHaloMid");
+    this.addPrimitive("moon-halo-outer", "sphere", [0, 27, -69], [20, 20, 20], "moonHaloOuter");
     this.addGround();
     this.addVillage();
     this.addBuildingInteriors();
@@ -899,6 +908,9 @@ export class PlayCanvasZombieSlice {
   addGround() {
     this.addPrimitive("ground", "box", [0, -0.08, -15], [70, 0.12, 104], "ground");
     this.addPrimitive("mud-lane", "box", [0, -0.03, -13], [9.4, 0.04, 88], "road");
+    // Grass shoulder strips either side of the mud lane — break the flat plane
+    this.addPrimitive("grass-left",  "box", [-8.8, -0.04, -13], [6.8, 0.03, 88], "grassDark");
+    this.addPrimitive("grass-right", "box", [ 8.8, -0.04, -13], [6.8, 0.03, 88], "grassDark");
     this.addPrimitive("left-path-edge", "box", [-5.2, 0, -13], [0.42, 0.05, 88], "pathEdge");
     this.addPrimitive("right-path-edge", "box", [5.2, 0, -13], [0.42, 0.05, 88], "pathEdge");
     for (let z = -48; z <= 18; z += 5.5) {
@@ -970,14 +982,29 @@ export class PlayCanvasZombieSlice {
   }
 
   addCloudCluster(name, x, y, z, scale) {
+    // Puffy billowy cloud: 7 overlapping spheres with vertical proportion closer
+    // to horizontal (sy ~0.70–0.90 × sx instead of the old ~0.12–0.16 × sx).
+    // Layout: large central body, two mid-height flanking lobes, two upper puffs,
+    // two lower anchor puffs (slightly darker cloudDark material).
+    // [ox, oy, oz, sx, sy, sz, materialKey]
     const offsets = [
-      [0, 0, 0, 5.6, 0.7, 1.3],
-      [-3.8, -0.2, 0.4, 3.8, 0.55, 1],
-      [3.4, 0.25, -0.2, 4.2, 0.65, 1.1],
-      [7.1, -0.08, 0.3, 2.9, 0.42, 0.85],
+      // central body — biggest sphere, sets cloud mass
+      [0,    0,    0,    4.8, 3.6, 2.6, "cloud"],
+      // right lobe
+      [3.2,  0.2,  0.1,  3.6, 2.8, 2.2, "cloud"],
+      // left lobe
+      [-3.0, 0.1, -0.1,  3.2, 2.6, 2.0, "cloud"],
+      // upper puff (centre)
+      [0.4,  2.2,  0.2,  2.8, 2.4, 1.8, "cloud"],
+      // upper puff (right)
+      [2.6,  1.8, -0.1,  2.2, 1.9, 1.6, "cloud"],
+      // lower anchor left — slightly darker base
+      [-2.2,-0.9,  0.3,  3.0, 2.0, 2.0, "cloudDark"],
+      // lower anchor right — slightly darker base
+      [2.8, -0.8,  0.1,  2.6, 1.8, 1.8, "cloudDark"],
     ];
-    for (const [ox, oy, oz, sx, sy, sz] of offsets) {
-      const cloud = this.addPrimitive(`${name}-${ox}`, "sphere", [x + ox * scale, y + oy, z + oz], [sx * scale, sy * scale, sz * scale], oy > 0 ? "cloud" : "cloudDark");
+    for (const [ox, oy, oz, sx, sy, sz, mat] of offsets) {
+      const cloud = this.addPrimitive(`${name}-${ox}`, "sphere", [x + ox * scale, y + oy * scale, z + oz * scale], [sx * scale, sy * scale, sz * scale], mat);
       cloud.setEulerAngles(0, ox * 9, 0);
     }
   }
@@ -1047,6 +1074,12 @@ export class PlayCanvasZombieSlice {
       const z = 18 - i * 2.65;
       const x = side * (11.5 + Math.sin(i * 1.7) * 4.4);
       const landscapeId = `landscape-${i}`;
+      // Cull trees in the camera's near zone around spawn (player at ~x0,z12 facing -Z).
+      // Skip any tree at z∈[4,18] AND |x|<14 — that's the immediate right/left edge
+      // of the spawn view where a big trunk clips the camera frustum.
+      if (z >= 4 && z <= 18 && Math.abs(x) < 14) {
+        continue;
+      }
       if (i % 3 === 0) {
         // Task 3: pines — extra tier + per-tree rotation
         const rotY = rand() * 360;
