@@ -1013,10 +1013,13 @@ export class PlayCanvasZombieSlice {
   }
 
   addPitchedRoof(name, x, z, width, depth, y, materialKey) {
+    // Panels slope UP toward the centre ridge (∧). The inner edge of each panel
+    // must be high and the outer eave low — the previous signs were swapped,
+    // which raised the eaves and dropped the centre (an upside-down ∨ roof).
     const left = this.addPrimitive(`${name}-left`, "box", [x - width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey);
-    left.setEulerAngles(0, 0, -25);
+    left.setEulerAngles(0, 0, 25);
     const right = this.addPrimitive(`${name}-right`, "box", [x + width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey);
-    right.setEulerAngles(0, 0, 25);
+    right.setEulerAngles(0, 0, -25);
     this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "timber");
   }
 
@@ -3027,10 +3030,15 @@ export class PlayCanvasZombieSlice {
       this._heartbeatPhaseSec = 0;
     }
     // Cue 10: ambient night bed — start on first wave, stop when not in active play
-    const isActiveCombat = this.state.phase === "running" || this.state.phase === "intermission";
-    if (isActiveCombat && !this._nightBedRunning) {
+    // The cricket ambience is a sound effect, so it follows the SFX toggle —
+    // turning SFX off stops it within a frame (it used to keep playing because
+    // it was gated on music and routed past both gain nodes).
+    const bedShouldRun =
+      (this.state.phase === "running" || this.state.phase === "intermission") &&
+      this.state.sfxEnabled !== false;
+    if (bedShouldRun && !this._nightBedRunning) {
       this._startNightBed();
-    } else if (!isActiveCombat && this._nightBedRunning) {
+    } else if (!bedShouldRun && this._nightBedRunning) {
       this._stopNightBed();
     }
     // Zombie ambient groans — emit from a random live nearby zombie ~every 4s
@@ -4750,7 +4758,7 @@ export class PlayCanvasZombieSlice {
    *  musicEnabled).  The synth fallback uses setInterval as before. */
   _startNightBed() {
     if (this._nightBedRunning) return;
-    if (!this.state.musicEnabled) return;
+    if (this.state.sfxEnabled === false) return;
     this._nightBedRunning = true;
     this._nightBedPhase = 0;
     this._sfxCallCounts.nightBedStart++;
@@ -4763,7 +4771,7 @@ export class PlayCanvasZombieSlice {
     const BED_ROOTS = [82, 92.5, 87];   // low A / B-flat / A# area
     const BED_OFFSETS = [[0, 7, 12], [0, 5, 10], [2, 7, 14]];
     const _playBed = () => {
-      if (!this._nightBedRunning || !this.state.musicEnabled) return;
+      if (!this._nightBedRunning || this.state.sfxEnabled === false) return;
       if (!this.audio.ctx) return;
       const phase = this._nightBedPhase % BED_ROOTS.length;
       const root = BED_ROOTS[phase];
