@@ -132,15 +132,17 @@ const MATERIALS = {
   stoneDark: { diffuse: [0.3, 0.29, 0.26], emissive: [0.018, 0.018, 0.016], roughness: 0.9 },
   moonHalo: { diffuse: [0.58, 0.72, 1], emissive: [0.08, 0.14, 0.28], roughness: 1, opacity: 0.18 },
   groundMist: { diffuse: [0.32, 0.44, 0.64], emissive: [0.06, 0.11, 0.20], roughness: 1, opacity: 0.16 },
-  metal: { diffuse: [0.46, 0.5, 0.5], emissive: [0.025, 0.032, 0.035], roughness: 0.42, metalness: 0.25 },
-  // Task 2: brightened for edge readability at night
-  blackMetal: { diffuse: [0.07, 0.082, 0.10], emissive: [0.008, 0.010, 0.015], roughness: 0.36, metalness: 0.55 },
-  rail: { diffuse: [0.12, 0.13, 0.155], emissive: [0.014, 0.016, 0.022], roughness: 0.32, metalness: 0.5 },
-  // Task 2: accent material for sights/slide-tops
-  gunmetalLight: { diffuse: [0.18, 0.20, 0.24], emissive: [0.018, 0.020, 0.026], roughness: 0.35, metalness: 0.4 },
-  // Task 3: hand/arm materials
-  glove: { diffuse: [0.10, 0.095, 0.09], emissive: [0.006, 0.006, 0.005], roughness: 0.9 },
-  sleeve: { diffuse: [0.16, 0.17, 0.12], emissive: [0.010, 0.011, 0.008], roughness: 0.95 },
+  // Barrel/scope — warm-cool steel, slightly brighter than frame for visual pop
+  metal: { diffuse: [0.40, 0.43, 0.50], emissive: [0.24, 0.28, 0.38], emissiveIntensity: 0.9, roughness: 0.30, metalness: 0.62 },
+  // Gun frame/receiver — dark blue-grey polymer; emissive gives moonlit ambient read
+  blackMetal: { diffuse: [0.25, 0.28, 0.34], emissive: [0.14, 0.18, 0.26], emissiveIntensity: 0.8, roughness: 0.45, metalness: 0.65 },
+  // Rail/handguard surfaces — medium gunmetal, clearly lighter than blackMetal
+  rail: { diffuse: [0.30, 0.33, 0.40], emissive: [0.18, 0.22, 0.32], emissiveIntensity: 0.9, roughness: 0.38, metalness: 0.65 },
+  // Slide top, sights, muzzle crown — brightest gun part, clear moonlit highlight
+  gunmetalLight: { diffuse: [0.48, 0.52, 0.64], emissive: [0.34, 0.42, 0.58], emissiveIntensity: 1.3, roughness: 0.22, metalness: 0.78 },
+  // Hand/arm materials — warm dark leather + olive drab sleeve
+  glove: { diffuse: [0.16, 0.13, 0.10], emissive: [0.07, 0.05, 0.04], emissiveIntensity: 0.9, roughness: 0.88 },
+  sleeve: { diffuse: [0.22, 0.24, 0.17], emissive: [0.08, 0.09, 0.06], emissiveIntensity: 0.8, roughness: 0.93 },
   muzzle: { diffuse: [1, 0.88, 0.44], emissive: [2.2, 1.4, 0.25], roughness: 0.18 },
   impactGlass: { diffuse: [0.72, 0.92, 1], emissive: [0.5, 0.8, 1.15], roughness: 0.18, opacity: 0.7 },
   impactWood: { diffuse: [0.86, 0.48, 0.22], emissive: [0.28, 0.09, 0.025], roughness: 0.7 },
@@ -1149,19 +1151,32 @@ export class PlayCanvasZombieSlice {
     this.weaponRoot.setLocalPosition(0.48, -0.5, -0.95);
     this.weaponRoot.setLocalEulerAngles(-1, -6, 0);
 
-    // Task 1: viewmodel fill light — dim omni parented to camera so the held
-    // weapon catches light at night and reads 3-dimensionally.
-    // Range ≤ 2.5 so it does NOT noticeably illuminate the scene.
+    // Viewmodel key light — cool moonlit blue-white from upper-left of camera.
+    // Range 2.2 so it cannot reach scene geometry (zombies stay unchanged).
     const viewmodelLight = new pc.Entity("viewmodel-fill-light");
     viewmodelLight.addComponent("light", {
       type: "omni",
-      color: new pc.Color(0.7, 0.78, 0.95),
-      intensity: 1.25,
-      range: 2.4,
+      color: new pc.Color(0.72, 0.84, 1.0),
+      intensity: 4.5,
+      range: 2.2,
       castShadows: false,
     });
-    viewmodelLight.setLocalPosition(0.3, -0.2, -0.4);
+    viewmodelLight.setLocalPosition(-0.15, 0.12, -0.55);
     this.camera.addChild(viewmodelLight);
+
+    // Viewmodel warm rim/fill — subtle orange-amber from the right/below to give
+    // the gun 3-D read (frame vs slide catch different light temperatures).
+    // Range 1.8 keeps it strictly on the viewmodel.
+    const viewmodelRim = new pc.Entity("viewmodel-rim-light");
+    viewmodelRim.addComponent("light", {
+      type: "omni",
+      color: new pc.Color(1.0, 0.72, 0.38),
+      intensity: 1.8,
+      range: 1.8,
+      castShadows: false,
+    });
+    viewmodelRim.setLocalPosition(0.55, -0.35, -0.60);
+    this.camera.addChild(viewmodelRim);
 
     this.weaponModels = new Map();
     this.createSidearmModel();
@@ -1191,18 +1206,22 @@ export class PlayCanvasZombieSlice {
   }
 
   createSidearmModel() {
-    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.42, -0.48, -0.76] });
+    // Root offset: X=0.28 places the gun well in the bottom-right without being cut off.
+    // Internal parts are shifted slightly left (X reduced) so the rightmost piece (forearm-r)
+    // stays within screen bounds at 375px mobile width.
+    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.28, -0.44, -0.76] });
     this.addPrimitive("sidearm-slide", "box", [0, 0.08, -0.2], [0.22, 0.16, 0.64], "blackMetal", root);
     this.addPrimitive("sidearm-slide-top", "box", [0, 0.165, -0.2], [0.22, 0.02, 0.64], "gunmetalLight", root);
     this.addPrimitive("sidearm-front-sight", "box", [0, 0.175, -0.48], [0.04, 0.05, 0.03], "gunmetalLight", root);
     this.addPrimitive("sidearm-rear-sight", "box", [0, 0.175, 0.06], [0.1, 0.05, 0.04], "gunmetalLight", root);
     this.addPrimitive("sidearm-muzzle-crown", "cylinder", [0.01, 0.07, -0.75], [0.042, 0.04, 0.042], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("sidearm-frame", "box", [0.01, -0.03, -0.02], [0.2, 0.12, 0.42], "rail", root);
-    this.addPrimitive("sidearm-grip", "box", [0.05, -0.22, 0.14], [0.18, 0.36, 0.16], "blackMetal", root).setLocalEulerAngles(-13, 0, 0);
+    // Grip/hand shifted slightly left (-0.02 on X) to reduce off-screen extension
+    this.addPrimitive("sidearm-grip", "box", [0.03, -0.22, 0.14], [0.18, 0.36, 0.16], "blackMetal", root).setLocalEulerAngles(-13, 0, 0);
     this.addPrimitive("sidearm-barrel", "cylinder", [0.01, 0.07, -0.58], [0.035, 0.32, 0.035], "metal", root).setLocalEulerAngles(90, 0, 0);
-    // Right hand + forearm (sidearm: single-hand weapon)
-    this.addPrimitive("sidearm-hand-r", "box", [0.05, -0.22, 0.14], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-13, 0, 4);
-    this.addPrimitive("sidearm-forearm-r", "box", [0.18, -0.38, 0.32], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(38, -14, 0);
+    // Right hand + forearm — forearm-r X reduced from 0.18 to 0.10 to keep it on screen
+    this.addPrimitive("sidearm-hand-r", "box", [0.03, -0.22, 0.14], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-13, 0, 4);
+    this.addPrimitive("sidearm-forearm-r", "box", [0.10, -0.36, 0.30], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(36, -12, 0);
   }
 
   createCompactModel() {
