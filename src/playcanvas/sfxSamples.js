@@ -49,6 +49,17 @@ export class SfxSampleManager {
     /** @type {GainNode|null} the ambient bed gain node */
     this._bedGain = null;
     this._bedPlaying = false;
+    /** When true, every playback is suppressed (mirrors the SFX-off toggle).
+     *  Samples play straight to ctx.destination, bypassing audio3d's own sfx
+     *  gate, so this is the single backstop that keeps any sample silent. */
+    this._muted = false;
+  }
+
+  /** Mute/unmute all one-shot sample playback. Call from the SFX toggle.
+   *  (The looping night bed is started/stopped by the game's update loop,
+   *  which already gates on the SFX state.) */
+  setMuted(muted) {
+    this._muted = !!muted;
   }
 
   // -------------------------------------------------------------------------
@@ -126,6 +137,7 @@ export class SfxSampleManager {
    * @returns {boolean} true if the sample was actually started
    */
   playSample(id, ctx, destination, opts = {}) {
+    if (this._muted) return false;
     if (!ctx || !destination) return false;
     const buf = this._buffers.get(id);
     if (!buf) return false;
@@ -177,6 +189,7 @@ export class SfxSampleManager {
    * @param {number}       [gainValue=0.18] — volume of the bed layer
    */
   startNightBed(ctx, destination, gainValue = 0.18) {
+    if (this._muted) return;
     if (!ctx || !destination) return;
     if (this._bedPlaying) return;
     const buf = this._buffers.get("ambient-night");

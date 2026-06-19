@@ -156,6 +156,7 @@ export class PlayCanvasZombieSlice {
     this.audio.setMusicEnabled(this.state.musicEnabled);
     this.audio.setSfxEnabled(this.state.sfxEnabled);
     this.samples = new SfxSampleManager();
+    this.samples.setMuted(this.state.sfxEnabled === false);
     // Zombie ambient groan throttle — emit at most one groan per 4s
     this._zombieGroanCooldownSec = 0;
     this.audioDamagePulseSec = 0;
@@ -924,7 +925,9 @@ export class PlayCanvasZombieSlice {
     });
 
     for (let x = -6; x <= 6; x += 2) {
-      this.addPrimitive(`barricade-${x}`, "box", [x, 0.65, SLICE_WORLD.villageZ + 3.2], [1.35, 0.35, 0.38], "wood").setEulerAngles(0, x * 8, 12);
+      // Low barrier resting on the ground (was floating at y=0.65 + tilted 12°,
+      // which read as a plank hovering in mid-air).
+      this.addPrimitive(`barricade-${x}`, "box", [x, 0.28, SLICE_WORLD.villageZ + 3.2], [1.35, 0.52, 0.42], "wood").setEulerAngles(0, x * 8, 0);
     }
 
     for (let i = 0; i < 8; i += 1) {
@@ -960,12 +963,8 @@ export class PlayCanvasZombieSlice {
       [8, 21, -66, 0.92],
     ];
     cloudRows.forEach(([x, y, z, scale], index) => this.addCloudCluster(`cloud-${index}`, x, y, z, scale));
-    for (let i = 0; i < 28; i += 1) {
-      const x = -42 + (i * 13) % 84;
-      const y = 18 + ((i * 7) % 13);
-      const z = -62 - ((i * 11) % 34);
-      this.addPrimitive(`star-${i}`, "sphere", [x, y, z], [0.045, 0.045, 0.045], "moon");
-    }
+    // (Removed the scattered "star" spheres — at 0.045u they read as stray
+    // dots/artifacts rather than stars; the moon + clouds carry the night sky.)
   }
 
   addCloudCluster(name, x, y, z, scale) {
@@ -1115,12 +1114,18 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`grass-tuft-${i}`, "cone", [x, sy * 0.5, z], [sx, sy, sx], "grassDark");
     }
 
-    // Fences
+    // Fences — posts every 8u; rails span the FULL gap between posts (8.1u,
+    // centred at z+4) so they actually connect. Two rails (top + mid) read as a
+    // proper fence instead of short segments floating between widely-set posts.
     for (let z = -46; z <= 18; z += 8) {
       this.addPrimitive(`fence-left-${z}`, "box", [-7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
       this.addPrimitive(`fence-right-${z}`, "box", [7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
-      this.addPrimitive(`fence-rail-left-${z}`, "box", [-7.2, 0.95, z + 2], [0.18, 0.24, 4.2], "wood");
-      this.addPrimitive(`fence-rail-right-${z}`, "box", [7.2, 0.95, z + 2], [0.18, 0.24, 4.2], "wood");
+      if (z < 18) {
+        for (const [rail, ry] of [["top", 1.04], ["mid", 0.58]]) {
+          this.addPrimitive(`fence-${rail}-left-${z}`, "box", [-7.2, ry, z + 4], [0.16, 0.2, 8.1], "wood");
+          this.addPrimitive(`fence-${rail}-right-${z}`, "box", [7.2, ry, z + 4], [0.16, 0.2, 8.1], "wood");
+        }
+      }
     }
   }
 
@@ -1540,10 +1545,13 @@ export class PlayCanvasZombieSlice {
       if (!input) return;
       const setting = input.dataset.menuSetting;
       if (setting === "musicEnabled" || setting === "sfxEnabled") {
-        setPlayCanvasAudioSettings(this.state, {
+        const s = setPlayCanvasAudioSettings(this.state, {
           musicEnabled: setting === "musicEnabled" ? input.checked : this.state.musicEnabled,
           sfxEnabled: setting === "sfxEnabled" ? input.checked : this.state.sfxEnabled,
         });
+        this.audio.setSfxEnabled(s.sfxEnabled);
+        this.audio.setMusicEnabled(s.musicEnabled);
+        this.samples?.setMuted(s.sfxEnabled === false);
         this.updateHud();
       } else if (setting === "qualityPreset") {
         this.state.qualityPreset = input.value === "auto" ? null : input.value;
@@ -2104,6 +2112,7 @@ export class PlayCanvasZombieSlice {
   toggleSfx() {
     const settings = setPlayCanvasAudioSettings(this.state, { sfxEnabled: !this.state.sfxEnabled });
     this.audio.setSfxEnabled(settings.sfxEnabled);
+    this.samples?.setMuted(settings.sfxEnabled === false);
     this.updateHud();
   }
 
@@ -2216,28 +2225,33 @@ export class PlayCanvasZombieSlice {
       this.updateHud();
       return;
     }
-    // Gunshot — try real sample first, fall back to synth profile
-    if (!this.audio.ctx || !this.samples.playSample(
-      Math.random() < 0.5 ? "gunshot-1" : "gunshot-2",
-      this.audio.ctx,
-      this.audio.ctx.destination,
-      { gainScale: 0.82, pitchVariance: 1.2, gainVariance: 0.1 },
-    )) {
-      this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
-    }
-    if (result.impact) {
-      // Bullet impact on structure — concrete/stone sample
-      if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
-        gainScale: 0.5, pitchVariance: 2, gainVariance: 0.1,
-      })) {
-        this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
+    // All shot audio (samples + synth fallback) respects the SFX toggle. The
+    // sample manager plays straight to ctx.destination, so it bypasses audio3d's
+    // own sfx gate — guard here or gunshots keep firing with SFX off.
+    if (this.state.sfxEnabled !== false) {
+      // Gunshot — try real sample first, fall back to synth profile
+      if (!this.audio.ctx || !this.samples.playSample(
+        Math.random() < 0.5 ? "gunshot-1" : "gunshot-2",
+        this.audio.ctx,
+        this.audio.ctx.destination,
+        { gainScale: 0.82, pitchVariance: 1.2, gainVariance: 0.1 },
+      )) {
+        this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
       }
-    } else if (result.hit) {
-      // Bullet impact on zombie flesh
-      if (!this.audio.ctx || !this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
-        gainScale: 0.55, pitchVariance: 1.5, gainVariance: 0.1,
-      })) {
-        this.audio.playImpact("flesh", this.getAudioPositionAhead(7));
+      if (result.impact) {
+        // Bullet impact on structure — concrete/stone sample
+        if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
+          gainScale: 0.5, pitchVariance: 2, gainVariance: 0.1,
+        })) {
+          this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
+        }
+      } else if (result.hit) {
+        // Bullet impact on zombie flesh
+        if (!this.audio.ctx || !this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
+          gainScale: 0.55, pitchVariance: 1.5, gainVariance: 0.1,
+        })) {
+          this.audio.playImpact("flesh", this.getAudioPositionAhead(7));
+        }
       }
     }
     this.flashMuzzle();
