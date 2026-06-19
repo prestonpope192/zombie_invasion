@@ -39,6 +39,9 @@ try {
 
   await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 20000 });
   await page.evaluate((saveKey) => localStorage.removeItem(saveKey), "zombie_invasion_playcanvas_save_v1");
+  // Skip the first-run onboarding overlay (it suppresses the campaign modal,
+  // and the smoke isn't testing onboarding — it clicks the campaign primary).
+  await page.evaluate(() => localStorage.setItem("zi_onboarded", "1"));
   await page.reload({ waitUntil: "networkidle" });
   const readyText = await page.evaluate(() => window.render_game_to_text?.() ?? "");
   const readyPrimaryText = await page.locator('[data-flow-action="primary"]').textContent();

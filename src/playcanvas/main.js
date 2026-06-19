@@ -711,6 +711,9 @@ export class PlayCanvasZombieSlice {
     const alreadyOnboarded = typeof localStorage !== 'undefined' && localStorage.getItem('zi_onboarded') === '1';
     if (!alreadyOnboarded && this.onboardingOverlay) {
       this.onboardingOverlay.hidden = false;
+      // Suppress the campaign modal behind the onboarding card so its text
+      // doesn't bleed through (renderFlowPanel checks this flag).
+      this._onboardingVisible = true;
       // Auto-dismiss on ANY first pointerdown (capture phase, before click fires).
       // This lets the smoke's click on [data-flow-action="primary"] still work:
       // pointerdown removes the overlay → click reaches the button underneath.
@@ -1563,7 +1566,13 @@ export class PlayCanvasZombieSlice {
     // Onboarding overlay dismiss button
     const onboardingDismissBtn = this.root.querySelector('[data-action="onboarding-dismiss"]');
     if (onboardingDismissBtn) {
-      onboardingDismissBtn.addEventListener("click", () => this._dismissOnboarding());
+      onboardingDismissBtn.addEventListener("click", () => {
+        this._dismissOnboarding();
+        // "GOT IT — PLAY" jumps straight into the campaign (no redundant menu step).
+        if (this.state.phase === "ready") {
+          this.startOrContinueCampaign({ pointerLock: true });
+        }
+      });
     }
     this.flowPanel.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-flow-action]");
@@ -2503,9 +2512,12 @@ export class PlayCanvasZombieSlice {
     if (this.onboardingOverlay) {
       this.onboardingOverlay.hidden = true;
     }
+    this._onboardingVisible = false;
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('zi_onboarded', '1');
     }
+    // Reveal the campaign modal again now that onboarding is gone.
+    this.updateHud?.();
   }
 
   _showGoalToast(message) {
@@ -4294,7 +4306,8 @@ export class PlayCanvasZombieSlice {
     // the two panels never overlap. Other menu phases always show the card.
     const visible =
       !isActivePlayPhase(this.state.phase) &&
-      !(this.state.phase === "intermission" && this.shopOpen);
+      !(this.state.phase === "intermission" && this.shopOpen) &&
+      !this._onboardingVisible;
     this.flowPanel.hidden = !visible;
     // The bottom action bar duplicates the modal's Start/Shop/Reset on the
     // menu, so hide it whenever the flow modal is up; it returns for in-game
