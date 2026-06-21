@@ -151,6 +151,8 @@ const MATERIALS = {
   muzzle: { diffuse: [1, 0.88, 0.44], emissive: [2.2, 1.4, 0.25], roughness: 0.18 },
   blastFire: { diffuse: [1, 0.55, 0.16], emissive: [3.2, 1.5, 0.35], roughness: 1, opacity: 0.9, blend: "additive" },
   blastSmoke: { diffuse: [0.18, 0.16, 0.15], emissive: [0.05, 0.04, 0.035], roughness: 1, opacity: 0.55 },
+  // Muzzle smoke puff — grey translucent, expands and fades on shot
+  smokeGrey: { diffuse: [0.22, 0.22, 0.24], emissive: [0.06, 0.06, 0.07], roughness: 1, opacity: 0.38 },
   blastRing: { diffuse: [1, 0.78, 0.4], emissive: [2.6, 1.7, 0.6], roughness: 1, opacity: 0.8, blend: "additive" },
   blastEmber: { diffuse: [1, 0.7, 0.25], emissive: [3.0, 1.6, 0.4], roughness: 1, opacity: 1, blend: "additive" },
   impactGlass: { diffuse: [0.72, 0.92, 1], emissive: [0.5, 0.8, 1.15], roughness: 0.18, opacity: 0.7 },
@@ -1250,7 +1252,13 @@ export class PlayCanvasZombieSlice {
     // Internal parts are shifted slightly left (X reduced) so the rightmost piece (forearm-r)
     // stays within screen bounds at 375px mobile width.
     const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.28, -0.44, -0.76] });
-    this.addPrimitive("sidearm-slide", "box", [0, 0.08, -0.2], [0.22, 0.16, 0.64], "blackMetal", root);
+    // Tag the slide entity so the per-weapon animation can rack it back on fire.
+    const slide = this.addPrimitive("sidearm-slide", "box", [0, 0.08, -0.2], [0.22, 0.16, 0.64], "blackMetal", root);
+    root._actionPart = slide;
+    root._actionRestX = 0;
+    root._actionRestY = 0.08;
+    root._actionRestZ = -0.2;   // local Z at rest
+    root._actionType = "slide"; // drives backward travel on kick peak
     this.addPrimitive("sidearm-slide-top", "box", [0, 0.165, -0.2], [0.22, 0.02, 0.64], "gunmetalLight", root);
     this.addPrimitive("sidearm-front-sight", "box", [0, 0.175, -0.48], [0.04, 0.05, 0.03], "gunmetalLight", root);
     this.addPrimitive("sidearm-rear-sight", "box", [0, 0.175, 0.06], [0.1, 0.05, 0.04], "gunmetalLight", root);
@@ -1306,7 +1314,13 @@ export class PlayCanvasZombieSlice {
     const root = this.createWeaponGroup("shotgun", { muzzle: [0, 0.02, -1.42], rootPosition: [0.5, -0.5, -0.98] });
     this.addPrimitive("shotgun-receiver", "box", [0.01, 0, -0.04], [0.3, 0.2, 0.62], "blackMetal", root);
     this.addPrimitive("shotgun-rib", "box", [0, 0.12, -0.62], [0.06, 0.02, 1.22], "gunmetalLight", root);
-    this.addPrimitive("shotgun-pump", "box", [0, -0.005, -0.62], [0.3, 0.18, 0.48], "wood", root);
+    // Tag the pump fore-end so the animation can slam it rearward on each shot.
+    const pump = this.addPrimitive("shotgun-pump", "box", [0, -0.005, -0.62], [0.3, 0.18, 0.48], "wood", root);
+    root._actionPart = pump;
+    root._actionRestX = 0;
+    root._actionRestY = -0.005;
+    root._actionRestZ = -0.62;
+    root._actionType = "pump";
     this.addPrimitive("shotgun-stock", "box", [0.04, -0.02, 0.43], [0.4, 0.2, 0.36], "wood", root);
     this.addPrimitive("shotgun-barrel-a", "cylinder", [-0.04, 0.06, -0.96], [0.04, 0.84, 0.04], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-barrel-b", "cylinder", [0.04, 0.06, -0.96], [0.04, 0.84, 0.04], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
@@ -1331,6 +1345,13 @@ export class PlayCanvasZombieSlice {
     this.addPrimitive("precision-bipod-l", "box", [-0.12, -0.18, -0.72], [0.04, 0.5, 0.04], "gunmetalLight", root).setLocalEulerAngles(18, 0, -12);
     this.addPrimitive("precision-bipod-r", "box", [0.12, -0.18, -0.72], [0.04, 0.5, 0.04], "gunmetalLight", root).setLocalEulerAngles(18, 0, 12);
     this.addPrimitive("precision-front-sight", "box", [0, 0.14, -1.52], [0.05, 0.08, 0.04], "gunmetalLight", root);
+    // Bolt-handle: a small cylinder that travels rearward/up on fire (simulates bolt cycle).
+    const bolt = this.addPrimitive("precision-bolt-handle", "cylinder", [0.13, 0.04, 0.08], [0.025, 0.18, 0.025], "gunmetalLight", root).setLocalEulerAngles(0, 0, 90);
+    root._actionPart = bolt;
+    root._actionRestX = 0.13;
+    root._actionRestY = 0.04;
+    root._actionRestZ = 0.08;
+    root._actionType = "bolt";
     // Right hand on pistol grip + forearm; left support hand near front
     this.addPrimitive("precision-hand-r", "box", [0.02, -0.18, 0.24], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-10, 0, 4);
     this.addPrimitive("precision-forearm-r", "box", [0.2, -0.34, 0.4], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(38, -15, 0);
@@ -1415,10 +1436,60 @@ export class PlayCanvasZombieSlice {
     }
     const position = model?._rootPosition ?? [0.48, -0.5, -0.95];
     const euler = model?._rootEuler ?? [-1, -6, 0];
-    const kick = Math.max(0, this.weaponKickSec ?? 0) / Math.max(0.001, this.weaponKickMaxSec ?? 1);
+
+    // ── Per-weapon recoil curve ───────────────────────────────────────────────
+    // kick = normalized [0..1]: 1 = just fired (peak), 0 = fully recovered.
+    // We use a fast-rise / eased-decay shape: spike immediately, then exponential return.
+    const rawKick = Math.max(0, this.weaponKickSec ?? 0) / Math.max(0.001, this.weaponKickMaxSec ?? 1);
+    // Shape the curve: sharp spike at start (first 20%) then smooth decay.
+    const kick = rawKick > 0.8 ? 1.0 : rawKick / 0.8; // linear ramp during first 20%, then direct
     const kickPower = Math.max(0, this.weaponKickPower ?? 0);
-    this.weaponRoot.setLocalPosition(position[0], position[1] - kick * kickPower * 0.2, position[2] + kick * kickPower);
-    this.weaponRoot.setLocalEulerAngles(euler[0] + kick * kickPower * 20, euler[1], euler[2]);
+
+    // Fetch the active fire profile (cached by flashMuzzle, or look up by weapon id)
+    const prof = this._activeFireProfile ?? this._getWeaponFireProfile(weapon.id);
+
+    // ── Viewmodel root transform ──────────────────────────────────────────────
+    // kickback: weapon punches toward camera (+Z in local space)
+    // rise:     muzzle climbs (positive euler X = pitch up in PlayCanvas)
+    // roll:     lateral snap (Z-axis rotation)
+    // lateral:  small X-axis sway
+    const kickZ = kick * kickPower * prof.kickback * 6;    // z kickback
+    const kickY = -(kick * kickPower * 0.15);              // small dip on Y
+    const kickX = kick * prof.lateral * kickPower * 3;     // lateral sway
+    const pitchDeg = kick * kickPower * prof.rise;         // muzzle rise
+    const rollDeg  = kick * prof.roll;                     // snap roll
+    this.weaponRoot.setLocalPosition(
+      position[0] + kickX,
+      position[1] + kickY,
+      position[2] + kickZ,
+    );
+    this.weaponRoot.setLocalEulerAngles(
+      euler[0] + pitchDeg,
+      euler[1],
+      euler[2] + rollDeg,
+    );
+
+    // ── Action-part animation (slide / pump / bolt) ───────────────────────────
+    // Drive tagged model parts through their travel arc using the kick curve.
+    if (model?._actionPart && prof.actionAmt > 0) {
+      const part = model._actionPart;
+      const restX = model._actionRestX ?? 0;
+      const restY = model._actionRestY ?? 0;
+      const restZ = model._actionRestZ ?? 0;
+      const actionType = model._actionType ?? "slide";
+      // Peak travel at kick=1, return to rest at kick=0.
+      // Slide/auto: travels rearward (+Z in local space).
+      // Pump:       travels rearward (+Z).
+      // Bolt:       travels rearward (+Z) then up slightly.
+      const travel = kick * prof.actionAmt;
+      if (actionType === "bolt") {
+        part.setLocalPosition(restX, restY + kick * 0.06, restZ + travel);
+      } else {
+        // slide or pump: pure Z travel
+        part.setLocalPosition(restX, restY, restZ + travel);
+      }
+    }
+
     const muzzle = model?._muzzle ?? [0, 0.04, -1.35];
     if (this.muzzleFlash) {
       this.muzzleFlash.setLocalPosition(muzzle[0], muzzle[1], muzzle[2]);
@@ -2330,14 +2401,17 @@ export class PlayCanvasZombieSlice {
         }
       }
     }
-    this.flashMuzzle();
+    this.flashMuzzle(); // also caches _activeFireProfile
     this.spawnShotFx(result.hit, result);
     const weapon = getPlayCanvasWeaponSnapshot(this.state);
-    this.recoilPitchOffset = Math.min(8, (this.recoilPitchOffset ?? 0) + (weapon.recoilKick ?? 1.5) * 1.2);
+    // Use per-weapon camera kick multiplier from profile
+    const _fireProf = this._activeFireProfile ?? this._getWeaponFireProfile(weapon.id);
+    this.recoilPitchOffset = Math.min(8, (this.recoilPitchOffset ?? 0) + (weapon.recoilKick ?? 1.5) * _fireProf.camKick);
 
     // ── Juice effects on fire ────────────────────────────────────────────────
-    // Small shot shake
-    this._addShakeTrauma(result.blast ? 0.55 : 0.1);
+    // Per-weapon screen shake: profile.shake overrides the old flat value.
+    // Blast weapons already get extra trauma via the result.blast block below.
+    this._addShakeTrauma(result.blast ? _fireProf.shake * 1.4 : _fireProf.shake);
     // Haptics: short buzz on fire
     this._vibrate(8);
 
@@ -2365,7 +2439,8 @@ export class PlayCanvasZombieSlice {
     }
 
     if (result.blast) {
-      this._addShakeTrauma(0.5); // extra blast trauma (stacks)
+      // Extra blast stacking trauma from profile (RPG/GL get much bigger shakes)
+      this._addShakeTrauma(_fireProf.shake * 0.8);
     }
 
     this.updateHud();
@@ -2628,13 +2703,129 @@ export class PlayCanvasZombieSlice {
     }
   }
 
+  // ── Per-weapon fire animation profiles ───────────────────────────────────────
+  // Keyed by weapon id. Each field drives a distinct aspect of the firing feel.
+  // Fields:
+  //   kickback   — forward Z punch of the weaponRoot (cheaper guns: small, expensive: large)
+  //   rise       — muzzle-climb pitch multiplier applied to weaponRoot euler X
+  //   roll       — Z-roll snap on fire (lateral twist)
+  //   lateral    — X-sway on fire (left/right jerk)
+  //   duration   — total kick animation seconds (fast = snappy, slow = heavy)
+  //   recover    — decay speed multiplier for recoilPitchOffset (>1 = faster return)
+  //   flashSize  — base size of the muzzle-flash cross (0.12 = tiny → 0.55 = huge)
+  //   flashWide  — horizontal arm width multiplier (1.0 = balanced, 2.0 = very wide)
+  //   flashTtl   — flash duration multiplier (1.0 = default)
+  //   shake      — per-shot screen-shake trauma added via _addShakeTrauma
+  //   camKick    — camera recoilPitchOffset multiplier per shot
+  //   actionAmt  — how far the action part travels (slide/pump/bolt travel distance)
+  //   shells     — whether to spawn an ejected shell casing FX
+  //   smoke      — whether to spawn a smoke puff on each shot
+  //   smokeSz    — size of the smoke puff sphere
+  // Cost tiers: pipe(0) · pistol(50) · revolver(120) · smg(220) · machine_pistol(300) ·
+  //             rifle(420) · battle_rifle(560) · shotgun(620) · lmg(760) · dmr(840) ·
+  //             sniper(980) · grenade_launcher(940) · rpg(1000) · flamethrower(1320)
+  _getWeaponFireProfile(weaponId) {
+    const PROFILES = {
+      // ── Tier 0: melee ──────────────────────────────────────────────────────
+      pipe: {
+        kickback: 0.02, rise: 4,  roll: 8,   lateral: 0.03, duration: 0.10,
+        recover: 14, flashSize: 0,   flashWide: 1.0, flashTtl: 1.0,
+        shake: 0.02, camKick: 0.4, actionAmt: 0,    shells: false, smoke: false, smokeSz: 0,
+      },
+      // ── Tier 1: pistol ($50) ───────────────────────────────────────────────
+      pistol: {
+        kickback: 0.06, rise: 12,  roll: 2,   lateral: 0.01, duration: 0.13,
+        recover: 10, flashSize: 0.18, flashWide: 1.2, flashTtl: 0.9,
+        shake: 0.06, camKick: 1.0, actionAmt: 0.18, shells: true,  smoke: false, smokeSz: 0,
+      },
+      // ── Tier 2: revolver ($120) ────────────────────────────────────────────
+      revolver: {
+        kickback: 0.12, rise: 22,  roll: -4,  lateral: 0.02, duration: 0.18,
+        recover: 7,  flashSize: 0.26, flashWide: 1.6, flashTtl: 1.1,
+        shake: 0.10, camKick: 1.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.10,
+      },
+      // ── Tier 3: smg ($220) ─────────────────────────────────────────────────
+      smg: {
+        kickback: 0.07, rise: 10,  roll: 3,   lateral: 0.03, duration: 0.08,
+        recover: 12, flashSize: 0.16, flashWide: 1.0, flashTtl: 0.7,
+        shake: 0.05, camKick: 0.8, actionAmt: 0.12, shells: true,  smoke: false, smokeSz: 0,
+      },
+      // ── Tier 4: machine_pistol ($300) ──────────────────────────────────────
+      machine_pistol: {
+        kickback: 0.06, rise: 9,   roll: 4,   lateral: 0.04, duration: 0.07,
+        recover: 13, flashSize: 0.14, flashWide: 1.1, flashTtl: 0.6,
+        shake: 0.04, camKick: 0.7, actionAmt: 0.10, shells: true,  smoke: false, smokeSz: 0,
+      },
+      // ── Tier 5: rifle ($420) ───────────────────────────────────────────────
+      rifle: {
+        kickback: 0.14, rise: 18,  roll: -3,  lateral: 0.02, duration: 0.16,
+        recover: 8,  flashSize: 0.28, flashWide: 1.4, flashTtl: 1.0,
+        shake: 0.12, camKick: 1.4, actionAmt: 0.14, shells: true,  smoke: true,  smokeSz: 0.12,
+      },
+      // ── Tier 6: battle_rifle ($560) ────────────────────────────────────────
+      battle_rifle: {
+        kickback: 0.20, rise: 26,  roll: -5,  lateral: 0.03, duration: 0.20,
+        recover: 6,  flashSize: 0.34, flashWide: 1.6, flashTtl: 1.1,
+        shake: 0.18, camKick: 2.0, actionAmt: 0.16, shells: true,  smoke: true,  smokeSz: 0.14,
+      },
+      // ── Tier 7: shotgun ($620) ─────────────────────────────────────────────
+      shotgun: {
+        kickback: 0.30, rise: 32,  roll: -8,  lateral: 0.04, duration: 0.26,
+        recover: 4,  flashSize: 0.42, flashWide: 2.6, flashTtl: 1.3,
+        shake: 0.26, camKick: 2.6, actionAmt: 0.32, shells: false, smoke: true,  smokeSz: 0.18,
+      },
+      // ── Tier 8: lmg ($760) ────────────────────────────────────────────────
+      lmg: {
+        kickback: 0.16, rise: 16,  roll: 2,   lateral: 0.05, duration: 0.14,
+        recover: 7,  flashSize: 0.30, flashWide: 1.5, flashTtl: 1.0,
+        shake: 0.14, camKick: 1.6, actionAmt: 0.14, shells: true,  smoke: true,  smokeSz: 0.13,
+      },
+      // ── Tier 9: dmr ($840) ────────────────────────────────────────────────
+      dmr: {
+        kickback: 0.24, rise: 30,  roll: -4,  lateral: 0.02, duration: 0.24,
+        recover: 5,  flashSize: 0.38, flashWide: 1.8, flashTtl: 1.2,
+        shake: 0.22, camKick: 2.4, actionAmt: 0.28, shells: true,  smoke: true,  smokeSz: 0.16,
+      },
+      // ── Tier 10: sniper ($980) ────────────────────────────────────────────
+      sniper: {
+        kickback: 0.38, rise: 44,  roll: -6,  lateral: 0.01, duration: 0.34,
+        recover: 3,  flashSize: 0.44, flashWide: 1.4, flashTtl: 1.6,
+        shake: 0.36, camKick: 3.4, actionAmt: 0.38, shells: true,  smoke: true,  smokeSz: 0.22,
+      },
+      // ── Tier 11: grenade_launcher ($940) ──────────────────────────────────
+      grenade_launcher: {
+        kickback: 0.32, rise: 36,  roll: 6,   lateral: 0.05, duration: 0.30,
+        recover: 3,  flashSize: 0.48, flashWide: 2.8, flashTtl: 1.5,
+        shake: 0.40, camKick: 2.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.28,
+      },
+      // ── Tier 12: rpg ($1000) ──────────────────────────────────────────────
+      rpg: {
+        kickback: 0.44, rise: 40,  roll: 8,   lateral: 0.06, duration: 0.36,
+        recover: 2,  flashSize: 0.55, flashWide: 3.0, flashTtl: 1.8,
+        shake: 0.55, camKick: 3.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.38,
+      },
+      // ── Tier 13: flamethrower ($1320) ─────────────────────────────────────
+      flamethrower: {
+        kickback: 0.04, rise: 3,   roll: 0,   lateral: 0.02, duration: 0.06,
+        recover: 16, flashSize: 0.22, flashWide: 1.0, flashTtl: 0.9,
+        shake: 0.03, camKick: 0.3, actionAmt: 0,    shells: false, smoke: false, smokeSz: 0,
+      },
+    };
+    return PROFILES[weaponId] ?? PROFILES.pistol; // safe default
+  }
+
   flashMuzzle() {
     const weapon = getPlayCanvasWeaponSnapshot(this.state);
-    this.weaponKickSec = 0.12;
-    this.weaponKickMaxSec = 0.12;
-    this.weaponKickPower = weapon.recoilKick;
+    const prof = this._getWeaponFireProfile(weapon.id);
 
-    // Flamethrower uses the legacy rolling sphere; skip the new star flash
+    // Set kick parameters from profile
+    this.weaponKickSec = prof.duration;
+    this.weaponKickMaxSec = prof.duration;
+    this.weaponKickPower = weapon.recoilKick; // still driven by game balance value
+    // Store profile fields needed by updateWeaponVisuals
+    this._activeFireProfile = prof;
+
+    // Flamethrower uses the legacy rolling sphere; skip the star flash
     if (weapon.muzzleFx === "flame") {
       this.muzzleFlash.enabled = true;
       this.muzzleFlash.setLocalScale(0.22, 0.22, 0.22);
@@ -2643,13 +2834,52 @@ export class PlayCanvasZombieSlice {
       return;
     }
 
+    // Smoke puff on qualifying weapons
+    if (prof.smoke && prof.smokeSz > 0) {
+      const muzzlePos = this.muzzleFlash.getPosition();
+      const fwd = this.camera.forward;
+      const puff = this.addPrimitive(`smoke-puff-${performance.now()}`, "sphere",
+        [muzzlePos.x + fwd.x * 0.3, muzzlePos.y + fwd.y * 0.3 + 0.04, muzzlePos.z + fwd.z * 0.3],
+        [0.01, 0.01, 0.01], "smokeGrey");
+      puff._sliceTtl = 0.32;
+      puff._sliceMaxTtl = 0.32;
+      puff._sliceExpand = true;
+      puff._sliceStartScale = [0.01, 0.01, 0.01];
+      puff._sliceBaseScale = [prof.smokeSz, prof.smokeSz, prof.smokeSz];
+      this.fx.push(puff);
+    }
+
+    // Shell casing ejection (fast tiny box arcing right/up)
+    if (prof.shells) {
+      const muzzlePos = this.muzzleFlash.getPosition();
+      const shell = this.addPrimitive(`shell-${performance.now()}`, "box",
+        [muzzlePos.x + 0.18, muzzlePos.y + 0.02, muzzlePos.z + 0.1],
+        [0.025, 0.008, 0.008], "gunmetalLight");
+      shell._sfxVelocity = {
+        x: 2.4 + Math.random() * 1.2,
+        y: 1.8 + Math.random() * 0.8,
+        z: 0.4 + Math.random() * 0.4,
+      };
+      shell._sfxGravity = 6.5;
+      shell._sliceTtl = 0.40;
+      shell._sliceMaxTtl = 0.40;
+      shell._sfxIsShell = true;
+      this.fx.push(shell);
+    }
+
     // Find a free flash slot (pick the one with lowest remaining TTL)
     const slot = this.shotFx.flashes.reduce((best, cur) => (cur._sfxTtl < best._sfxTtl ? cur : best));
 
+    const flashSize = prof.flashSize;
+    if (flashSize <= 0) {
+      // No muzzle flash (e.g. pipe)
+      this._spawnMuzzleLight(weapon);
+      return;
+    }
+
     const isBlast = weapon.muzzleFx === "blast";
     const isWide = weapon.muzzleFx === "wide-flash";
-    const baseSize = isBlast ? 0.42 : isWide ? 0.34 : 0.22;
-    const ttl = (this.fxSlowMo ? 10 : 1) * (isBlast ? 0.09 : 0.065);
+    const ttl = (this.fxSlowMo ? 10 : 1) * prof.flashTtl * (isBlast ? 0.09 : 0.065);
     const rollDeg = Math.random() * 360;
 
     // Use the muzzle flash entity's actual world position — it is a child of
@@ -2663,22 +2893,27 @@ export class PlayCanvasZombieSlice {
     slot.enabled = true;
 
     // Core sphere: small bright center
-    slot._sfxCore.setLocalScale(baseSize * 0.55, baseSize * 0.55, baseSize * 0.55);
+    slot._sfxCore.setLocalScale(flashSize * 0.55, flashSize * 0.55, flashSize * 0.55);
     slot._sfxCore.setLocalPosition(0, 0, 0);
 
-    // Horizontal arm: wide flat spike
-    slot._sfxArmH.setLocalScale(baseSize * (isWide ? 3.2 : 2.6), baseSize * 0.14, baseSize * 0.14);
+    // Horizontal arm: width driven by profile flashWide
+    const hWidth = isBlast ? flashSize * 3.2 : isWide ? flashSize * prof.flashWide : flashSize * prof.flashWide;
+    slot._sfxArmH.setLocalScale(hWidth, flashSize * 0.14, flashSize * 0.14);
     slot._sfxArmH.setLocalPosition(0, 0, 0);
     slot._sfxArmH.setLocalEulerAngles(0, 0, 0);
 
-    // Vertical arm: rotated 90° (makes a cross/star)
-    slot._sfxArmV.setLocalScale(baseSize * 0.14, baseSize * (isWide ? 2.0 : 2.4), baseSize * 0.14);
+    // Vertical arm: height
+    const vHeight = isBlast ? flashSize * 2.4 : flashSize * (prof.flashWide * 0.8);
+    slot._sfxArmV.setLocalScale(flashSize * 0.14, vHeight, flashSize * 0.14);
     slot._sfxArmV.setLocalPosition(0, 0, 0);
     slot._sfxArmV.setLocalEulerAngles(0, 0, 0);
 
     slot._sfxTtl = ttl;
     slot._sfxMaxTtl = ttl;
-    slot._sfxBaseSize = baseSize;
+    slot._sfxBaseSize = flashSize;
+    // Store peak arm dimensions so the collapse animation can read them
+    slot._sfxArmHWidth = hWidth;
+    slot._sfxArmVHeight = vHeight;
 
     this._spawnMuzzleLight(weapon);
   }
@@ -4202,8 +4437,8 @@ export class PlayCanvasZombieSlice {
       slot._sfxCore.setLocalScale(b * 0.55 * s, b * 0.55 * s, b * 0.55 * s);
       // Arms collapse faster than core — spiked star → blob → gone
       const armS = Math.max(0.01, norm > 0.7 ? s : (norm / 0.7) * (norm / 0.7));
-      slot._sfxArmH.setLocalScale(b * 2.6 * armS, b * 0.14 * s, b * 0.14 * s);
-      slot._sfxArmV.setLocalScale(b * 0.14 * s, b * 2.4 * armS, b * 0.14 * s);
+      slot._sfxArmH.setLocalScale((slot._sfxArmHWidth ?? b * 2.6) * armS, b * 0.14 * s, b * 0.14 * s);
+      slot._sfxArmV.setLocalScale(b * 0.14 * s, (slot._sfxArmVHeight ?? b * 2.4) * armS, b * 0.14 * s);
     }
 
     // ── Pooled tracer slots — fade out linearly ────────────────────────────────
@@ -4244,12 +4479,32 @@ export class PlayCanvasZombieSlice {
       }
     }
 
-    // ── Legacy fx array (ordnance blasts, fire pulses, etc.) ─────────────────
+    // ── Legacy fx array (ordnance blasts, fire pulses, shells, smoke, etc.) ────
     this.fx = this.fx.filter((entity) => {
       if (entity._sliceMuzzleLight) {
         return entity._sliceTtl > 0;
       }
       entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
+
+      // Shell casings: arc through world space with gravity then shrink/fade out.
+      if (entity._sfxIsShell) {
+        if (entity._sliceTtl <= 0) { entity.destroy(); return false; }
+        const vel = entity._sfxVelocity;
+        if (vel) {
+          vel.y -= (entity._sfxGravity ?? 6.5) * dt;
+          const p = entity.getPosition();
+          entity.setPosition(p.x + vel.x * dt, p.y + vel.y * dt, p.z + vel.z * dt);
+          // Tumble on all axes for realism
+          const rot = entity.getEulerAngles();
+          entity.setEulerAngles(rot.x + 480 * dt, rot.y + 320 * dt, rot.z + 200 * dt);
+        }
+        // Fade out in final 25% of life
+        const norm = entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? 0.4);
+        const mat = entity.render?.meshInstances?.[0]?.material;
+        if (mat && norm < 0.25) { mat.opacity = Math.max(0, norm / 0.25); mat.update(); }
+        return true;
+      }
+
       const baseScale = entity._sliceBaseScale;
       if (entity._sliceExpand) {
         // Explosion-style FX: grow from start→base over life (ease-out) + fade.
