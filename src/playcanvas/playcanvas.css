@@ -926,6 +926,7 @@ a {
   width: 45%;
   height: 55%;
   pointer-events: auto;
+  touch-action: none;
 }
 
 /* ── Virtual joystick base + knob (JS-positioned on touch start) ─────────── */
@@ -1141,7 +1142,7 @@ a {
 
 .zi-settings-row button,
 .zi-settings-row a {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
@@ -1237,6 +1238,9 @@ a {
 
 .pc-shop-close {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 6px 16px;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);

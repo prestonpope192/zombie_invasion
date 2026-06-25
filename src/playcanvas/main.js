@@ -657,6 +657,7 @@ export class PlayCanvasZombieSlice {
       coins: this.root.querySelector('[data-field="coins"]'),
       kills: this.root.querySelector('[data-field="kills"]'),
       live: this.root.querySelector('[data-field="live"]'),
+      stamina: this.root.querySelector('[data-field="stamina"]'),
     };
     this.bars = {
       village: this.root.querySelector('[data-bar="village"]'),
@@ -681,6 +682,16 @@ export class PlayCanvasZombieSlice {
       village: this.root.querySelector('[data-summary-village]'),
     };
     this.reloadBarWrapper = this.root.querySelector('[data-field="reload-bar"]');
+    this.reloadField = this.reloadBarWrapper?.querySelector('[data-field="reload"]') ?? null;
+    // Cached action buttons — avoids per-frame querySelector in updateHud
+    this.actionButtons = {
+      start:   this.root.querySelector('[data-action="start"]'),
+      shop:    this.root.querySelector('[data-action="shop"]'),
+      ordnance: this.root.querySelector('[data-action="ordnance"]'),
+      music:   this.root.querySelector('[data-action="music"]'),
+      sfx:     this.root.querySelector('[data-action="sfx"]'),
+      haptics: this.root.querySelector('[data-action="haptics"]'),
+    };
     this.shopPanel = this.root.querySelector('[data-panel="shop"]');
     this.shopGuideTitle = this.root.querySelector("[data-shop-guide-title]");
     this.shopGuideBody = this.root.querySelector("[data-shop-guide-body]");
@@ -3874,14 +3885,17 @@ export class PlayCanvasZombieSlice {
             glbShadow.setLocalPosition(0, 0.03, 0);
           }
           // Sync bloom coronas to GLB eye positions (set by animateZombieGlbEntity above).
-          const eyeLEnt = entity.findByName("glb-eye-l");
-          const eyeREnt = entity.findByName("glb-eye-r");
-          if (entity._bloomCoronaL && eyeLEnt) {
-            entity._bloomCoronaL.setLocalPosition(eyeLEnt.getLocalPosition());
+          // Cache eye entities on first lookup — findByName walks the full tree.
+          if (entity._eyeL === undefined) {
+            entity._eyeL = entity.findByName("glb-eye-l") || null;
+            entity._eyeR = entity.findByName("glb-eye-r") || null;
+          }
+          if (entity._bloomCoronaL && entity._eyeL) {
+            entity._bloomCoronaL.setLocalPosition(entity._eyeL.getLocalPosition());
             entity._bloomCoronaL.enabled = true;
           }
-          if (entity._bloomCoronaR && eyeREnt) {
-            entity._bloomCoronaR.setLocalPosition(eyeREnt.getLocalPosition());
+          if (entity._bloomCoronaR && entity._eyeR) {
+            entity._bloomCoronaR.setLocalPosition(entity._eyeR.getLocalPosition());
             entity._bloomCoronaR.enabled = true;
           }
         }
@@ -3982,11 +3996,11 @@ export class PlayCanvasZombieSlice {
       // Move to zombie ground position
       ring.setLocalPosition(zombie.x, 0.02, zombie.z);
 
-      // Color by type
+      // Color by type (in-place set avoids new pc.Color() allocation per frame)
       if (telegType === "slam") {
-        mat.emissive = new pc.Color(1.0, 0.31, 0.64);
+        mat.emissive.set(1.0, 0.31, 0.64);
       } else {
-        mat.emissive = new pc.Color(0.88, 0.54, 0.0);
+        mat.emissive.set(0.88, 0.54, 0.0);
       }
 
       // Pulse scale: shrinks from 1.0 → 0.4 as telegraph winds up, then pops
@@ -4472,10 +4486,15 @@ export class PlayCanvasZombieSlice {
       });
 
     ctx.clearRect(0, 0, size, size);
-    const bg = ctx.createLinearGradient(0, 0, 0, size);
-    bg.addColorStop(0, "rgba(9,23,27,0.94)");
-    bg.addColorStop(1, "rgba(5,10,16,0.96)");
-    ctx.fillStyle = bg;
+    // Lazy-cache the background gradient — args are constant (size never changes).
+    if (!this._minimapBgGradient || this._minimapBgGradientSize !== size) {
+      const bg = ctx.createLinearGradient(0, 0, 0, size);
+      bg.addColorStop(0, "rgba(9,23,27,0.94)");
+      bg.addColorStop(1, "rgba(5,10,16,0.96)");
+      this._minimapBgGradient = bg;
+      this._minimapBgGradientSize = size;
+    }
+    ctx.fillStyle = this._minimapBgGradient;
     ctx.fillRect(0, 0, size, size);
 
     ctx.strokeStyle = "rgba(216,255,125,0.26)";
@@ -4733,64 +4752,74 @@ export class PlayCanvasZombieSlice {
     }
 
     // ── Legacy fx array (ordnance blasts, fire pulses, shells, smoke, etc.) ────
-    this.fx = this.fx.filter((entity) => {
+    // In-place compaction: write-index pattern avoids allocating a new array each frame.
+    let _fxW = 0;
+    for (let _fxI = 0; _fxI < this.fx.length; _fxI++) {
+      const entity = this.fx[_fxI];
+      let keep;
       if (entity._sliceMuzzleLight) {
-        return entity._sliceTtl > 0;
-      }
-      entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
-
-      // Shell casings: arc through world space with gravity then shrink/fade out.
-      if (entity._sfxIsShell) {
-        if (entity._sliceTtl <= 0) { entity.destroy(); return false; }
-        const vel = entity._sfxVelocity;
-        if (vel) {
-          vel.y -= (entity._sfxGravity ?? 6.5) * dt;
-          const p = entity.getPosition();
-          entity.setPosition(p.x + vel.x * dt, p.y + vel.y * dt, p.z + vel.z * dt);
-          // Tumble on all axes for realism
-          const rot = entity.getEulerAngles();
-          entity.setEulerAngles(rot.x + 480 * dt, rot.y + 320 * dt, rot.z + 200 * dt);
-        }
-        // Fade out in final 25% of life
-        const norm = entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? 0.4);
-        const mat = entity.render?.meshInstances?.[0]?.material;
-        if (mat && norm < 0.25) { mat.opacity = Math.max(0, norm / 0.25); mat.update(); }
-        return true;
-      }
-
-      const baseScale = entity._sliceBaseScale;
-      if (entity._sliceExpand) {
-        // Explosion-style FX: grow from start→base over life (ease-out) + fade.
-        const maxTtl = Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl);
-        const lifeT = Math.min(1, Math.max(0, 1 - entity._sliceTtl / maxTtl));
-        const e = 1 - (1 - lifeT) * (1 - lifeT); // ease-out
-        const s0 = entity._sliceStartScale ?? [0.1, 0.1, 0.1];
-        const s1 = baseScale ?? [1, 1, 1];
-        entity.setLocalScale(
-          s0[0] + (s1[0] - s0[0]) * e,
-          s0[1] + (s1[1] - s0[1]) * e,
-          s0[2] + (s1[2] - s0[2]) * e,
-        );
-        if (entity._sliceVel) {
-          const p = entity.getLocalPosition();
-          entity.setLocalPosition(p.x + entity._sliceVel[0] * dt, p.y + entity._sliceVel[1] * dt, p.z + entity._sliceVel[2] * dt);
-          entity._sliceVel[1] -= 9 * dt; // gravity on ember sparks
-        }
-        const mat = entity.render?.meshInstances?.[0]?.material;
-        if (mat) { mat.opacity = Math.max(0, (entity._sliceFadeFrom ?? 1) * (1 - lifeT)); mat.update(); }
-      } else if (baseScale) {
-        const progress = Math.max(0.01, entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl));
-        entity.setLocalScale(baseScale[0] * progress, baseScale[1] * progress, baseScale[2] * progress);
+        keep = entity._sliceTtl > 0;
       } else {
-        const scale = Math.max(0.01, entity._sliceTtl);
-        entity.setLocalScale(scale, scale, scale);
+        entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
+
+        // Shell casings: arc through world space with gravity then shrink/fade out.
+        if (entity._sfxIsShell) {
+          if (entity._sliceTtl <= 0) { entity.destroy(); keep = false; }
+          else {
+            const vel = entity._sfxVelocity;
+            if (vel) {
+              vel.y -= (entity._sfxGravity ?? 6.5) * dt;
+              const p = entity.getPosition();
+              entity.setPosition(p.x + vel.x * dt, p.y + vel.y * dt, p.z + vel.z * dt);
+              // Tumble on all axes for realism
+              const rot = entity.getEulerAngles();
+              entity.setEulerAngles(rot.x + 480 * dt, rot.y + 320 * dt, rot.z + 200 * dt);
+            }
+            // Fade out in final 25% of life
+            const norm = entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? 0.4);
+            const mat = entity.render?.meshInstances?.[0]?.material;
+            if (mat && norm < 0.25) { mat.opacity = Math.max(0, norm / 0.25); mat.update(); }
+            keep = true;
+          }
+        } else {
+          const baseScale = entity._sliceBaseScale;
+          if (entity._sliceExpand) {
+            // Explosion-style FX: grow from start→base over life (ease-out) + fade.
+            const maxTtl = Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl);
+            const lifeT = Math.min(1, Math.max(0, 1 - entity._sliceTtl / maxTtl));
+            const e = 1 - (1 - lifeT) * (1 - lifeT); // ease-out
+            const s0 = entity._sliceStartScale ?? [0.1, 0.1, 0.1];
+            const s1 = baseScale ?? [1, 1, 1];
+            entity.setLocalScale(
+              s0[0] + (s1[0] - s0[0]) * e,
+              s0[1] + (s1[1] - s0[1]) * e,
+              s0[2] + (s1[2] - s0[2]) * e,
+            );
+            if (entity._sliceVel) {
+              const p = entity.getLocalPosition();
+              entity.setLocalPosition(p.x + entity._sliceVel[0] * dt, p.y + entity._sliceVel[1] * dt, p.z + entity._sliceVel[2] * dt);
+              entity._sliceVel[1] -= 9 * dt; // gravity on ember sparks
+            }
+            const mat = entity.render?.meshInstances?.[0]?.material;
+            if (mat) { mat.opacity = Math.max(0, (entity._sliceFadeFrom ?? 1) * (1 - lifeT)); mat.update(); }
+          } else if (baseScale) {
+            const progress = Math.max(0.01, entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl));
+            entity.setLocalScale(baseScale[0] * progress, baseScale[1] * progress, baseScale[2] * progress);
+          } else {
+            const scale = Math.max(0.01, entity._sliceTtl);
+            entity.setLocalScale(scale, scale, scale);
+          }
+          if (entity._sliceTtl > 0) {
+            keep = true;
+          } else {
+            entity.destroy();
+            keep = false;
+          }
+        }
       }
-      if (entity._sliceTtl > 0) {
-        return true;
-      }
-      entity.destroy();
-      return false;
-    });
+      if (keep) { this.fx[_fxW++] = entity; }
+    }
+    this.fx.length = _fxW;
   }
 
   updateHud() {
@@ -4809,18 +4838,16 @@ export class PlayCanvasZombieSlice {
     } else {
       this.fields.ammo.textContent = "INF";
     }
-    const staminaField = this.root.querySelector('[data-field="stamina"]');
-    if (staminaField) {
-      staminaField.textContent = Math.floor(this.state.stamina ?? 100);
+    if (this.fields.stamina) {
+      this.fields.stamina.textContent = Math.floor(this.state.stamina ?? 100);
     }
     if (this.reloadBarWrapper) {
       const reloading = this.state.pendingReload && weaponDef;
       this.reloadBarWrapper.hidden = !reloading;
       if (reloading) {
-        const reloadField = this.reloadBarWrapper.querySelector('[data-field="reload"]');
-        if (reloadField) {
+        if (this.reloadField) {
           const pct = Math.round((1 - (this.state.reloadTimerSec ?? 0) / Math.max(0.01, weaponDef.reloadSec ?? 1)) * 100);
-          reloadField.textContent = `${pct}%`;
+          this.reloadField.textContent = `${pct}%`;
         }
       }
     }
@@ -4856,30 +4883,27 @@ export class PlayCanvasZombieSlice {
       this.bars.stamina.style.width = (sRatio * 100) + '%';
       this.bars.stamina.parentElement?.setAttribute('aria-valuenow', String(Math.round(sRatio * 100)));
     }
-    this.root.querySelector('[data-action="start"]').textContent = this.state.phase === "intermission"
+    this.actionButtons.start.textContent = this.state.phase === "intermission"
       ? `Start Wave ${this.state.waveNumber + 1}`
       : this.state.phase === "ready"
         ? "Start Campaign"
         : this.state.phase === "secret_boss"
           ? "Boss Active"
           : "Wave Running";
-    this.root.querySelector('[data-action="start"]').disabled = this.state.phase !== "ready" && this.state.phase !== "intermission";
-    this.root.querySelector('[data-action="shop"]').disabled = this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
-    this.root.querySelector('[data-action="ordnance"]').disabled = !isActivePlayPhase(this.state.phase);
-    const musicButton = this.root.querySelector('[data-action="music"]');
-    const sfxButton = this.root.querySelector('[data-action="sfx"]');
-    if (musicButton) {
-      musicButton.textContent = this.state.musicEnabled !== false ? "Music On" : "Music Off";
-      musicButton.classList.toggle("is-active", this.state.musicEnabled !== false);
+    this.actionButtons.start.disabled = this.state.phase !== "ready" && this.state.phase !== "intermission";
+    if (this.actionButtons.shop) this.actionButtons.shop.disabled = this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
+    if (this.actionButtons.ordnance) this.actionButtons.ordnance.disabled = !isActivePlayPhase(this.state.phase);
+    if (this.actionButtons.music) {
+      this.actionButtons.music.textContent = this.state.musicEnabled !== false ? "Music On" : "Music Off";
+      this.actionButtons.music.classList.toggle("is-active", this.state.musicEnabled !== false);
     }
-    if (sfxButton) {
-      sfxButton.textContent = this.state.sfxEnabled !== false ? "SFX On" : "SFX Off";
-      sfxButton.classList.toggle("is-active", this.state.sfxEnabled !== false);
+    if (this.actionButtons.sfx) {
+      this.actionButtons.sfx.textContent = this.state.sfxEnabled !== false ? "SFX On" : "SFX Off";
+      this.actionButtons.sfx.classList.toggle("is-active", this.state.sfxEnabled !== false);
     }
-    const hapticsButton = this.root.querySelector('[data-action="haptics"]');
-    if (hapticsButton) {
-      hapticsButton.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
-      hapticsButton.classList.toggle("is-active", this.hapticsEnabled);
+    if (this.actionButtons.haptics) {
+      this.actionButtons.haptics.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
+      this.actionButtons.haptics.classList.toggle("is-active", this.hapticsEnabled);
     }
     if (this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
