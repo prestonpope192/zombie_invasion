@@ -374,14 +374,14 @@ export class PlayCanvasZombieSlice {
           <div class="zi-hud-vitals">
             <div class="zi-vital-row">
               <span class="zi-glyph" aria-hidden="true">♥</span>
-              <div class="zi-bar-track zi-bar-health">
+              <div class="zi-bar-track zi-bar-health" role="progressbar" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
                 <i class="zi-bar-fill" data-bar="health"></i>
               </div>
               <b data-field="player">100</b>
             </div>
             <div class="zi-vital-row zi-vital-stamina">
               <span class="zi-glyph" aria-hidden="true">⚡</span>
-              <div class="zi-bar-track zi-bar-stamina">
+              <div class="zi-bar-track zi-bar-stamina" role="progressbar" aria-label="Stamina" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
                 <i class="zi-bar-fill" data-bar="stamina"></i>
               </div>
             </div>
@@ -598,7 +598,7 @@ export class PlayCanvasZombieSlice {
              pointer-events: none on the backdrop so [data-flow-action="primary"] stays
              clickable even when the overlay is visible. Only the "Got it" button has
              pointer-events so the smoke's click on primary still works. -->
-        <div class="zi-onboarding" id="zi-onboarding" role="dialog" aria-modal="false" aria-label="How to Survive" hidden>
+        <div class="zi-onboarding" id="zi-onboarding" role="dialog" aria-modal="true" aria-label="How to Survive" hidden>
           <div class="zi-onboarding-card">
             <div class="zi-onboarding-eyebrow">New Survivor</div>
             <h2 class="zi-onboarding-title">How to Survive</h2>
@@ -721,6 +721,11 @@ export class PlayCanvasZombieSlice {
       // Suppress the campaign modal behind the onboarding card so its text
       // doesn't bleed through (renderFlowPanel checks this flag).
       this._onboardingVisible = true;
+      // Trap focus inside the onboarding card; Escape also dismisses.
+      const card = this.onboardingOverlay.querySelector('.zi-onboarding-card');
+      this._trapFocus(card ?? this.onboardingOverlay, {
+        onEscape: () => this._dismissOnboarding(),
+      });
       // Auto-dismiss on ANY first pointerdown (capture phase, before click fires).
       // This lets the smoke's click on [data-flow-action="primary"] still work:
       // pointerdown removes the overlay → click reaches the button underneath.
@@ -2009,6 +2014,7 @@ export class PlayCanvasZombieSlice {
   // floating joystick base at the touch point. The knob vector maps to the
   // discrete forward/back/left/right input booleans. Multi-touch safe.
   _attachVirtualJoystick() {
+    if (this._joystickBase) return; // already attached — guard against duplicate calls
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     if (!isTouch) return;
 
@@ -2379,11 +2385,61 @@ export class PlayCanvasZombieSlice {
     try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
   }
 
+  // ── Focus-trap helpers ────────────────────────────────────────────────────
+  // _trapFocus(containerEl) — moves focus to the first focusable child and
+  // intercepts Tab/Shift-Tab so focus cycles within `containerEl`. Also closes
+  // the trap on Escape by calling `onEscape()`. Returns a teardown function.
+  _trapFocus(containerEl, { onEscape } = {}) {
+    const FOCUSABLE = 'button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])';
+    const getFocusable = () => Array.from(containerEl.querySelectorAll(FOCUSABLE));
+    const first = getFocusable()[0];
+    if (first) first.focus();
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && onEscape) { onEscape(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) { e.preventDefault(); return; }
+      const idx = focusable.indexOf(document.activeElement);
+      if (e.shiftKey) {
+        // Shift-Tab: go to last if before first
+        if (idx <= 0) { e.preventDefault(); focusable[focusable.length - 1].focus(); }
+      } else {
+        // Tab: wrap to first if at last
+        if (idx === focusable.length - 1) { e.preventDefault(); focusable[0].focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    this._focusTrapTeardown = () => document.removeEventListener('keydown', onKeyDown, true);
+    return this._focusTrapTeardown;
+  }
+
+  _releaseFocusTrap() {
+    if (this._focusTrapTeardown) {
+      this._focusTrapTeardown();
+      this._focusTrapTeardown = null;
+    }
+  }
+
   toggleHudSettings() {
     if (!this.settingsSheet) return;
     const isOpen = !this.settingsSheet.hidden;
     this.settingsSheet.hidden = isOpen;
-    if (!isOpen) this._releasePointerLockForUi();
+    if (!isOpen) {
+      // Opening: trap focus inside the card, Escape closes
+      this._releasePointerLockForUi();
+      const card = this.settingsSheet.querySelector('.zi-settings-card');
+      this._trapFocus(card ?? this.settingsSheet, {
+        onEscape: () => this.toggleHudSettings(),
+      });
+      // Remember the button that opened the sheet so we can restore focus on close
+      this._settingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    } else {
+      // Closing: release trap and return focus to the ⚙ button
+      this._releaseFocusTrap();
+      const btn = this._settingsReturnFocus ?? this.root.querySelector('[data-action="hud-settings"]');
+      btn?.focus();
+      this._settingsReturnFocus = null;
+    }
     this._sfxUiClick();
   }
 
@@ -2717,6 +2773,8 @@ export class PlayCanvasZombieSlice {
       this.onboardingOverlay.hidden = true;
     }
     this._onboardingVisible = false;
+    // Release the focus trap that was set when the onboarding was shown.
+    this._releaseFocusTrap();
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('zi_onboarded', '1');
     }
@@ -4791,10 +4849,12 @@ export class PlayCanvasZombieSlice {
       this.bars.health.style.width = (hRatio * 100) + '%';
       this.bars.health.style.backgroundColor =
         hRatio > 0.35 ? 'var(--zi-hp)' : 'var(--zi-hp-low)';
+      this.bars.health.parentElement?.setAttribute('aria-valuenow', String(Math.round(hRatio * 100)));
     }
     const sRatio = clamp((this.state.stamina ?? 100) / 100, 0, 1);
     if (this.bars.stamina) {
       this.bars.stamina.style.width = (sRatio * 100) + '%';
+      this.bars.stamina.parentElement?.setAttribute('aria-valuenow', String(Math.round(sRatio * 100)));
     }
     this.root.querySelector('[data-action="start"]').textContent = this.state.phase === "intermission"
       ? `Start Wave ${this.state.waveNumber + 1}`
@@ -4990,7 +5050,7 @@ export class PlayCanvasZombieSlice {
         const disabled = item.disabled ? "true" : "false";
         const actionAttrs = `data-shop-type="${escapeHtml(item.type)}" data-shop-id="${escapeHtml(item.id)}" data-shop-disabled="${disabled}"`;
         return `
-          <article class="pc-shop-card ${item.disabled ? "is-disabled" : "is-actionable"} ${item.equipped ? "is-equipped" : ""} ${recommended ? "is-recommended" : ""}" ${actionAttrs} ${item.disabled ? 'aria-disabled="true"' : 'role="button" tabindex="0"'} ${recommended ? 'data-recommended="true"' : ""}>
+          <article class="pc-shop-card ${item.disabled ? "is-disabled" : "is-actionable"} ${item.equipped ? "is-equipped" : ""} ${recommended ? "is-recommended" : ""}" ${actionAttrs} ${item.disabled ? 'aria-disabled="true" tabindex="0"' : 'role="button" tabindex="0"'} ${recommended ? 'data-recommended="true"' : ""}>
             <strong>${escapeHtml(item.label)}</strong>
             <span>${escapeHtml(item.detail)}</span>
             <button type="button" ${actionAttrs} ${item.disabled ? "disabled" : ""}>${escapeHtml(item.status)}</button>

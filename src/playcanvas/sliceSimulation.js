@@ -327,7 +327,7 @@ function _markOfferClaimed(state, claimKey) {
 /** Build the list of offers to show on the wave-clear summary overlay. */
 export function getPlayCanvasSummaryOffers(state) {
   const wave = Math.max(1, Number.parseInt(state.waveSummary?.wave, 10) || 1);
-  const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coins, 10) || 0);
+  const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coinsEarned, 10) || 0);
   const hp = Math.max(0, Math.min(100, Number(state.playerHp ?? 100)));
   const offers = [];
 
@@ -384,7 +384,7 @@ export function getPlayCanvasGameOverOffers(state) {
     });
   }
   const wave = Math.max(1, Number.parseInt(state.waveSummary?.wave, 10) || (state.waveNumber ?? 1));
-  const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coins, 10) || 0);
+  const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coinsEarned, 10) || 0);
   if (waveCoins > 0) {
     const claimKey = getSummaryOfferClaimKey({ offerId: REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS, wave });
     if (!_isOfferClaimed(state, claimKey)) {
@@ -430,7 +430,7 @@ export function applyPlayCanvasRewardedOffer(state, offerId, claimKey) {
 
   if (offerId === REWARDED_OFFER_IDS.DOUBLE_WAVE_COINS) {
     if (_isOfferClaimed(state, claimKey)) return { applied: false, message: "Already claimed." };
-    const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coins, 10) || 0);
+    const waveCoins = Math.max(0, Number.parseInt(state.waveSummary?.coinsEarned, 10) || 0);
     if (waveCoins <= 0) return { applied: false, message: "No wave coins to double." };
     state.coins = Math.max(0, (state.coins ?? 0) + waveCoins);
     _markOfferClaimed(state, claimKey);
@@ -547,6 +547,7 @@ export function createSliceState(save = loadPlayCanvasSave()) {
     mutatedLandscapeIds: [],
     lastMutationEvent: null,
     nextZombieSeq: 1,
+    coinsAtWaveStart: 0,
     waveSummary: null,
     lastMessage: "Defend the village — survive all 12 waves.",
     stamina: 100,
@@ -697,6 +698,7 @@ function beginWave(state, waveIndex) {
   state.megaSpawnedThisWave = 0;
   state.bossSpawnedThisWave = false;
   state.bossLandscapeTriggeredThisWave = false;
+  state.coinsAtWaveStart = state.coins ?? 0;
   state.waveSummary = null;
   state.zombies = [];
   syncVillagerPerkModifiers(state);
@@ -717,6 +719,7 @@ function completeWave(state) {
     wave: state.waveNumber,
     kills: state.kills,
     coins: state.coins,
+    coinsEarned: Math.max(0, state.coins - (state.coinsAtWaveStart ?? 0)),
     weapon: getWeaponDef(state.equippedWeaponId).label,
   };
 
@@ -741,6 +744,7 @@ function beginSecretBossPhase(state) {
     wave: FINAL_WAVE,
     kills: state.kills,
     coins: state.coins,
+    coinsEarned: Math.max(0, state.coins - (state.coinsAtWaveStart ?? 0)),
     weapon: getWeaponDef(state.equippedWeaponId).label,
   };
   state.waveElapsedSec = 0;
@@ -1244,8 +1248,10 @@ function stepZombies(state, dt) {
         } else {
           // Normal creep approach
           const zigzag = Math.sin(state.elapsedSec * 2.2 + _idSeq(zombie.id)) * 0.18;
-          zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * dt;
-          zombie.z += (tz / dist) * zombie.speedMps * dt;
+          const perpX = tz / dist;
+          const perpZ = -tx / dist;
+          zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * perpX * dt;
+          zombie.z += (tz / dist) * zombie.speedMps * dt + zigzag * perpZ * dt;
           zombie.y = 0;
         }
       }
@@ -2740,7 +2746,8 @@ function rescueVillager(state, villager) {
   villager.x = dropoff.x;
   villager.z = dropoff.z;
   state.activeEscortVillagerId = null;
-  if (!state.rescuedVillagers.includes(villager.id)) {
+  const alreadyRescued = state.rescuedVillagers.includes(villager.id);
+  if (!alreadyRescued) {
     state.rescuedVillagers.push(villager.id);
   }
   state.deadVillagers = state.deadVillagers.filter((id) => id !== villager.id);
@@ -2749,10 +2756,12 @@ function rescueVillager(state, villager) {
   syncVillagerPerkModifiers(state);
   state.maxVillageHp = getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers);
   state.villageHp = Math.max(0, Math.min(state.maxVillageHp, state.maxVillageHp * previousVillageRatio));
-  state.coins += VILLAGER_RESCUE_COIN_REWARD;
-  const perk = VILLAGER_PERK_DEFS[villager.id];
-  const perkLabel = perk?.summary ? ` ${perk.summary}.` : "";
-  state.lastMessage = `${villager.label} rescued. Permanent upgrade unlocked.${perkLabel} +${VILLAGER_RESCUE_COIN_REWARD} coins.`;
+  if (!alreadyRescued) {
+    state.coins += VILLAGER_RESCUE_COIN_REWARD;
+    const perk = VILLAGER_PERK_DEFS[villager.id];
+    const perkLabel = perk?.summary ? ` ${perk.summary}.` : "";
+    state.lastMessage = `${villager.label} rescued. Permanent upgrade unlocked.${perkLabel} +${VILLAGER_RESCUE_COIN_REWARD} coins.`;
+  }
   persistPlayCanvasSave(state);
 }
 

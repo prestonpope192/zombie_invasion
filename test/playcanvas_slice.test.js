@@ -1101,7 +1101,7 @@ describe("PlayCanvas campaign simulation", () => {
   it("DOUBLE_WAVE_COINS adds wave coins once; re-claim is blocked by claimKey", () => {
     const state = createSliceState({ coins: 50 });
     state.phase = "intermission";
-    state.waveSummary = { wave: 2, kills: 5, coins: 30 };
+    state.waveSummary = { wave: 2, kills: 5, coins: 30, coinsEarned: 30 };
     state.claimedOfferKeys = [];
 
     const claimKey = "summary:2:double_wave_coins";
@@ -1177,7 +1177,7 @@ describe("PlayCanvas campaign simulation", () => {
   it("getPlayCanvasSummaryOffers filters by claimed status and hides double-coins if waveCoins=0", () => {
     const state = createSliceState();
     state.phase = "intermission";
-    state.waveSummary = { wave: 4, kills: 8, coins: 0 }; // 0 coins this wave
+    state.waveSummary = { wave: 4, kills: 8, coins: 0, coinsEarned: 0 }; // 0 coins this wave
     state.playerHp = 80; // not full
     state.claimedOfferKeys = [];
 
@@ -1208,6 +1208,63 @@ describe("PlayCanvas campaign simulation", () => {
     state.reviveUsed = true;
     const offers2 = getPlayCanvasGameOverOffers(state);
     expect(offers2.find((o) => o.id === "revive")).toBeUndefined();
+  });
+
+  // ── Bug-fix regression tests ────────────────────────────────────────────────
+
+  it("DOUBLE_WAVE_COINS only adds wave earnings, not the full bank (economy exploit fix)", () => {
+    // Start a wave so coinsAtWaveStart is recorded, then earn some coins during wave.
+    const state = startSlice(createSliceState());
+    // Force a known bank balance at wave start (beginWave already captured coinsAtWaveStart).
+    // Override coinsAtWaveStart to match current coins, then add earnings on top.
+    state.coinsAtWaveStart = state.coins; // e.g. 0
+    state.coins = state.coins + 80;       // earned 80 during the wave
+
+    // Manually complete wave to build waveSummary with coinsEarned.
+    state.phase = "intermission";
+    state.waveSummary = {
+      wave: state.waveNumber,
+      kills: 3,
+      coins: state.coins,
+      coinsEarned: Math.max(0, state.coins - state.coinsAtWaveStart),
+    };
+    state.claimedOfferKeys = [];
+
+    const coinsBefore = state.coins; // 80 (or whatever initial + 80)
+    const earned = state.waveSummary.coinsEarned; // 80
+    const claimKey = `summary:${state.waveNumber}:double_wave_coins`;
+    const result = applyPlayCanvasRewardedOffer(state, "double_wave_coins", claimKey);
+
+    expect(result.applied).toBe(true);
+    expect(state.coins).toBe(coinsBefore + earned); // only wave earnings doubled, not full bank
+  });
+
+  it("rescueVillager awards coins exactly once even if triggered twice for the same villager", () => {
+    const state = startSlice(createSliceState());
+    // Find a villager in state and set it up for escort rescue via interactWithPlayCanvasWorld.
+    const villager = state.villagers[0];
+    const dropoff = { x: 0, z: -12 }; // approximate dropoff (Town Hall exteriorSpawn)
+
+    // First rescue: position villager at dropoff and set escort active.
+    villager.state = "escorting";
+    villager.x = dropoff.x;
+    villager.z = dropoff.z;
+    state.activeEscortVillagerId = villager.id;
+    state.activeBuildingId = null;
+
+    const coinsBefore = state.coins;
+    interactWithPlayCanvasWorld(state); // triggers rescueVillager → alreadyRescued=false → coins awarded
+
+    const coinsAfterFirst = state.coins;
+    expect(coinsAfterFirst).toBe(coinsBefore + 40); // VILLAGER_RESCUE_COIN_REWARD = 40
+
+    // Second rescue attempt for same villager: re-set escort state so rescueVillager is called again.
+    villager.state = "escorting";
+    state.activeEscortVillagerId = villager.id;
+
+    interactWithPlayCanvasWorld(state); // alreadyRescued=true → no extra coins
+
+    expect(state.coins).toBe(coinsAfterFirst); // coins unchanged on duplicate rescue
   });
 
   // ── Persistent Goals (Deliverable B) ───────────────────────────────────────
