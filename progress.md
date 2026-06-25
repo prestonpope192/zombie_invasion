@@ -218,6 +218,28 @@ Original prompt: build this game and deploy it to a docker container and spin it
     - Screenshot: `/Users/preston/Code/zombie_invasion/output/fps-window-reactivity-strafe/shot-0.png`
 - Night readability lighting pass (slightly lighter):
   - Increased tone-mapping exposure in `src/fps/systems/renderPipeline.js` from `1.55` to `1.8`.
+- Settings pause pass:
+  - Added PlayCanvas runtime pause gating so opening the HUD settings sheet freezes simulation advancement and gameplay timers while preserving render/HUD updates.
+  - Added `settingsOpen` to `render_game_to_text` output for automation verification.
+- Airborne grenade throw fix:
+  - PlayCanvas lobbed grenades now launch from current player height plus shoulder offset instead of fixed ground-standing height.
+  - Projectile-zombie contact now requires vertical overlap, so airborne grenades do not detonate just because they pass over a zombie's ground X/Z position.
+- Shop pause pass:
+  - PlayCanvas runtime pause gating now uses the shared UI-overlay state, so both Settings and Shop freeze simulation advancement and gameplay timers while leaving render/HUD updates active.
+  - Added `gameplayPaused` to `render_game_to_text` for shop/settings pause verification.
+- Mobile browser zoom guard:
+  - Locked viewport min/max scale and installed a global bootstrap guard for iOS gesture events, pinch `touchmove`, `dblclick`, and rapid second `touchend`.
+  - Applies before either PlayCanvas or legacy/FPS route boots, preventing accidental double-tap/pinch zoom during mobile/iPad play.
+- Shop tap reliability pass:
+  - Field shop now activates buy/equip actions on pointer-up with movement slop, plus click/keyboard fallback through a shared action path.
+  - Buyable/equippable shop cards are full-card tap targets, buttons are 44px tall, and scroll gestures are distinguished from taps.
+  - Renamed the shop close control from `Done` to `Close` so the visible label matches its action.
+- Desktop fire key follow-up:
+  - Bound `E` to fire on desktop when no shop/settings overlay is open.
+  - Updated PlayCanvas desktop help/onboarding text from `Click / F` to `Click / E`.
+- Desktop shop key follow-up:
+  - Allowed desktop `Q` to open the field shop from the ready/menu phase, matching the visible Shop button behavior.
+  - Shop still stays blocked during secret boss, lost, and won phases.
 - PlayCanvas conversion readiness pass:
   - Added compact touch controls to the PlayCanvas route for mobile movement, sprint, and fire.
   - Added a fullscreen toggle button plus `F` fullscreen shortcut for the PlayCanvas route.
@@ -250,6 +272,21 @@ Original prompt: build this game and deploy it to a docker container and spin it
   - Visual verification artifacts:
     - in-scene gallery state: `/Users/preston/Code/zombie_invasion/output/fps-realism-custom/state-field-gallery.json`
     - canvas-only mesh gallery shot: `/Users/preston/Code/zombie_invasion/output/fps-realism-custom/shot-mesh-gallery.png`
+- PlayCanvas wall collision fix in progress:
+  - Changed side wall/fence collision so ground zombies, climber-flagged zombies, leapers, and boss-class zombies are blocked instead of crossing through/over wall geometry.
+  - Removed runner/skitter `canClimb` config flags that made side walls look non-solid.
+  - Updated PlayCanvas slice regression tests to assert climbers, leapers, and boss zombies remain inside the fenced lane.
+  - Validation:
+    - `npm test -- test/playcanvas_slice.test.js` pass (62 tests).
+    - `npm test` pass (36 files, 182 tests).
+    - `npm run build` pass.
+    - `npm run smoke:playcanvas` pass locally with screenshot `/Users/preston/Code/zombie_invasion/output/playcanvas-slice-smoke.png`.
+    - Shared web-game client pass with screenshots/states in `/Users/preston/Code/zombie_invasion/output/fps-wall-collision-web-client`.
+  - Deployed Vercel preview:
+    - `https://zombie-invasion-7yo5cfsp3-preston-popes-projects.vercel.app`
+    - `vercel inspect` reports `Ready` for deployment `dpl_CFEV2fhQPeNfpi2WjvSBo5FuzeTw`.
+    - `curl -I -L https://zombie-invasion-7yo5cfsp3-preston-popes-projects.vercel.app/playcanvas` returns `HTTP/2 200`.
+    - Deployed smoke pass with screenshot `/Users/preston/Code/zombie_invasion/output/playcanvas-slice-smoke-deployed-wall-fix.png`.
 - Expanded store weapon roster:
   - Added new purchasable weapons in `src/fps/config/weapons_fps.json`:
     - `revolver`

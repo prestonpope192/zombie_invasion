@@ -37,6 +37,8 @@ import {
   getPlayCanvasAudioSnapshot,
   getPlayCanvasWeaponSnapshot,
   getPlayCanvasVillagerSnapshot,
+  getPlayCanvasOrdnanceProjectiles,
+  consumePlayCanvasOrdnanceDetonations,
   getShopItems,
   getWeaponDef,
   interactWithPlayCanvasWorld,
@@ -81,10 +83,9 @@ const WEAPON_SLOT_BINDINGS = [
 ];
 
 // Sky/backdrop materials that should not receive scene fog
-const NO_FOG_MATERIALS = new Set(["skyBand", "cloud", "cloudDark", "moon", "moonHalo", "moonHaloInner", "moonHaloMid", "moonHaloOuter", "moonPool"]);
+const NO_FOG_MATERIALS = new Set(["cloud", "cloudDark", "moon", "moonHalo", "moonHaloInner", "moonHaloMid", "moonHaloOuter"]);
 
 const MATERIALS = {
-  skyBand: { diffuse: [0.05, 0.18, 0.34], emissive: [0.035, 0.12, 0.24], roughness: 1 },
   cloud: { diffuse: [0.30, 0.48, 0.72], emissive: [0.10, 0.20, 0.34], roughness: 0.92 },
   cloudDark: { diffuse: [0.055, 0.13, 0.22], emissive: [0.012, 0.035, 0.07], roughness: 0.96 },
   ground: { diffuse: [0.1, 0.15, 0.11], emissive: [0.008, 0.014, 0.01], roughness: 0.94 },
@@ -101,12 +102,10 @@ const MATERIALS = {
   doorSafe: { diffuse: [0.72, 0.34, 0.12], emissive: [0.14, 0.06, 0.018], roughness: 0.65 },
   windowGlow: { diffuse: [1, 0.72, 0.32], emissive: [2.2, 0.95, 0.28], roughness: 0.22 },
   lantern: { diffuse: [1, 0.66, 0.26], emissive: [2.8, 1.15, 0.32], roughness: 0.22 },
-  moonPool: { diffuse: [0.55, 0.72, 1], emissive: [0.03, 0.05, 0.12], roughness: 0.35, opacity: 0.28 },
   moon: { diffuse: [0.78, 0.9, 1], emissive: [0.95, 1.18, 1.55], roughness: 0.42 },
-  fog: { diffuse: [0.3, 0.46, 0.68], emissive: [0.04, 0.07, 0.14], roughness: 1, opacity: 0.28 },
   zombie: { diffuse: [0.24, 0.19, 0.15], emissive: [0.01, 0.008, 0.006], roughness: 0.86 },
   runner: { diffuse: [0.28, 0.21, 0.16], emissive: [0.012, 0.009, 0.007], roughness: 0.82 },
-  zombieHit: { diffuse: [0.96, 0.58, 0.18], emissive: [1.35, 0.48, 0.08], roughness: 0.58 },
+  zombieHit: { diffuse: [0.72, 0.10, 0.12], emissive: [0.5, 0.06, 0.06], roughness: 0.7 },
   brute: { diffuse: [0.18, 0.14, 0.12], emissive: [0.008, 0.006, 0.005], roughness: 0.88 },
   zombieShirt: { diffuse: [0.28, 0.12, 0.09], emissive: [0.018, 0.006, 0.004], roughness: 0.9 },
   // Articulated rig materials — moonlit pale-green flesh, faint cool emissive for distance read
@@ -144,7 +143,7 @@ const MATERIALS = {
   // Rail/handguard surfaces — medium gunmetal, clearly lighter than blackMetal
   rail: { diffuse: [0.30, 0.33, 0.40], emissive: [0.18, 0.22, 0.32], emissiveIntensity: 0.9, roughness: 0.38, metalness: 0.65 },
   // Slide top, sights, muzzle crown — brightest gun part, clear moonlit highlight
-  gunmetalLight: { diffuse: [0.48, 0.52, 0.64], emissive: [0.34, 0.42, 0.58], emissiveIntensity: 1.3, roughness: 0.22, metalness: 0.78 },
+  gunmetalLight: { diffuse: [0.48, 0.52, 0.64], emissive: [0.18, 0.22, 0.32], emissiveIntensity: 0.5, roughness: 0.22, metalness: 0.78 },
   // Hand/arm materials — warm dark leather + olive drab sleeve
   glove: { diffuse: [0.16, 0.13, 0.10], emissive: [0.07, 0.05, 0.04], emissiveIntensity: 0.9, roughness: 0.88 },
   sleeve: { diffuse: [0.22, 0.24, 0.17], emissive: [0.08, 0.09, 0.06], emissiveIntensity: 0.8, roughness: 0.93 },
@@ -206,6 +205,7 @@ export class PlayCanvasZombieSlice {
     this.entitiesByLandscape = new Map();
     this.entitiesByWindow = new Map();
     this.entitiesByImpact = new Map();
+    this.ordnanceEntitiesById = new Map();
     this.fx = [];
     // ?fxslow=1 — stretches shot-FX lifetimes 10x for screenshot capture; always off in prod
     this.fxSlowMo = new URLSearchParams(globalThis.location?.search ?? "").get("fxslow") === "1";
@@ -423,7 +423,8 @@ export class PlayCanvasZombieSlice {
         <div class="pc-kill-floater" aria-hidden="true"></div>
         <div class="pc-streak-badge" aria-hidden="true"></div>
         <div class="pc-grace-overlay" data-overlay="grace" hidden aria-live="assertive">
-          <span data-grace-countdown>5</span>
+          <span class="pc-grace-label">Zombies incoming</span>
+          <span class="pc-grace-count"><b data-grace-countdown>5</b><i>s</i></span>
         </div>
         <div class="pc-summary-overlay" data-overlay="summary" hidden aria-live="polite">
           <div class="pc-summary-content">
@@ -493,7 +494,7 @@ export class PlayCanvasZombieSlice {
           </div>
           <details class="pc-flow-help" data-menu-section="help">
             <summary>Controls &amp; How To Play</summary>
-            <p><strong>Desktop:</strong> WASD move · Shift sprint · Ctrl crouch · Space jump (double-jump mid-air) · Left click / F fire · R reload · G grenade · T flint · E interact · V or right-click ADS · O cycle weapon · Q shop</p>
+            <p><strong>Desktop:</strong> WASD move · Shift sprint · Ctrl crouch · Space jump (double-jump mid-air) · Left click / E fire · R reload · G grenade · T flint · V or right-click ADS · O cycle weapon · Q shop</p>
             <p><strong>Mobile:</strong> Left pad moves, right pad looks. Action pad: Run, Duck, Jump, ADS, Swap, Blast, Flint, Use, Map, Shop, Fire.</p>
           </details>
           <div class="pc-offer-list" data-offer-context="gameover" aria-label="Ad offers"></div>
@@ -542,7 +543,7 @@ export class PlayCanvasZombieSlice {
               <span data-shop-guide-title>Field Shop</span>
               <strong data-shop-guide-body>Upgrade whenever you have coins</strong>
             </div>
-            <button type="button" class="pc-shop-close" data-action="shop-close" aria-label="Close shop">Done</button>
+            <button type="button" class="pc-shop-close" data-action="shop-close" aria-label="Close shop">Close</button>
           </div>
           <div class="pc-shop-grid" data-shop-items></div>
         </div>
@@ -605,7 +606,7 @@ export class PlayCanvasZombieSlice {
             <ul class="zi-onboarding-list zi-onboarding-desktop">
               <li><span class="zi-onboarding-key">WASD</span><span class="zi-onboarding-desc">Move</span></li>
               <li><span class="zi-onboarding-key">Mouse</span><span class="zi-onboarding-desc">Look</span></li>
-              <li><span class="zi-onboarding-key">Click / F</span><span class="zi-onboarding-desc">Fire</span></li>
+              <li><span class="zi-onboarding-key">Click / E</span><span class="zi-onboarding-desc">Fire</span></li>
               <li><span class="zi-onboarding-key">G</span><span class="zi-onboarding-desc">Grenade</span></li>
               <li><span class="zi-onboarding-key">Q</span><span class="zi-onboarding-desc">Shop</span></li>
             </ul>
@@ -1019,12 +1020,16 @@ export class PlayCanvasZombieSlice {
   }
 
   addBellTower(x, z) {
-    this.addPrimitive("bell-tower-base", "box", [x, 2.4, z], [3.3, 4.8, 2.8], "houseWall");
-    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 2.5, z - 1.42], [0.18, 4.7, 0.18], "timber");
-    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 2.5, z - 1.42], [0.18, 4.7, 0.18], "timber");
+    // Wall rises to ~6.0 so the roof eaves (≈6.05) cap it directly — previously
+    // the wall stopped at 4.8 while the roof sat at 6.6, leaving the roof
+    // floating above a ~1.2m sky gap.
+    this.addPrimitive("bell-tower-base", "box", [x, 3.0, z], [3.3, 6.0, 2.8], "houseWall");
+    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
+    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
     this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z - 1.43], [0.72, 1.15, 0.08], "windowGlow"));
-    this.addPrimitive("bell-arch", "box", [x, 5.08, z - 1.35], [2.1, 1.1, 0.22], "timber");
-    this.addPrimitive("bell", "sphere", [x, 5.1, z - 1.55], [0.55, 0.55, 0.55], "metal");
+    // Belfry arch + bell read against the upper wall, just under the roofline.
+    this.addPrimitive("bell-arch", "box", [x, 5.35, z - 1.45], [2.1, 1.1, 0.22], "timber");
+    this.addPrimitive("bell", "sphere", [x, 5.0, z - 1.62], [0.55, 0.55, 0.55], "metal");
     this.addPitchedRoof("bell-roof", x, z, 4.2, 3.7, 6.6, "roofDark");
     this.addPrimitive("bell-cross-vertical", "box", [x, 8.55, z - 0.1], [0.12, 1.0, 0.12], "metal");
     this.addPrimitive("bell-cross-horizontal", "box", [x, 8.74, z - 0.1], [0.65, 0.1, 0.1], "metal");
@@ -1130,6 +1135,8 @@ export class PlayCanvasZombieSlice {
       const sz = 2.5 + rand() * 1.5;
       const y = 0.3 + rand() * 0.4;
       const mist = this.addPrimitive(`mist-${i}`, "sphere", [x, y, z], [sx, sy, sz], "groundMist");
+      mist.render.castShadows = false;
+      mist.render.receiveShadows = false;
       mist.setEulerAngles(0, rand() * 360, 0);
     }
 
@@ -1199,7 +1206,7 @@ export class PlayCanvasZombieSlice {
     viewmodelLight.addComponent("light", {
       type: "omni",
       color: new pc.Color(0.72, 0.84, 1.0),
-      intensity: 4.5,
+      intensity: 2.0,
       range: 2.2,
       castShadows: false,
     });
@@ -1213,7 +1220,7 @@ export class PlayCanvasZombieSlice {
     viewmodelRim.addComponent("light", {
       type: "omni",
       color: new pc.Color(1.0, 0.72, 0.38),
-      intensity: 1.8,
+      intensity: 1.0,
       range: 1.8,
       castShadows: false,
     });
@@ -1709,32 +1716,7 @@ export class PlayCanvasZombieSlice {
       this.summaryOfferList.addEventListener("click", handleOfferClick);
     }
 
-    this.shopItemsRoot.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-shop-type]");
-      if (!button) {
-        return;
-      }
-      if (button.dataset.shopType === "weapon") {
-        buyOrEquipWeapon(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "armor") {
-        buyOrEquipArmor(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "grenade") {
-        buyGrenadePack(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "c4") {
-        buyC4Pack(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "nuke") {
-        buyNukePack(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "gear") {
-        buyGearItem(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "village") {
-        buyVillageUpgrade(this.state);
-      } else if (button.dataset.shopType === "medkit") {
-        buyMedKit(this.state);
-      }
-      this._sfxShopBuy();
-      this.updateHud();
-      this.renderShop();
-    });
+    this.attachShopInput();
 
     window.addEventListener("keydown", (event) => this.setKey(event, true));
     window.addEventListener("keyup", (event) => this.setKey(event, false));
@@ -1801,16 +1783,119 @@ export class PlayCanvasZombieSlice {
       if (this.state.phase === "ready") {
         this.startOrContinueCampaign();
       }
-      // Only grab the pointer / fire while we're in active combat. During
-      // intermission (and other menu phases) the flow panel + shop are up, so a
-      // background click must not re-lock the pointer or fire — that would hide
-      // the cursor and re-engage mouse-look behind the modal.
-      if (!isActivePlayPhase(this.state.phase)) {
+      // Only grab the pointer / fire while we're in active combat AND no
+      // interactive overlay is open. The shop can be opened mid-combat (phase
+      // stays "running"); a background click behind it must not re-lock the
+      // pointer or fire — that recaptures the cursor so shop items can no
+      // longer be clicked. (This is the "can't click shop weapons" bug.)
+      if (!isActivePlayPhase(this.state.phase) || this._isUiOverlayOpen()) {
         return;
       }
       this.requestPointerLock();
       this.fire();
     });
+  }
+
+  attachShopInput() {
+    const TAP_SLOP_PX = 16;
+    let pendingTap = null;
+    let lastPointerActionAt = Number.NEGATIVE_INFINITY;
+
+    const getShopActionEl = (target) => target.closest?.("[data-shop-type][data-shop-id]");
+
+    this.shopItemsRoot.addEventListener("pointerdown", (event) => {
+      const item = getShopActionEl(event.target);
+      if (!item || item.dataset.shopDisabled === "true") {
+        pendingTap = null;
+        return;
+      }
+      pendingTap = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        shopType: item.dataset.shopType,
+        shopId: item.dataset.shopId,
+      };
+      item.setPointerCapture?.(event.pointerId);
+    });
+    this.shopItemsRoot.addEventListener("pointerup", (event) => {
+      if (!pendingTap || pendingTap.pointerId !== event.pointerId) {
+        return;
+      }
+      const item = getShopActionEl(event.target);
+      const moved = Math.hypot(event.clientX - pendingTap.startX, event.clientY - pendingTap.startY);
+      const sameItem = item
+        && item.dataset.shopType === pendingTap.shopType
+        && item.dataset.shopId === pendingTap.shopId;
+      const action = pendingTap;
+      pendingTap = null;
+      if (!sameItem || moved > TAP_SLOP_PX || item.dataset.shopDisabled === "true") {
+        return;
+      }
+      event.preventDefault();
+      lastPointerActionAt = performance.now();
+      this.activateShopItem(action.shopType, action.shopId);
+    });
+    this.shopItemsRoot.addEventListener("pointercancel", () => {
+      pendingTap = null;
+    });
+    this.shopItemsRoot.addEventListener("lostpointercapture", () => {
+      pendingTap = null;
+    });
+
+    this.shopItemsRoot.addEventListener("click", (event) => {
+      const item = getShopActionEl(event.target);
+      if (!item) {
+        return;
+      }
+      event.preventDefault();
+      if (performance.now() - lastPointerActionAt < 450 || item.dataset.shopDisabled === "true") {
+        return;
+      }
+      this.activateShopItem(item.dataset.shopType, item.dataset.shopId);
+    });
+
+    this.shopItemsRoot.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const item = getShopActionEl(event.target);
+      if (!item || item.dataset.shopDisabled === "true") {
+        return;
+      }
+      event.preventDefault();
+      this.activateShopItem(item.dataset.shopType, item.dataset.shopId);
+    });
+  }
+
+  activateShopItem(shopType, shopId) {
+    let result = { ok: false };
+    if (shopType === "weapon") {
+      result = buyOrEquipWeapon(this.state, shopId);
+    } else if (shopType === "armor") {
+      result = buyOrEquipArmor(this.state, shopId);
+    } else if (shopType === "grenade") {
+      result = buyGrenadePack(this.state, shopId);
+    } else if (shopType === "c4") {
+      result = buyC4Pack(this.state, shopId);
+    } else if (shopType === "nuke") {
+      result = buyNukePack(this.state, shopId);
+    } else if (shopType === "gear") {
+      result = buyGearItem(this.state, shopId);
+    } else if (shopType === "village") {
+      result = buyVillageUpgrade(this.state);
+    } else if (shopType === "medkit") {
+      result = buyMedKit(this.state);
+    }
+
+    if (result?.ok) {
+      this._sfxShopBuy();
+    } else {
+      this._sfxUiClick();
+    }
+    this.updateHud();
+    this.renderShop();
+    return result;
   }
 
   // Zero every movement/look input. Called on focus/visibility loss so a key or
@@ -2149,6 +2234,8 @@ export class PlayCanvasZombieSlice {
   }
 
   requestPointerLock() {
+    // Never recapture the cursor while an interactive overlay needs it.
+    if (this._isUiOverlayOpen()) return;
     const result = this.canvas.requestPointerLock?.();
     if (result && typeof result.catch === "function") {
       result.catch(() => {
@@ -2195,14 +2282,20 @@ export class PlayCanvasZombieSlice {
     if (event.code === "KeyC" && active) this.cycleActiveOrdnance();
     if (event.code === "KeyG" && active) this.useActiveOrdnance();
     if (event.code === "KeyT" && active) this.useFlint();
-    if (event.code === "KeyE" && active) this.interact();
+    if (event.code === "KeyE") {
+      if (active && !this._isUiOverlayOpen()) {
+        event.preventDefault();
+        this.fire();
+      }
+      return;
+    }
     if (event.code === "KeyM" && active) this.toggleMiniMap();
     if (event.code === "Escape" && active && this.shopOpen) this.closeShop();
     if (event.code === "KeyF" && active) this.toggleFullscreen();
   }
 
   toggleShop() {
-    if (this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
+    if (this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
     } else {
       this.shopOpen = !this.shopOpen;
@@ -2219,6 +2312,17 @@ export class PlayCanvasZombieSlice {
     if (typeof document !== "undefined" && document.pointerLockElement === this.canvas) {
       document.exitPointerLock?.();
     }
+  }
+
+  // True when a DOM overlay needs a free cursor (shop or settings sheet).
+  // Used to suppress pointer-lock re-grab + fire on stray canvas clicks that
+  // land behind the overlay.
+  _isUiOverlayOpen() {
+    return Boolean(this.shopOpen || this._isSettingsOpen());
+  }
+
+  _isSettingsOpen() {
+    return Boolean(this.settingsSheet && !this.settingsSheet.hidden);
   }
 
   toggleMiniMap() {
@@ -2386,10 +2490,13 @@ export class PlayCanvasZombieSlice {
         this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
       }
       if (result.impact) {
-        // Bullet impact on structure — concrete/stone sample
-        if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
+        if (result.materialId === "soil") {
+          // Soft terrain miss — low dirt thud, no hard concrete crack
+          this.audio.playImpact("soil", this.getAudioPositionAhead(7));
+        } else if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
           gainScale: 0.5, pitchVariance: 2, gainVariance: 0.1,
         })) {
+          // Bullet impact on structure — concrete/stone sample
           this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
         }
       } else if (result.hit) {
@@ -2449,12 +2556,19 @@ export class PlayCanvasZombieSlice {
   useActiveOrdnance() {
     const result = useOrdnance(this.state);
     if (result.ok) {
-      this.audio.playExplosion(this.getAudioPositionAhead(10), result.ordnanceId);
-      this.spawnBlastFx(result.ordnanceId);
-      // Large blast shake + haptic
-      const blastTrauma = result.ordnanceId === "nuke" ? 0.9 : result.ordnanceId === "c4" ? 0.7 : 0.55;
-      this._addShakeTrauma(blastTrauma);
-      this._vibrate([0, 20, 50, 60]);
+      if (result.lobbed) {
+        // Grenade thrown — soft whoosh now; the blast FX fires when it lands
+        // (driven by updateOrdnanceProjectiles draining detonation events).
+        this.audio.playTone?.({ freq: 320, duration: 0.12, gain: 0.025, position: this.getAudioPositionAhead(1.5), type: "triangle" });
+        this._vibrate(12);
+      } else {
+        this.audio.playExplosion(this.getAudioPositionAhead(10), result.ordnanceId);
+        this.spawnBlastFx(result.ordnanceId);
+        // Large blast shake + haptic
+        const blastTrauma = result.ordnanceId === "nuke" ? 0.9 : result.ordnanceId === "c4" ? 0.7 : 0.55;
+        this._addShakeTrauma(blastTrauma);
+        this._vibrate([0, 20, 50, 60]);
+      }
     }
     this.updateHud();
   }
@@ -2991,6 +3105,11 @@ export class PlayCanvasZombieSlice {
         return Math.hypot(zombie.x - this.state.player.x, zombie.z - this.state.player.z);
       }
     }
+    // The sim resolves where a clean miss meets terrain — use that so tracer and
+    // dirt puff land where the round actually went.
+    if (typeof result.impactDistance === "number") {
+      return result.impactDistance;
+    }
     // Structure hit or miss — use a fixed distance representative of max effective range
     return hit ? 8 : 22;
   }
@@ -3097,9 +3216,11 @@ export class PlayCanvasZombieSlice {
     // Find a free burst slot
     const slot = this.shotFx.bursts.reduce((best, cur) => (cur._sfxTtl < best._sfxTtl ? cur : best));
 
-    // Impact world position
+    // Impact world position. A clean terrain miss kicks up dirt on the ground,
+    // so pin it to ground level rather than tracing the ray into the sky.
+    const isGroundMiss = !result.hit && isSoil;
     const ix = origin.x + forward.x * distance;
-    const iy = Math.max(0.05, origin.y + forward.y * distance);
+    const iy = isGroundMiss ? 0.06 : Math.max(0.05, origin.y + forward.y * distance);
     const iz = origin.z + forward.z * distance;
     slot.setPosition(ix, iy, iz);
     slot.enabled = true;
@@ -3139,13 +3260,21 @@ export class PlayCanvasZombieSlice {
     // Legacy stub — new system uses _spawnImpactBurst; kept for compatibility
   }
 
-  spawnBlastFx(ordnanceId) {
-    // Blast centre = a bit ahead of the player, on the ground.
-    const forward = this.camera.forward.clone();
-    const origin = this.camera.getPosition().clone();
-    const dist = ordnanceId === "nuke" ? 13 : ordnanceId === "c4" ? 9 : 9;
-    const cx = origin.x + forward.x * dist;
-    const cz = origin.z + forward.z * dist;
+  spawnBlastFx(ordnanceId, center = null) {
+    // Blast centre: explicit landing point for lobbed grenades, else a bit
+    // ahead of the player on the ground (placed C4 / nuke strike).
+    let cx;
+    let cz;
+    if (center) {
+      cx = center.x;
+      cz = center.z;
+    } else {
+      const forward = this.camera.forward.clone();
+      const origin = this.camera.getPosition().clone();
+      const dist = ordnanceId === "nuke" ? 13 : ordnanceId === "c4" ? 9 : 9;
+      cx = origin.x + forward.x * dist;
+      cz = origin.z + forward.z * dist;
+    }
     // Per-ordnance blast radius.
     const R = ordnanceId === "nuke" ? 8.5 : ordnanceId === "c4" ? 4.6 : 3.2;
     const seq = Math.round(performance.now());
@@ -3204,6 +3333,62 @@ export class PlayCanvasZombieSlice {
     requestAnimationFrame(fadeLight);
   }
 
+  updateOrdnanceProjectiles(dt) {
+    // 1) Drain detonations → blast FX, audio, and distance-attenuated shake.
+    const detonations = consumePlayCanvasOrdnanceDetonations(this.state);
+    for (const det of detonations) {
+      this.spawnBlastFx(det.ordnanceId, { x: det.x, y: det.y, z: det.z });
+      this.audio.playExplosion({ x: det.x, y: Math.max(0.4, det.y), z: det.z }, det.ordnanceId);
+      const dist = Math.hypot(det.x - this.state.player.x, det.z - this.state.player.z);
+      const atten = Math.max(0.2, 1 - dist / 26);
+      this._addShakeTrauma(0.5 * atten);
+      this._vibrate([0, 16, 36, 48]);
+    }
+
+    // 2) Render live grenades: one tumbling entity + smoke trail per projectile.
+    const projectiles = getPlayCanvasOrdnanceProjectiles(this.state);
+    const liveIds = new Set();
+    for (const p of projectiles) {
+      liveIds.add(p.id);
+      let entity = this.ordnanceEntitiesById.get(p.id);
+      if (!entity) {
+        const size = Math.max(0.18, (p.projectileRadius ?? 0.1) * 3.2);
+        entity = this.addPrimitive(`ordnance-${p.id}`, "sphere", [p.x, p.y, p.z], [size, size, size], "metal");
+        const light = new pc.Entity(`ordnance-light-${p.id}`);
+        light.addComponent("light", { type: "omni", color: new pc.Color(1, 0.7, 0.35), intensity: 1.3, range: 3.0, castShadows: false });
+        entity.addChild(light);
+        entity._trailCdSec = 0;
+        this.ordnanceEntitiesById.set(p.id, entity);
+      }
+      entity.setLocalPosition(p.x, p.y, p.z);
+      const rot = entity.getEulerAngles();
+      entity.setEulerAngles(rot.x + 420 * dt, rot.y + 260 * dt, 0); // tumble in flight
+      entity._trailCdSec -= dt;
+      if (entity._trailCdSec <= 0) {
+        entity._trailCdSec = 0.035;
+        const puff = this.addPrimitive(`ordnance-trail-${p.id}-${Math.round(performance.now())}`, "sphere", [p.x, p.y, p.z], [0.12, 0.12, 0.12], "blastSmoke");
+        puff._sliceTtl = 0.34; puff._sliceMaxTtl = 0.34; puff._sliceExpand = true;
+        puff._sliceStartScale = [0.12, 0.12, 0.12]; puff._sliceBaseScale = [0.03, 0.03, 0.03];
+        puff._sliceFadeFrom = 0.5;
+        this.fx.push(puff);
+      }
+    }
+    // Destroy entities whose grenade has detonated/left play.
+    for (const [id, entity] of this.ordnanceEntitiesById) {
+      if (!liveIds.has(id)) {
+        entity.destroy();
+        this.ordnanceEntitiesById.delete(id);
+      }
+    }
+  }
+
+  clearOrdnanceEntities() {
+    for (const entity of this.ordnanceEntitiesById.values()) {
+      entity.destroy();
+    }
+    this.ordnanceEntitiesById.clear();
+  }
+
   reset() {
     this.state = resetSlice();
     this.audio.setMusicEnabled(this.state.musicEnabled);
@@ -3211,6 +3396,7 @@ export class PlayCanvasZombieSlice {
     this.clearZombieEntities();
     this.clearFireEntities();
     this.clearImpactEntities();
+    this.clearOrdnanceEntities();
     this.yaw = 0;
     this.pitch = -6;
     this.shopOpen = false;
@@ -3230,6 +3416,7 @@ export class PlayCanvasZombieSlice {
     this.clearZombieEntities();
     this.clearFireEntities();
     this.clearImpactEntities();
+    this.clearOrdnanceEntities();
     this.yaw = 0;
     this.pitch = -6;
     this.shopOpen = false;
@@ -3337,7 +3524,9 @@ export class PlayCanvasZombieSlice {
   }
 
   update(dt) {
-    this._lastUpdateDt = dt;
+    const gameplayPausedByUi = this._isUiOverlayOpen();
+    const frameDt = gameplayPausedByUi ? 0 : dt;
+    this._lastUpdateDt = frameDt;
     // Drive CameraFrame post-processing (bloom, tone mapping compose) each frame.
     // cf.update() must be called before the PlayCanvas render tick processes the passes.
     this.cameraFrame?.update();
@@ -3346,7 +3535,7 @@ export class PlayCanvasZombieSlice {
     this.state.player.pitch = this.pitch;
     // Apply right-zone touch look velocity — only when there's an active look touch
     // and the pointer isn't locked (pointer-lock path uses handleLookMove).
-    if (this.input.lookTouch !== null && !this.input.pointerLocked) {
+    if (!gameplayPausedByUi && this.input.lookTouch !== null && !this.input.pointerLocked) {
       const vpW = window.innerWidth || 360;
       const vpH = window.innerHeight || 640;
       // lookVelX/Y are normalised ±1 after response curve; scale to pixels/frame
@@ -3359,7 +3548,12 @@ export class PlayCanvasZombieSlice {
     }
     const wasReloading = this._wasReloading;
     const goalCountBefore = Array.isArray(this.state.claimedGoalIds) ? this.state.claimedGoalIds.length : 0;
-    stepSlice(this.state, this.input, Math.min(dt, 0.05));
+    // Clamp dt to a sane positive range: never advance the sim backwards (a
+    // negative/NaN frame delta would inflate countdown timers like the wave
+    // grace) and never take a huge step after a tab stall.
+    if (!gameplayPausedByUi) {
+      stepSlice(this.state, this.input, Math.max(0, Math.min(frameDt, 0.05)) || 0);
+    }
     this.input.jump = false;
     // When combat ends (e.g. a wave clears into intermission), release the
     // pointer lock so the cursor reappears for the regroup panel / shop instead
@@ -3386,7 +3580,7 @@ export class PlayCanvasZombieSlice {
     // Throttle the audible/physical bite feedback so being swarmed by many
     // zombies doesn't machine-gun groans + screen shake. The visual flash
     // stays per-hit (it's brief and reads as "I'm getting hurt").
-    this._playerHurtFxCdSec = Math.max(0, (this._playerHurtFxCdSec ?? 0) - dt);
+    this._playerHurtFxCdSec = Math.max(0, (this._playerHurtFxCdSec ?? 0) - frameDt);
     if (this.state.playerHp < previousPlayerHp - 0.1) {
       this.playerDamageFlashSec = 0.45;
       if (this._playerHurtFxCdSec <= 0) {
@@ -3399,16 +3593,16 @@ export class PlayCanvasZombieSlice {
     if (this.state.villageHp < previousVillageHp - 0.1) {
       this.villageDamageFlashSec = 0.45;
     }
-    this.playerDamageFlashSec = Math.max(0, (this.playerDamageFlashSec ?? 0) - dt);
-    this.villageDamageFlashSec = Math.max(0, (this.villageDamageFlashSec ?? 0) - dt);
-    this.recoilPitchOffset = Math.max(0, (this.recoilPitchOffset ?? 0) - dt * 6);
-    this.weaponKickSec = Math.max(0, (this.weaponKickSec ?? 0) - dt);
+    this.playerDamageFlashSec = Math.max(0, (this.playerDamageFlashSec ?? 0) - frameDt);
+    this.villageDamageFlashSec = Math.max(0, (this.villageDamageFlashSec ?? 0) - frameDt);
+    this.recoilPitchOffset = Math.max(0, (this.recoilPitchOffset ?? 0) - frameDt * 6);
+    this.weaponKickSec = Math.max(0, (this.weaponKickSec ?? 0) - frameDt);
     // Juice: decay shake, update vignette
-    this._decayShake(dt);
+    this._decayShake(frameDt);
     this._updateVignette(this.state.playerHp);
     // Cue 8: low-health heartbeat
     if (this.state.playerHp < 25 && this.state.phase === "running") {
-      this._sfxHeartbeatTick(dt);
+      this._sfxHeartbeatTick(frameDt);
     } else {
       this._heartbeatPhaseSec = 0;
     }
@@ -3425,7 +3619,7 @@ export class PlayCanvasZombieSlice {
       this._stopNightBed();
     }
     // Zombie ambient groans — emit from a random live nearby zombie ~every 4s
-    this._zombieGroanCooldownSec = Math.max(0, (this._zombieGroanCooldownSec ?? 0) - dt);
+    this._zombieGroanCooldownSec = Math.max(0, (this._zombieGroanCooldownSec ?? 0) - frameDt);
     if (this.state.sfxEnabled !== false && this.state.phase === "running" && this._zombieGroanCooldownSec <= 0 && this.audio.ctx) {
       const liveZombies = this.state.zombies.filter((z) => !z.dead);
       if (liveZombies.length > 0) {
@@ -3440,7 +3634,7 @@ export class PlayCanvasZombieSlice {
         }
       }
     }
-    this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - dt);
+    this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - frameDt);
     if (this.state.phase === "intermission" && this.lastSummaryWave !== this.state.waveNumber) {
       this.lastSummaryWave = this.state.waveNumber;
       this.summaryDisplaySec = 4.0;
@@ -3489,16 +3683,17 @@ export class PlayCanvasZombieSlice {
       this.villageFlashOverlay.style.opacity = String(this.villageDamageFlashSec * 2.2);
     }
     this.updateCamera();
-    this.updateAudioState(dt);
+    this.updateAudioState(frameDt);
     this.updateWeaponVisuals();
-    this.updateZombies(dt);
-    this.updateVillagers(dt);
+    this.updateZombies(frameDt);
+    this.updateVillagers(frameDt);
+    this.updateOrdnanceProjectiles(frameDt);
     this.updateLandscapeMutationVisuals();
     this.updateWindowImpactVisuals();
-    this.updateVillageDistress(dt);
+    this.updateVillageDistress(frameDt);
     this.updateGearVisuals();
     this.drawMiniMap();
-    this.updateFx(dt);
+    this.updateFx(frameDt);
     this.updateHud();
   }
 
@@ -3701,7 +3896,7 @@ export class PlayCanvasZombieSlice {
       const ring = new pc.Entity(`telegraph-${zombie.id}`);
       const mat = new pc.StandardMaterial();
       mat.emissive = new pc.Color(0.88, 0.54, 0.0);
-      mat.emissiveIntensity = 3.0;
+      mat.emissiveIntensity = 4.5;
       mat.diffuse = new pc.Color(0, 0, 0);
       mat.useLighting = false;
       mat.blendType = pc.BLEND_ADDITIVE;
@@ -3731,7 +3926,7 @@ export class PlayCanvasZombieSlice {
 
       // Color by type
       if (telegType === "slam") {
-        mat.emissive = new pc.Color(0.9, 0.08, 0.08);
+        mat.emissive = new pc.Color(1.0, 0.31, 0.64);
       } else {
         mat.emissive = new pc.Color(0.88, 0.54, 0.0);
       }
@@ -4609,7 +4804,7 @@ export class PlayCanvasZombieSlice {
           ? "Boss Active"
           : "Wave Running";
     this.root.querySelector('[data-action="start"]').disabled = this.state.phase !== "ready" && this.state.phase !== "intermission";
-    this.root.querySelector('[data-action="shop"]').disabled = this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
+    this.root.querySelector('[data-action="shop"]').disabled = this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
     this.root.querySelector('[data-action="ordnance"]').disabled = !isActivePlayPhase(this.state.phase);
     const musicButton = this.root.querySelector('[data-action="music"]');
     const sfxButton = this.root.querySelector('[data-action="sfx"]');
@@ -4626,7 +4821,7 @@ export class PlayCanvasZombieSlice {
       hapticsButton.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
       hapticsButton.classList.toggle("is-active", this.hapticsEnabled);
     }
-    if (this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
+    if (this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
     }
     // Intermission starts on the Regroup card (shop closed); the player opens the
@@ -4650,7 +4845,7 @@ export class PlayCanvasZombieSlice {
     // the two panels never overlap. Other menu phases always show the card.
     const visible =
       !isActivePlayPhase(this.state.phase) &&
-      !(this.state.phase === "intermission" && this.shopOpen) &&
+      !this.shopOpen &&
       !this._onboardingVisible;
     this.flowPanel.hidden = !visible;
     // The bottom action bar duplicates the modal's Start/Shop/Reset on the
@@ -4759,21 +4954,46 @@ export class PlayCanvasZombieSlice {
     const items = getShopItems(this.state);
     const guidance = getPlayCanvasGuidanceSnapshot(this.state);
     const recommendation = guidance.recommendation;
+    const threat = guidance.nextThreat ? ` Next: ${guidance.nextThreat.label}.` : "";
+    const guideTitle = recommendation?.title ?? "Field Shop";
+    const guideBody = recommendation ? `${recommendation.reason}${threat}` : "Upgrade whenever you have coins";
     if (this.shopGuideTitle) {
-      this.shopGuideTitle.textContent = recommendation?.title ?? "Field Shop";
+      this.shopGuideTitle.textContent = guideTitle;
     }
     if (this.shopGuideBody) {
-      const threat = guidance.nextThreat ? ` Next: ${guidance.nextThreat.label}.` : "";
-      this.shopGuideBody.textContent = recommendation ? `${recommendation.reason}${threat}` : "Upgrade whenever you have coins";
+      this.shopGuideBody.textContent = guideBody;
     }
+
+    const signature = JSON.stringify({
+      guideTitle,
+      guideBody,
+      recommendation: recommendation ? `${recommendation.targetType}:${recommendation.targetId}` : "none",
+      items: items.map((item) => ({
+        type: item.type,
+        id: item.id,
+        label: item.label,
+        detail: item.detail,
+        status: item.status,
+        disabled: Boolean(item.disabled),
+        equipped: Boolean(item.equipped),
+        recommended: isRecommendedShopItem(item, recommendation),
+      })),
+    });
+    if (this._shopRenderSignature === signature && this.shopItemsRoot.children.length > 0) {
+      return;
+    }
+    this._shopRenderSignature = signature;
+
     this.shopItemsRoot.innerHTML = items
       .map((item) => {
         const recommended = isRecommendedShopItem(item, recommendation);
+        const disabled = item.disabled ? "true" : "false";
+        const actionAttrs = `data-shop-type="${escapeHtml(item.type)}" data-shop-id="${escapeHtml(item.id)}" data-shop-disabled="${disabled}"`;
         return `
-          <article class="pc-shop-card ${item.equipped ? "is-equipped" : ""} ${recommended ? "is-recommended" : ""}" ${recommended ? 'data-recommended="true"' : ""}>
+          <article class="pc-shop-card ${item.disabled ? "is-disabled" : "is-actionable"} ${item.equipped ? "is-equipped" : ""} ${recommended ? "is-recommended" : ""}" ${actionAttrs} ${item.disabled ? 'aria-disabled="true"' : 'role="button" tabindex="0"'} ${recommended ? 'data-recommended="true"' : ""}>
             <strong>${escapeHtml(item.label)}</strong>
             <span>${escapeHtml(item.detail)}</span>
-            <button type="button" data-shop-type="${escapeHtml(item.type)}" data-shop-id="${escapeHtml(item.id)}" ${item.disabled ? "disabled" : ""}>${escapeHtml(item.status)}</button>
+            <button type="button" ${actionAttrs} ${item.disabled ? "disabled" : ""}>${escapeHtml(item.status)}</button>
           </article>
         `;
       })
@@ -5327,6 +5547,8 @@ export class PlayCanvasZombieSlice {
         `bestWave=${this.state.bestWave}`,
         `flowPanel=${this.flowPanel.hidden ? "hidden" : this.state.phase}`,
         `shopOpen=${this.shopOpen}`,
+        `settingsOpen=${this._isSettingsOpen()}`,
+        `gameplayPaused=${this._isUiOverlayOpen()}`,
         `coins=${this.state.coins}`,
         `kills=${this.state.kills}`,
         `lifetimeKills=${this.state.lifetimeStats?.kills ?? 0}`,

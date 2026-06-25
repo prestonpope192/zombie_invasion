@@ -40,6 +40,7 @@ const PLAYCANVAS_PROFILE_TYPE = "playcanvas_village_v2";
 
 export const SLICE_WORLD = {
   playerRadius: 0.55,
+  zombieRadius: 0.5,
   arenaHalf: 38,
   villageZ: -12,
   villageRadius: 4.4,
@@ -47,6 +48,14 @@ export const SLICE_WORLD = {
   fireConeCos: 0.976,
   zombieBiteRange: 1.15,
   villageBiteRange: 2.2,
+  // Solid obstacles the zombie sim collides against. These mirror the fence
+  // runs the PlayCanvas renderer draws at x=±7.2 (main.js scenery). Ground
+  // zombies, leapers, climbers, and bosses are stopped so no enemy appears to
+  // walk out of a wall; flyers are the only type allowed to pass over.
+  obstacles: [
+    { id: "fence-left", kind: "fence", minX: -7.36, maxX: -7.04, minZ: -46, maxZ: 22, height: 1.35 },
+    { id: "fence-right", kind: "fence", minX: 7.04, maxX: 7.36, minZ: -46, maxZ: 22, height: 1.35 },
+  ],
 };
 
 const PLAYABLE_WEAPON_IDS = weaponsConfig.map((weapon) => weapon.id);
@@ -90,6 +99,17 @@ const MED_KIT_COST = economyConfig.medKit?.cost ?? 20;
 const VILLAGE_UPGRADE = economyConfig.villageUpgrade ?? {};
 const C4_DEF = { id: "c4", label: "C4 Charge", shortLabel: "C4", damage: 420, radius: 8.4, cooldownSec: 0.7 };
 const NUKE_DEF = { id: "nuke", label: "Nuke Device", shortLabel: "Nuke", damage: 1400, radius: 80, cooldownSec: 1.1 };
+
+// ── Lobbed ordnance (grenades) ─────────────────────────────────────────────
+// Grenades arc through the air and detonate where they land, instead of an
+// immediate blast. The renderer reads ordnanceProjectiles each frame to draw
+// the throw, and drains ordnanceDetonations to spawn blast FX on impact.
+const ORDNANCE_GRAVITY = 12;          // m/s² applied to the lob arc
+const ORDNANCE_LAUNCH_HEIGHT = 1.5;   // throw origin height (≈ shoulder)
+const ORDNANCE_LOB_BIAS_DEG = 24;     // base upward angle added to the aim pitch
+const ORDNANCE_MIN_ELEV_DEG = 6;      // clamp so a steep down-aim still arcs a little
+const ORDNANCE_MAX_ELEV_DEG = 60;     // clamp so a steep up-aim doesn't go vertical
+const ORDNANCE_MAX_AIRTIME = 4;       // safety fuse so a stray throw still detonates
 const FLINT_COOLDOWN_SEC = 5;
 const FIRE_PATCH_TTL_SEC = 5.2;
 const FIRE_PATCH_RADIUS = 3.1;
@@ -150,6 +170,40 @@ const HEADSHOT_MULTIPLIER = 2.2;
 const ADS_SPREAD_MULT = 0.4;
 const CROUCH_SPREAD_MULT = 0.65;
 const SPRINT_SPREAD_MULT = 2.0;
+
+// ── Aim model (precise weapons) ───────────────────────────────────────────
+// Per-type half-width of a zombie's body in the XZ plane. Precise weapons
+// (pistols, rifles, snipers, SMGs) only land when the aim line passes within
+// this radius (plus a small per-weapon forgiveness) of the target's center —
+// a true ray-vs-cylinder test instead of a wide angular cone.
+const ZOMBIE_BODY_RADIUS = {
+  crawler: 0.42,
+  walker: 0.5,
+  runner: 0.46,
+  leaper: 0.5,
+  skitter: 0.4,
+  pouncer: 0.52,
+  revenant: 0.56,
+  armored: 0.66,
+  brute: 0.85,
+  juggernaut: 1.0,
+  flyer: 0.5,
+  zombie_chicken: 0.36,
+  zombie_pig: 0.62,
+  zombie_horse: 0.82,
+  zombie_cow: 0.86,
+  mega_zombie: 1.2,
+  mini_boss: 1.6,
+};
+const DEFAULT_ZOMBIE_BODY_RADIUS = 0.52;
+
+function getZombieBodyRadius(zombie) {
+  return ZOMBIE_BODY_RADIUS[zombie?.type] ?? DEFAULT_ZOMBIE_BODY_RADIUS;
+}
+
+function getZombieBodyHeight(zombie) {
+  return Math.max(1.15, getZombieBodyRadius(zombie) * 2.7);
+}
 
 const WAVE_GRACE_SEC = 5.5;
 const BREAKABLE_WINDOW_DEFS = createBreakableWindowDefs();
@@ -518,6 +572,9 @@ export function createSliceState(save = loadPlayCanvasSave()) {
     villagers: createPlayCanvasVillagers({ rescuedVillagers, deadVillagers }),
     firePatches: [],
     nextFireSeq: 1,
+    ordnanceProjectiles: [],
+    ordnanceDetonations: [],
+    nextOrdnanceSeq: 1,
     randomState: 20260603,
   };
 }
@@ -576,6 +633,7 @@ export function stepSlice(state, input, dt) {
   state.shotCooldownSec = Math.max(0, state.shotCooldownSec - stepDt);
   state.ordnanceCooldownSec = Math.max(0, state.ordnanceCooldownSec - stepDt);
   state.flintCooldownSec = Math.max(0, state.flintCooldownSec - stepDt);
+  state.invulnerableSec = Math.max(0, (state.invulnerableSec ?? 0) - stepDt);
 
   // Reload countdown
   if (state.pendingReload && state.reloadTimerSec > 0) {
@@ -606,6 +664,7 @@ export function stepSlice(state, input, dt) {
   stepZombies(state, stepDt);
   stepVillagerEscort(state, stepDt);
   stepFirePatches(state, stepDt);
+  stepOrdnanceProjectiles(state, stepDt);
 
   if (state.playerHp <= 0) {
     state.phase = "lost";
@@ -757,7 +816,9 @@ function spawnZombie(state, type, spawn = null) {
   const def = type === BOSS_DEF.id ? BOSS_DEF : type === BOSS_WAVE_TYPE_ID ? BOSS_WAVE_DEF : ENEMY_DEFS.get(type) ?? ENEMY_DEFS.get("walker");
   registerEnemyIntro(state, def);
   const side = nextRandom(state) < 0.5 ? -1 : 1;
-  const laneOffset = (nextRandom(state) * 16 + 3) * side;
+  // Spawn inside the fenced lane corridor (fences sit at x=±7.2) so ground
+  // zombies funnel down the lane instead of clipping through the side fences.
+  const laneOffset = (nextRandom(state) * 5.6 + 0.6) * side;
   const depth = -18 - nextRandom(state) * 12 - state.waveIndex * 0.9;
   const waveScale = 1 + state.waveIndex * 0.085;
   const isBoss = def.id === BOSS_DEF.id || def.id === BOSS_WAVE_TYPE_ID;
@@ -777,6 +838,7 @@ function spawnZombie(state, type, spawn = null) {
     attackDps: def.attackDps * (1 + state.waveIndex * 0.025),
     coinReward: def.coinReward ?? 10,
     movementMode: def.movementMode ?? "ground",
+    canClimb: Boolean(def.canClimb),
     attackRange: def.attackRange ?? 1.6,
     hitFlashSec: 0,
     biteCooldownSec: 0,
@@ -894,6 +956,7 @@ function weightedEnemyPick(composition, random) {
 
 function isWaveCleared(state) {
   const wave = wavesConfig[state.waveIndex];
+  if (!wave) return false;
   return state.spawnedThisWave >= wave.budget && state.zombies.every((zombie) => zombie.dead);
 }
 
@@ -980,6 +1043,74 @@ function movePlayer(state, input, dt) {
   }
 }
 
+// ── Obstacle collision ──────────────────────────────────────────────────────
+// Eject a circle (cx,cz,r) from an axis-aligned box. Returns the pushed-out
+// {x,z}, or null when the circle is clear. Pure geometry.
+function pushCircleOutOfAabb(cx, cz, r, box) {
+  const nx = clamp(cx, box.minX, box.maxX);
+  const nz = clamp(cz, box.minZ, box.maxZ);
+  const dx = cx - nx;
+  const dz = cz - nz;
+  const d2 = dx * dx + dz * dz;
+  if (d2 > r * r) return null; // clear of the box
+  if (d2 > 1e-9) {
+    const d = Math.sqrt(d2);
+    const push = (r - d) / d;
+    return { x: cx + dx * push, z: cz + dz * push };
+  }
+  // Center inside the box — eject along the axis of least penetration.
+  const toMinX = cx - box.minX;
+  const toMaxX = box.maxX - cx;
+  const toMinZ = cz - box.minZ;
+  const toMaxZ = box.maxZ - cz;
+  if (Math.min(toMinX, toMaxX) < Math.min(toMinZ, toMaxZ)) {
+    return { x: toMinX < toMaxX ? box.minX - r : box.maxX + r, z: cz };
+  }
+  return { x: cx, z: toMinZ < toMaxZ ? box.minZ - r : box.maxZ + r };
+}
+
+// How a zombie deals with a fence:
+//   "fly"   — flyers pass over low outdoor walls/fences.
+//   "block" — everyone else is stopped by fences and walls.
+function fenceCapability(zombie) {
+  const mode = zombie.movementMode ?? "ground";
+  if (mode === "flyer") return "fly";
+  return "block";
+}
+
+// Resolve every live zombie against SLICE_WORLD.obstacles after movement.
+// Blocked zombies are pushed back out; this keeps the simulation consistent
+// with the rendered walls so enemies do not appear to walk through geometry.
+function resolveZombieObstacles(state) {
+  const obstacles = SLICE_WORLD.obstacles;
+  if (!obstacles?.length) return;
+  const r = SLICE_WORLD.zombieRadius;
+  for (const zombie of state.zombies) {
+    if (zombie.dead) continue;
+    const cap = fenceCapability(zombie);
+    if (cap === "fly") {
+      zombie.crossingFence = false;
+      continue;
+    }
+    for (const obs of obstacles) {
+      const res = pushCircleOutOfAabb(zombie.x, zombie.z, r, obs);
+      if (res) {
+        zombie.x = res.x;
+        zombie.z = res.z;
+      }
+    }
+    if (zombie.crossingFence) {
+      zombie.crossingFence = false;
+      zombie.fenceCrossType = "none";
+      // Settle back to the ground unless something else owns the height (a
+      // pounce arc sets zombie.y itself every frame).
+      if ((zombie.movementMode ?? "ground") !== "flyer" && (zombie.pounceSec ?? 0) <= 0) {
+        zombie.y = 0;
+      }
+    }
+  }
+}
+
 function stepZombies(state, dt) {
   if (state.waveGraceSec > 0) {
     return;
@@ -1012,18 +1143,22 @@ function stepZombies(state, dt) {
     // ── Bite check (same for all movement modes) ──────────────────────────
     if (targetPlayer && playerDist < SLICE_WORLD.zombieBiteRange) {
       if (zombie.biteCooldownSec <= 0) {
-        const biteDamage = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * getArmorDamageMultiplier(state) * BITE_INTERVAL_SEC);
-        const before = state.playerHp;
-        state.playerHp = Math.max(0, state.playerHp - biteDamage);
-        state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+        if ((state.invulnerableSec ?? 0) <= 0) {
+          const biteDamage = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * getArmorDamageMultiplier(state) * BITE_INTERVAL_SEC);
+          const before = state.playerHp;
+          state.playerHp = Math.max(0, state.playerHp - biteDamage);
+          state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+        }
         zombie.biteCooldownSec = BITE_INTERVAL_SEC;
       }
       // Boss slam: if the boss lands in bite range during a charge, fire slam hit here
       if (zombie.pounceSec > 0 && BOSS_TYPE_IDS.has(zombie.type) && !zombie.slamHitFired) {
-        const slamDmg = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * 0.4);
-        const before = state.playerHp;
-        state.playerHp = Math.max(0, state.playerHp - slamDmg);
-        state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+        if ((state.invulnerableSec ?? 0) <= 0) {
+          const slamDmg = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * 0.4);
+          const before = state.playerHp;
+          state.playerHp = Math.max(0, state.playerHp - slamDmg);
+          state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+        }
         zombie.slamHitFired = true;
         zombie.slamCooldownSec = SLAM_COOLDOWN_SEC;
       }
@@ -1077,7 +1212,7 @@ function stepZombies(state, dt) {
         zombie.x += (ptx / pDist) * zombie.jumpSpeed * dt;
         zombie.z += (ptz / pDist) * zombie.jumpSpeed * dt;
         // Parabolic Y arc: 0 → peak at 50% → 0 at end
-        const prog = 1 - zombie.pounceSec / POUNCE_DURATION_SEC; // 0..1
+        const prog = Math.max(0, Math.min(1, 1 - zombie.pounceSec / POUNCE_DURATION_SEC)); // 0..1
         zombie.y = POUNCE_PEAK_Y * 4 * prog * (1 - prog);       // sin²-shaped parabola
         if (zombie.pounceSec <= 0) {
           zombie.y = 0;
@@ -1137,7 +1272,7 @@ function stepZombies(state, dt) {
           // Apply slam hit once if player is close (slamHitFired gates it per charge)
           if (!zombie.slamHitFired) {
             const landDist = Math.hypot(state.player.x - zombie.x, state.player.z - zombie.z);
-            if (landDist < SLAM_LAND_RADIUS) {
+            if (landDist < SLAM_LAND_RADIUS && (state.invulnerableSec ?? 0) <= 0) {
               const slamDmg = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * 0.4);
               const before = state.playerHp;
               state.playerHp = Math.max(0, state.playerHp - slamDmg);
@@ -1180,6 +1315,9 @@ function stepZombies(state, dt) {
     zombie.z += (tz / dist) * zombie.speedMps * dt;
     zombie.y = 0;
   }
+
+  // Stop non-flying zombies at fences/walls; flyers are allowed to pass over.
+  resolveZombieObstacles(state);
 }
 
 function stepVillagerEscort(state, dt) {
@@ -1279,6 +1417,10 @@ export function fireSliceWeapon(state) {
 
   const forwardX = -Math.sin(state.player.yaw);
   const forwardZ = -Math.cos(state.player.yaw);
+  // Precise weapons require the aim line to actually pass through the target's
+  // body (ray-vs-cylinder). Spread/area weapons (shotgun, flamethrower,
+  // launchers, melee) keep the forgiving angular cone so they stay easy to land.
+  const usePreciseAim = Boolean(profile.precise) && profile.blastRadius <= 0;
   const candidates = [];
 
   for (const zombie of state.zombies) {
@@ -1288,17 +1430,35 @@ export function fireSliceWeapon(state) {
     const dx = zombie.x - state.player.x;
     const dz = zombie.z - state.player.z;
     const distance = Math.hypot(dx, dz);
-    if (distance > profile.range) {
+    if (distance < 1e-4 || distance > profile.range) {
       continue;
     }
     const dot = (dx / distance) * forwardX + (dz / distance) * forwardZ;
-    if (dot < profile.coneCos) {
+    if (dot <= 0) {
+      continue; // target is behind the shooter
+    }
+    // Perpendicular distance from the aim line to the zombie's center.
+    const missRadius = Math.sqrt(Math.max(0, 1 - dot * dot)) * distance;
+    if (usePreciseAim) {
+      // Body radius is always struck; forgiveness is the aim margin, tightened
+      // when ADS/crouched and widened while sprinting (via spreadMult).
+      const hitRadius =
+        getZombieBodyRadius(zombie) + (profile.aimForgiveness ?? 0.2) / Math.max(0.25, spreadMult);
+      if (missRadius > hitRadius) {
+        continue;
+      }
+    } else if (dot < profile.coneCos) {
       continue;
     }
-    candidates.push({ zombie, distance, dot });
+    candidates.push({ zombie, distance, dot, missRadius });
   }
 
-  candidates.sort((a, b) => b.dot - a.dot || a.distance - b.distance);
+  if (usePreciseAim) {
+    // Nearest body along the line is struck first (realistic occlusion).
+    candidates.sort((a, b) => a.distance - b.distance || a.missRadius - b.missRadius);
+  } else {
+    candidates.sort((a, b) => b.dot - a.dot || a.distance - b.distance);
+  }
   const primaryTarget = candidates[0] ?? null;
   if (!primaryTarget) {
     const structureImpact = resolvePlayCanvasStructureShot(state, weapon, profile, { forwardX, forwardZ });
@@ -1319,11 +1479,29 @@ export function fireSliceWeapon(state) {
       };
       return { hit: false, reason: "impact", impact: true, ...structureImpact };
     }
-    state.lastMessage = weapon.category === "melee"
-      ? "Pipe swing missed. Close the gap before attacking."
-      : "Shot missed. Keep the reticle on the closest target.";
-    state.lastCombatEvent = { weaponId: weapon.id, hit: false, reason: "miss" };
-    return { hit: false, reason: "miss" };
+    if (weapon.category === "melee") {
+      state.lastMessage = "Pipe swing missed. Close the gap before attacking.";
+      state.lastCombatEvent = { weaponId: weapon.id, hit: false, reason: "miss" };
+      return { hit: false, reason: "miss" };
+    }
+    // Nothing in the way — the round kicks up terrain down-range so the player
+    // can read where the shot actually went.
+    const ground = resolvePlayCanvasGroundMiss(state, profile);
+    state.lastMessage = "Shot missed — round kicked up dirt.";
+    state.lastCombatEvent = {
+      weaponId: weapon.id,
+      hit: false,
+      reason: "miss",
+      impact: true,
+      materialId: ground.materialId,
+    };
+    return {
+      hit: false,
+      reason: "miss",
+      impact: true,
+      materialId: ground.materialId,
+      impactDistance: ground.impactDistance,
+    };
   }
 
   if (profile.blastRadius > 0) {
@@ -1517,6 +1695,7 @@ export function buyOrEquipWeapon(state, weaponId) {
       return { ok: false, reason: "coins" };
     }
     state.coins -= cost;
+    state.coins = Math.max(0, state.coins);
     state.ownedWeapons.push(weapon.id);
   }
   state.equippedWeaponId = weapon.id;
@@ -1540,6 +1719,7 @@ export function buyOrEquipArmor(state, armorId) {
       return { ok: false, reason: "coins" };
     }
     state.coins -= cost;
+    state.coins = Math.max(0, state.coins);
     state.ownedArmors.push(armor.id);
   }
   state.equippedArmorId = armor.id;
@@ -1572,6 +1752,7 @@ export function buyGearItem(state, gearId) {
     return { ok: false, reason: "coins" };
   }
   state.coins -= cost;
+  state.coins = Math.max(0, state.coins);
   state.ownedGear.push(gear.id);
   state.lastMessage = `${gear.label} purchased.`;
   persistPlayCanvasSave(state);
@@ -1979,7 +2160,7 @@ export function revivePlayer(state, { hp = 60, invulnerableSec = 3 } = {}) {
   state.reviveUsed = true;
   state.playerHp = Math.min(state.maxPlayerHp ?? 100, hp);
   state.invulnerableSec = invulnerableSec;
-  state.phase = "active";
+  state.phase = state.secretBossActive ? "secret_boss" : "running";
   state.lastMessage = "Revived! Get back in there!";
   return { ok: true };
 }
@@ -2042,6 +2223,7 @@ export function buyVillageUpgrade(state) {
     return { ok: false, reason: "coins" };
   }
   state.coins -= item.cost;
+  state.coins = Math.max(0, state.coins);
   state.villageLevel = item.nextLevel;
   syncVillagerPerkModifiers(state);
   state.maxVillageHp = getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers);
@@ -2062,6 +2244,7 @@ export function buyMedKit(state) {
     return { ok: false, reason: "coins" };
   }
   state.coins -= item.cost;
+  state.coins = Math.max(0, state.coins);
   state.playerHp = state.maxPlayerHp;
   state.lastMessage = "Med kit used. Health restored.";
   persistPlayCanvasSave(state);
@@ -2118,10 +2301,32 @@ export function useOrdnance(state) {
   consumeOrdnance(state, def.id);
   const cooldownMultiplier = Math.max(0, Number(getCurrentPerkModifiers(state).grenadeCooldownMultiplier ?? 1));
   state.ordnanceCooldownSec = def.cooldownSec * cooldownMultiplier;
+
+  // Grenades are lobbed — they arc out and detonate on landing/impact. C4 and
+  // the nuke device stay instant (a placed charge / a fixed strike).
+  if (GRENADE_DEF_BY_ID.has(def.id)) {
+    launchOrdnanceProjectile(state, def);
+    state.activeOrdnanceId = normalizeActiveOrdnance(state.activeOrdnanceId, state.grenadeInventory, state.c4Count, state.nukeCount);
+    state.lastMessage = `${def.label} away!`;
+    persistPlayCanvasSave(state);
+    return { ok: true, lobbed: true, ordnanceId: def.id };
+  }
+
   const center = getBlastCenter(state, def);
+  const { hitCount, killCount, structureImpact } = applyOrdnanceBlast(state, def, center);
+  state.activeOrdnanceId = normalizeActiveOrdnance(state.activeOrdnanceId, state.grenadeInventory, state.c4Count, state.nukeCount);
+  state.lastMessage = structureImpact
+    ? `${def.label} detonated: ${hitCount} hit, ${killCount} down; ${structureImpact.materialId} impact.`
+    : `${def.label} detonated: ${hitCount} hit, ${killCount} down.`;
+  persistPlayCanvasSave(state);
+  return { ok: true, hitCount, killCount, ordnanceId: def.id, structureImpact };
+}
+
+// Shared blast application — used by instant ordnance (C4/nuke) and by lobbed
+// grenade detonations. Returns hit/kill counts plus any structure impact.
+function applyOrdnanceBlast(state, def, center) {
   let hitCount = 0;
   let killCount = 0;
-
   for (const zombie of state.zombies) {
     if (zombie.dead) {
       continue;
@@ -2138,14 +2343,139 @@ export function useOrdnance(state) {
       killCount += 1;
     }
   }
-
   const structureImpact = resolvePlayCanvasBlastImpact(state, def, center);
-  state.activeOrdnanceId = normalizeActiveOrdnance(state.activeOrdnanceId, state.grenadeInventory, state.c4Count, state.nukeCount);
+  return { hitCount, killCount, structureImpact };
+}
+
+// Spawn a lobbed grenade from the player's aim. Higher aim throws farther; a
+// steep down-aim still arcs a short distance (clamped elevation).
+function launchOrdnanceProjectile(state, def) {
+  const yaw = state.player.yaw ?? 0;
+  const pitchDeg = state.player.pitch ?? 0; // positive = looking up
+  const elevationDeg = clamp(pitchDeg + ORDNANCE_LOB_BIAS_DEG, ORDNANCE_MIN_ELEV_DEG, ORDNANCE_MAX_ELEV_DEG);
+  const elevation = (elevationDeg * Math.PI) / 180;
+  const speed = def.muzzleVelocityMps ?? 18;
+  const horizSpeed = speed * Math.cos(elevation);
+  const dirX = -Math.sin(yaw);
+  const dirZ = -Math.cos(yaw);
+  const projectile = {
+    id: `ord-${state.nextOrdnanceSeq++}`,
+    ordnanceId: def.id,
+    x: state.player.x + dirX * 0.6,
+    y: Math.max(0, state.player.y ?? 0) + ORDNANCE_LAUNCH_HEIGHT,
+    z: state.player.z + dirZ * 0.6,
+    vx: dirX * horizSpeed,
+    vy: speed * Math.sin(elevation),
+    vz: dirZ * horizSpeed,
+    airSec: 0,
+    projectileRadius: def.projectileRadius ?? 0.1,
+  };
+  state.ordnanceProjectiles.push(projectile);
+  return projectile;
+}
+
+function stepOrdnanceProjectiles(state, dt) {
+  // Detonation events are drained by the renderer each frame; clear any that the
+  // renderer never consumed (e.g. headless stepping) so the queue can't grow.
+  if (state.ordnanceDetonations?.length) {
+    state.ordnanceDetonations = state.ordnanceDetonations.filter((event) => {
+      event.ageSec = (event.ageSec ?? 0) + dt;
+      return event.ageSec < 1;
+    });
+  }
+  if (!state.ordnanceProjectiles?.length) {
+    return;
+  }
+  const survivors = [];
+  for (const projectile of state.ordnanceProjectiles) {
+    projectile.airSec += dt;
+    projectile.vy -= ORDNANCE_GRAVITY * dt;
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
+    projectile.z += projectile.vz * dt;
+
+    let detonate = false;
+    if (projectile.y <= 0.1 && projectile.vy < 0) {
+      projectile.y = 0.1;
+      detonate = true; // hit the ground
+    }
+    if (!detonate) {
+      for (const zombie of state.zombies) {
+        if (zombie.dead) {
+          continue;
+        }
+        const dx = zombie.x - projectile.x;
+        const dz = zombie.z - projectile.z;
+        const contact = getZombieBodyRadius(zombie) + projectile.projectileRadius + 0.15;
+        const baseY = Math.max(0, zombie.y ?? 0);
+        const topY = baseY + getZombieBodyHeight(zombie);
+        const verticalContact = projectile.y >= baseY - projectile.projectileRadius
+          && projectile.y <= topY + projectile.projectileRadius;
+        if (verticalContact && dx * dx + dz * dz <= contact * contact) {
+          detonate = true; // bonked a zombie mid-flight
+          break;
+        }
+      }
+    }
+    if (!detonate && (projectile.airSec >= ORDNANCE_MAX_AIRTIME
+      || Math.abs(projectile.x) > SLICE_WORLD.arenaHalf + 6
+      || Math.abs(projectile.z) > SLICE_WORLD.arenaHalf + 6)) {
+      detonate = true;
+    }
+
+    if (detonate) {
+      detonateOrdnanceProjectile(state, projectile);
+    } else {
+      survivors.push(projectile);
+    }
+  }
+  state.ordnanceProjectiles = survivors;
+}
+
+function detonateOrdnanceProjectile(state, projectile) {
+  const def = GRENADE_DEF_BY_ID.get(projectile.ordnanceId) ?? GRENADE_DEF_BY_ID.get(DEFAULT_GRENADE_TYPE_ID);
+  const center = { x: projectile.x, z: projectile.z };
+  const { hitCount, killCount, structureImpact } = applyOrdnanceBlast(state, def, center);
+  state.ordnanceDetonations.push({
+    id: projectile.id,
+    ordnanceId: def.id,
+    x: projectile.x,
+    y: Math.max(0.1, projectile.y),
+    z: projectile.z,
+    hitCount,
+    killCount,
+    ageSec: 0,
+  });
   state.lastMessage = structureImpact
     ? `${def.label} detonated: ${hitCount} hit, ${killCount} down; ${structureImpact.materialId} impact.`
     : `${def.label} detonated: ${hitCount} hit, ${killCount} down.`;
-  persistPlayCanvasSave(state);
-  return { ok: true, hitCount, killCount, ordnanceId: def.id, structureImpact };
+}
+
+// Live grenades in the air — the renderer draws one entity per id and a trail.
+export function getPlayCanvasOrdnanceProjectiles(state) {
+  return (state.ordnanceProjectiles ?? []).map((projectile) => ({
+    id: projectile.id,
+    ordnanceId: projectile.ordnanceId,
+    x: projectile.x,
+    y: projectile.y,
+    z: projectile.z,
+    projectileRadius: projectile.projectileRadius,
+  }));
+}
+
+// Drain detonations so each blast spawns FX exactly once. Returns and clears.
+export function consumePlayCanvasOrdnanceDetonations(state) {
+  const events = state.ordnanceDetonations ?? [];
+  state.ordnanceDetonations = [];
+  return events.map((event) => ({
+    id: event.id,
+    ordnanceId: event.ordnanceId,
+    x: event.x,
+    y: event.y,
+    z: event.z,
+    hitCount: event.hitCount,
+    killCount: event.killCount,
+  }));
 }
 
 export function persistPlayCanvasSave(state) {
@@ -2591,30 +2921,30 @@ function getWeaponAttackProfile(weapon, spreadMult = 1) {
     return Math.cos(Math.min(Math.PI / 2, adjusted));
   };
   if (weapon.id === "pipe" || weapon.category === "melee") {
-    return { range: 2.4, coneCos: 0.25, falloffRange: 2.8, minFalloff: 0.82, maxTargets: 1, damageScale: 1, blastRadius: 0 };
+    return { range: 2.4, coneCos: 0.25, falloffRange: 2.8, minFalloff: 0.82, maxTargets: 1, damageScale: 1, blastRadius: 0, precise: false };
   }
   if (weapon.id === "shotgun") {
-    return { range: 24, coneCos: applySpread(0.88), falloffRange: 30, minFalloff: 0.35, maxTargets: 4, damageScale: 6.4, blastRadius: 0 };
+    return { range: 24, coneCos: applySpread(0.88), falloffRange: 30, minFalloff: 0.35, maxTargets: 4, damageScale: 6.4, blastRadius: 0, precise: false };
   }
   if (weapon.id === "flamethrower") {
-    return { range: 16, coneCos: applySpread(0.84), falloffRange: 18, minFalloff: 0.55, maxTargets: 7, damageScale: 1.4, blastRadius: 0 };
+    return { range: 16, coneCos: applySpread(0.84), falloffRange: 18, minFalloff: 0.55, maxTargets: 7, damageScale: 1.4, blastRadius: 0, precise: false };
   }
   if (weapon.id === "rpg") {
-    return { range: 56, coneCos: applySpread(0.988), falloffRange: 80, minFalloff: 0.8, maxTargets: 1, damageScale: 2.55, blastRadius: 7.2 };
+    return { range: 56, coneCos: applySpread(0.988), falloffRange: 80, minFalloff: 0.8, maxTargets: 1, damageScale: 2.55, blastRadius: 7.2, precise: false };
   }
   if (weapon.id === "grenade_launcher") {
-    return { range: 48, coneCos: applySpread(0.982), falloffRange: 70, minFalloff: 0.75, maxTargets: 1, damageScale: 2.2, blastRadius: 5.8 };
+    return { range: 48, coneCos: applySpread(0.982), falloffRange: 70, minFalloff: 0.75, maxTargets: 1, damageScale: 2.2, blastRadius: 5.8, precise: false };
   }
   if (weapon.id === "sniper") {
-    return { range: 64, coneCos: applySpread(0.992), falloffRange: 110, minFalloff: 0.82, maxTargets: 1, damageScale: 1.15, blastRadius: 0 };
+    return { range: 64, coneCos: applySpread(0.992), falloffRange: 110, minFalloff: 0.82, maxTargets: 1, damageScale: 1.15, blastRadius: 0, precise: true, aimForgiveness: 0.1 };
   }
   if (weapon.id === "dmr" || weapon.id === "battle_rifle") {
-    return { range: 52, coneCos: applySpread(0.986), falloffRange: 96, minFalloff: 0.78, maxTargets: 1, damageScale: 1.05, blastRadius: 0 };
+    return { range: 52, coneCos: applySpread(0.986), falloffRange: 96, minFalloff: 0.78, maxTargets: 1, damageScale: 1.05, blastRadius: 0, precise: true, aimForgiveness: 0.16 };
   }
   if (weapon.id === "smg" || weapon.id === "machine_pistol" || weapon.id === "lmg") {
-    return { range: 38, coneCos: applySpread(0.962), falloffRange: 74, minFalloff: 0.64, maxTargets: 1, damageScale: 1, blastRadius: 0 };
+    return { range: 38, coneCos: applySpread(0.962), falloffRange: 74, minFalloff: 0.64, maxTargets: 1, damageScale: 1, blastRadius: 0, precise: true, aimForgiveness: 0.24 };
   }
-  return { range: SLICE_WORLD.fireRange, coneCos: applySpread(SLICE_WORLD.fireConeCos), falloffRange: 90, minFalloff: 0.72, maxTargets: 1, damageScale: 1, blastRadius: 0 };
+  return { range: SLICE_WORLD.fireRange, coneCos: applySpread(SLICE_WORLD.fireConeCos), falloffRange: 90, minFalloff: 0.72, maxTargets: 1, damageScale: 1, blastRadius: 0, precise: true, aimForgiveness: 0.2 };
 }
 
 function getWeaponIdentity(weapon) {
@@ -2715,6 +3045,24 @@ function getWeaponIdentity(weapon) {
     silhouette: weapon.id === "revolver" ? "revolver" : "service-pistol",
     recoilKick: weapon.id === "revolver" ? 0.2 : 0.12,
   };
+}
+
+// Where a clean miss meets the terrain, so the FX layer can kick up dirt at a
+// believable down-range point. Pitch convention: positive = looking up,
+// negative = looking down (camera forward.y = sin(pitch)).
+function resolvePlayCanvasGroundMiss(state, profile) {
+  const range = Math.max(4, profile?.range ?? SLICE_WORLD.fireRange);
+  const eyeHeight = state.player?.crouching ? 1.3 : 1.62;
+  const downDeg = Math.max(0, -(state.player?.pitch ?? 0));
+  let impactDistance;
+  if (downDeg < 0.5) {
+    // Level or upward shot — round carries down-range before meeting terrain.
+    impactDistance = range;
+  } else {
+    const slant = eyeHeight / Math.sin((downDeg * Math.PI) / 180);
+    impactDistance = clamp(slant, 4, range);
+  }
+  return { impactDistance, materialId: "soil" };
 }
 
 function resolvePlayCanvasStructureShot(state, weapon, profile, forward) {
@@ -2960,6 +3308,7 @@ function buyCountPack(state, pack, type) {
     return { ok: false, reason: "coins" };
   }
   state.coins -= cost;
+  state.coins = Math.max(0, state.coins);
   if (type === "grenade") {
     const grenadeTypeId = pack.grenadeTypeId ?? DEFAULT_GRENADE_TYPE_ID;
     state.grenadeInventory[grenadeTypeId] = Math.max(0, (state.grenadeInventory[grenadeTypeId] ?? 0) + pack.amount);

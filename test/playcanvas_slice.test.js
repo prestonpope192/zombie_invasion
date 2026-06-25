@@ -21,6 +21,8 @@ import {
   getPlayCanvasMiniMapSnapshot,
   getPlayCanvasWeaponSnapshot,
   getPlayCanvasVillagerSnapshot,
+  getPlayCanvasOrdnanceProjectiles,
+  consumePlayCanvasOrdnanceDetonations,
   getShopItems,
   interactWithPlayCanvasWorld,
   reloadSliceWeapon,
@@ -37,9 +39,11 @@ import {
   getPlayCanvasGameOverOffers,
   evaluateGoals,
   getGoalsSnapshot,
+  revivePlayer,
 } from "../src/playcanvas/sliceSimulation";
 import weaponsConfig from "../src/fps/config/weapons_fps.json";
 import buildingsConfig from "../src/fps/config/buildings_fps.json";
+import enemiesConfig from "../src/fps/config/enemies_fps.json";
 
 describe("PlayCanvas campaign simulation", () => {
   beforeEach(() => {
@@ -97,6 +101,82 @@ describe("PlayCanvas campaign simulation", () => {
     expect(result.hit).toBe(true);
     expect(state.ammo).toBe(14); // 15-shot magazine decremented by 1
     expect(state.zombies[0].hp).toBeLessThan(state.zombies[0].maxHp);
+  });
+
+  it("requires the pistol's aim line to pass through a zombie's body (no wide cone auto-aim)", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    // Fire +Z (yaw = PI), away from the village structures, over open ground.
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.player.onGround = true;
+    // 20m down-range, 2.5m off the aim line — well outside the body radius.
+    state.zombies = [{ ...nearbyZombie(), x: 2.5, z: 28, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(false);
+    expect(result.reason).toBe("miss");
+    // The off-line zombie takes no damage…
+    expect(state.zombies[0].hp).toBe(100);
+  });
+
+  it("lands the pistol when the reticle is actually on the zombie's body", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.player.onGround = true;
+    // Same range, only 0.2m off-center — inside the body + forgiveness window.
+    state.zombies = [{ ...nearbyZombie(), x: 0.2, z: 28, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(true);
+    expect(state.zombies[0].hp).toBeLessThan(100);
+  });
+
+  it("kicks up terrain on a clean miss so the shot reads down-range", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z, away from the village
+    state.player.onGround = true;
+    state.player.pitch = -12; // looking down — round meets the ground
+    state.zombies = [];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(false);
+    expect(result.reason).toBe("miss");
+    expect(result.impact).toBe(true);
+    expect(result.materialId).toBe("soil");
+    expect(result.impactDistance).toBeGreaterThan(0);
+    expect(state.lastCombatEvent).toMatchObject({ hit: false, reason: "miss", impact: true, materialId: "soil" });
+  });
+
+  it("keeps the shotgun forgiving — off-axis zombies in the spread still get hit", () => {
+    const state = startSlice(createSliceState({ coins: 5000 }));
+    state.phase = "intermission";
+    state.waveNumber = 5;
+    expect(buyOrEquipWeapon(state, "shotgun")).toEqual({ ok: true });
+    state.phase = "running";
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z, away from the village
+    state.player.onGround = true;
+    // 8m down-range, 1.5m off the line — a precise weapon would miss, the
+    // shotgun's wide cone still catches it.
+    state.zombies = [{ ...nearbyZombie(), x: 1.5, z: 16, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(true);
+    expect(state.zombies[0].hp).toBeLessThan(100);
   });
 
   it("clears a normal campaign wave into intermission", () => {
@@ -744,6 +824,67 @@ describe("PlayCanvas campaign simulation", () => {
     expect(state.zombies.some((zombie) => zombie.dead)).toBe(true);
   });
 
+  it("lobs a grenade as an in-flight projectile that detonates on landing", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.activeOrdnanceId = "frag";
+    state.grenadeInventory.frag = 3;
+    // Aim down-range over open ground; target sits where the lob will land.
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z
+    state.player.pitch = 0;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 30, hp: 200, maxHp: 200 }];
+
+    const throwResult = useOrdnance(state);
+    expect(throwResult).toMatchObject({ ok: true, lobbed: true, ordnanceId: "frag" });
+    expect(state.grenadeInventory.frag).toBe(2); // consumed one
+    // The grenade is now airborne — no immediate damage.
+    expect(getPlayCanvasOrdnanceProjectiles(state)).toHaveLength(1);
+    expect(state.zombies[0].hp).toBe(200);
+
+    // Fly it out: step until it detonates (lands or hits the zombie).
+    let detonations = [];
+    for (let i = 0; i < 120 && detonations.length === 0; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+      detonations = detonations.concat(consumePlayCanvasOrdnanceDetonations(state));
+    }
+
+    expect(detonations.length).toBeGreaterThan(0);
+    expect(getPlayCanvasOrdnanceProjectiles(state)).toHaveLength(0);
+    // Detonation point is down-range from the throw origin, near ground level.
+    expect(detonations[0].z).toBeGreaterThan(12);
+    expect(detonations[0].y).toBeLessThan(2);
+    // It actually damaged the nearby zombie when it went off.
+    expect(state.zombies[0].hp).toBeLessThan(200);
+  });
+
+  it("throws airborne grenades from the player's current height before detonating on contact", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.activeOrdnanceId = "frag";
+    state.grenadeInventory.frag = 3;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.y = 4;
+    state.player.yaw = Math.PI; // throw +Z
+    state.player.pitch = 0;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 9.42, hp: 200, maxHp: 200 }];
+
+    const throwResult = useOrdnance(state);
+    expect(throwResult).toMatchObject({ ok: true, lobbed: true, ordnanceId: "frag" });
+    let projectiles = getPlayCanvasOrdnanceProjectiles(state);
+    expect(projectiles).toHaveLength(1);
+    expect(projectiles[0].y).toBeGreaterThan(5.4);
+
+    stepSlice(state, idleInput(), 0.05);
+    expect(consumePlayCanvasOrdnanceDetonations(state)).toHaveLength(0);
+    projectiles = getPlayCanvasOrdnanceProjectiles(state);
+    expect(projectiles).toHaveLength(1);
+    expect(projectiles[0].y).toBeGreaterThan(5);
+    expect(state.zombies[0].hp).toBe(200);
+  });
+
   it("reserves configured mega zombie slots in escalation waves", () => {
     const state = startSlice(createSliceState());
     state.waveIndex = 4;
@@ -1155,6 +1296,166 @@ describe("PlayCanvas campaign simulation", () => {
     expect(reloaded.claimedOfferKeys).toEqual(["summary:3:bonus_grenades"]);
 
     localStorage.clear();
+  });
+});
+
+describe("zombie fence collision", () => {
+  beforeEach(() => localStorage.clear());
+
+  // Player parked outside the lane (past the right fence at x≈7.2); one zombie
+  // inside the lane, aggroed onto the player so it drives toward the fence.
+  function chaseState(overrides) {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.spawnedThisWave = 9999; // suppress the wave spawner during the test
+    state.player.x = 15;
+    state.player.z = 0;
+    state.zombies = [
+      {
+        ...nearbyZombie(),
+        x: 5,
+        z: 0,
+        y: 0,
+        speedMps: 4,
+        aggroPlayerSec: 60,
+        jumpCooldownSec: 0,
+        telegraphSec: 0,
+        pounceSec: 0,
+        ...overrides,
+      },
+    ];
+    return state;
+  }
+
+  function runChase(state, steps = 90) {
+    for (let i = 0; i < steps; i += 1) stepSlice(state, idleInput(), 0.05);
+    return state.zombies[0];
+  }
+
+  it("blocks a plain ground zombie at a side fence", () => {
+    const z = runChase(chaseState({ type: "walker", movementMode: "ground", canClimb: false }));
+    // Stopped on the lane side of the fence (inner edge ≈ 7.04), never through.
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("blocks climber-flagged ground zombies at a side fence", () => {
+    const z = runChase(chaseState({ type: "skitter", movementMode: "ground", canClimb: true }));
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("blocks leapers at a side fence instead of letting them hop through wall geometry", () => {
+    const z = runChase(
+      chaseState({ type: "leaper", movementMode: "leaper", canClimb: false, jumpSpeed: 6, jumpIntervalSec: 1.2 }),
+    );
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("lets a flyer fly over a fence", () => {
+    const z = runChase(chaseState({ type: "flyer", movementMode: "flyer", canClimb: false, hoverHeight: 1.45 }));
+    expect(z.x).toBeGreaterThan(7.4);
+  });
+
+  it("does not lift climbers into an up-and-over arc through the fence plane", () => {
+    const state = chaseState({ type: "skitter", movementMode: "ground", canClimb: true });
+    let sawLift = false;
+    for (let i = 0; i < 90; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+      if ((state.zombies[0].y ?? 0) > 0.4) sawLift = true;
+    }
+    expect(sawLift).toBe(false);
+    expect(state.zombies[0].x).toBeLessThan(7);
+  });
+
+  it("blocks boss-class zombies at a side fence", () => {
+    const z = runChase(chaseState({ type: "mega_zombie", movementMode: "ground", canClimb: false, speedMps: 4 }), 110);
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("tags the intended climbers in the enemy config", () => {
+    const byId = Object.fromEntries(enemiesConfig.map((e) => [e.id, e]));
+    for (const id of ["skitter", "runner", "brute", "armored"]) {
+      expect(byId[id]?.canClimb).toBe(true);
+    }
+    // A plain walker stays blocked by fences.
+    expect(byId.walker?.canClimb ?? false).toBe(false);
+  });
+
+  it("spawns ground zombies inside the fenced lane corridor", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    for (let i = 0; i < 25; i += 1) stepSlice(state, idleInput(), 0.1);
+    expect(state.zombies.length).toBeGreaterThan(0);
+    for (const z of state.zombies) {
+      expect(Math.abs(z.x)).toBeLessThan(7.04);
+    }
+  });
+});
+
+describe("revive + invulnerability", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("revive sets phase to 'running' and sim advances afterward", () => {
+    const state = startSlice(createSliceState());
+    state.phase = "lost";
+    state.playerHp = 0;
+    state.reviveUsed = false;
+    state.secretBossActive = false;
+
+    const result = revivePlayer(state);
+    expect(result.ok).toBe(true);
+    expect(state.phase).toBe("running");
+
+    // Sim must advance (stepSlice must not bail early)
+    const elapsedBefore = state.elapsedSec;
+    stepSlice(state, idleInput(), 0.05);
+    expect(state.phase).toBe("running");
+    expect(state.elapsedSec).toBeGreaterThan(elapsedBefore);
+  });
+
+  it("invulnerability frames protect the player from bites during the window", () => {
+    const state = startSlice(createSliceState());
+    state.phase = "lost";
+    state.playerHp = 0;
+    state.reviveUsed = false;
+    state.secretBossActive = false;
+
+    revivePlayer(state, { hp: 60, invulnerableSec: 3 });
+    expect(state.invulnerableSec).toBe(3);
+
+    // Place a zombie in bite range
+    state.zombies = [{ ...nearbyZombie(), x: state.player.x, z: state.player.z + 0.8, biteCooldownSec: 0 }];
+    state.waveGraceSec = 0;
+
+    const hpAfterRevive = state.playerHp;
+
+    // Step several ticks within the invulnerability window (0.3s << 3s)
+    for (let i = 0; i < 6; i++) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+    // HP must be unchanged despite zombie in bite range
+    expect(state.playerHp).toBe(hpAfterRevive);
+
+    // Now advance past the window (3s total) and confirm damage can land
+    // We've used 0.3s so far; step until invulnerableSec reaches 0, then one more bite interval
+    for (let i = 0; i < 80; i++) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+    // After ~4s total, invulnerability is gone and zombie has had time to bite
+    expect(state.playerHp).toBeLessThan(hpAfterRevive);
+  });
+
+  it("isWaveCleared (via stepSlice) does not throw with an out-of-range waveIndex", () => {
+    const state = startSlice(createSliceState());
+    state.phase = "running";
+    state.waveIndex = 9999; // far out of range
+    state.spawnedThisWave = 0;
+    state.zombies = [];
+    state.waveGraceSec = 0;
+
+    // Must not throw
+    expect(() => stepSlice(state, idleInput(), 0.05)).not.toThrow();
+    // Phase should not have advanced to intermission (wave doesn't exist)
+    expect(state.phase).not.toBe("intermission");
   });
 });
 
