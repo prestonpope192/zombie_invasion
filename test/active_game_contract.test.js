@@ -22,6 +22,28 @@ describe("active PlayCanvas game contract", () => {
     expect(fs.existsSync(path.join(repoRoot, "src/legacy2d/game/Game.js"))).toBe(true);
   });
 
+  it("keeps Space wired to PlayCanvas flow advance and jump instead of stale fire guidance", () => {
+    const main = fs.readFileSync(path.join(repoRoot, "src/playcanvas/main.js"), "utf8");
+    const simulation = fs.readFileSync(path.join(repoRoot, "src/playcanvas/sliceSimulation.js"), "utf8");
+
+    expect(main).toContain('event.code === "Enter" || event.code === "NumpadEnter" || event.code === "Space"');
+    expect(main).toContain('if (event.code === "Space")');
+    expect(main).toContain("this.input.jump = active");
+    expect(simulation).toContain("jump with Space");
+    expect(simulation).toContain("fire with click or E");
+    expect(simulation).not.toContain("fire with click or Space");
+  });
+
+  it("tracks held PlayCanvas fire input instead of only firing once per click", () => {
+    const main = fs.readFileSync(path.join(repoRoot, "src/playcanvas/main.js"), "utf8");
+
+    expect(main).toContain("fire: false");
+    expect(main).toContain("this.input.fire = true");
+    expect(main).toContain("this.input.fire = false");
+    expect(main).toContain("this.input.fire = active");
+    expect(main).toContain('this.input.fire && getPlayCanvasWeaponSnapshot(this.state).fireMode === "automatic"');
+  });
+
   it("keeps every legacy FPS overlay scene wired into FpsGame", () => {
     const source = fs.readFileSync(path.join(repoRoot, "src/fps/app/FpsGame.js"), "utf8");
 

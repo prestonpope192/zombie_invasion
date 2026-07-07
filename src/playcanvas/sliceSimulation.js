@@ -58,6 +58,38 @@ export const SLICE_WORLD = {
   ],
 };
 
+const VILLAGE_HOUSE_VISUALS = [
+  [-9.5, SLICE_WORLD.villageZ - 10, 5.8, 3.2, 5.8],
+  [9.4, SLICE_WORLD.villageZ - 8.8, 5.6, 3.0, 5.4],
+  [-13.2, SLICE_WORLD.villageZ - 1, 6.4, 3.5, 5.2],
+  [13.4, SLICE_WORLD.villageZ + 0.2, 6.2, 3.4, 5.4],
+  [-15.4, SLICE_WORLD.villageZ + 12.6, 7.2, 3.7, 6.8],
+  [15.8, SLICE_WORLD.villageZ + 12.2, 7.4, 3.8, 7.0],
+];
+
+const WALKABLE_SURFACE_EPS = 0.08;
+const PLAYER_LANDING_TOLERANCE = 0.18;
+const WALKABLE_SURFACES = [
+  ...VILLAGE_HOUSE_VISUALS.map(([x, z, sx, sy, sz], index) => ({
+    id: `house-${index}-roof`,
+    label: `House ${index + 1} roof`,
+    x,
+    z,
+    y: sy + 0.82,
+    halfX: sx * 0.64,
+    halfZ: sz * 0.58,
+  })),
+  {
+    id: "bell-tower-roof",
+    label: "Bell tower roof",
+    x: 0,
+    z: SLICE_WORLD.villageZ - 12,
+    y: 6.85,
+    halfX: 2.1,
+    halfZ: 1.85,
+  },
+];
+
 const PLAYABLE_WEAPON_IDS = weaponsConfig.map((weapon) => weapon.id);
 const STARTING_WEAPON_ID = "pistol";
 const STARTER_WEAPON_IDS = ["pipe", STARTING_WEAPON_ID];
@@ -166,7 +198,7 @@ const SPRINT_SPEED_MPS = 6.0;
 const WALK_SPEED_MPS = 4.2;
 const CROUCH_SPEED_MPS = 2.2;
 
-const HEADSHOT_MULTIPLIER = 2.2;
+const HEADSHOT_MULTIPLIER = 3.25;
 const ADS_SPREAD_MULT = 0.4;
 const CROUCH_SPREAD_MULT = 0.65;
 const SPRINT_SPREAD_MULT = 2.0;
@@ -566,6 +598,7 @@ export function createSliceState(save = loadPlayCanvasSave()) {
       onGround: true,
       canDoubleJump: false,
       jumpHeldLast: false,
+      supportSurfaceId: "ground",
       crouching: false,
       doubleJumpFloatTimer: 0,
     },
@@ -843,6 +876,7 @@ function spawnZombie(state, type, spawn = null) {
     coinReward: def.coinReward ?? 10,
     movementMode: def.movementMode ?? "ground",
     canClimb: Boolean(def.canClimb),
+    zigzagStrength: Number(def.zigzagStrength ?? 0),
     attackRange: def.attackRange ?? 1.6,
     hitFlashSec: 0,
     biteCooldownSec: 0,
@@ -1014,6 +1048,12 @@ function movePlayer(state, input, dt) {
   // Vertical / jump / gravity
   const jumpPressed = Boolean(input.jump) && !state.player.jumpHeldLast;
   state.player.jumpHeldLast = Boolean(input.jump);
+  const previousY = Math.max(0, state.player.y ?? 0);
+  const supportBeforeJump = getPlayerSupportSurface(state, previousY);
+  const groundedBeforeJump =
+    (state.player.yVelocity ?? 0) <= 0 &&
+    previousY <= supportBeforeJump.y + WALKABLE_SURFACE_EPS &&
+    previousY >= supportBeforeJump.y - WALKABLE_SURFACE_EPS;
 
   if ((state.player.doubleJumpFloatTimer ?? 0) > 0) {
     state.player.doubleJumpFloatTimer = Math.max(0, state.player.doubleJumpFloatTimer - dt);
@@ -1022,29 +1062,67 @@ function movePlayer(state, input, dt) {
   const gravScale = usingFloat ? DOUBLE_JUMP_ASCENT_GRAVITY_SCALE : 1;
   state.player.yVelocity = Math.max(-MAX_FALL_SPEED_MPS, (state.player.yVelocity ?? 0) - GRAVITY_MPS2 * gravScale * dt);
 
-  const onGround = (state.player.y ?? 0) <= 0;
-  if (onGround && jumpPressed && (state.stamina ?? 100) >= JUMP_STAMINA_COST) {
+  if (groundedBeforeJump && jumpPressed && (state.stamina ?? 100) >= JUMP_STAMINA_COST) {
     state.player.yVelocity = JUMP_SPEED_MPS;
     state.player.canDoubleJump = true;
     state.player.onGround = false;
+    state.player.supportSurfaceId = null;
     state.stamina = Math.max(0, (state.stamina ?? 100) - JUMP_STAMINA_COST);
-  } else if (!onGround && state.player.canDoubleJump && jumpPressed && (state.stamina ?? 100) >= DOUBLE_JUMP_STAMINA_COST) {
+  } else if (!groundedBeforeJump && state.player.canDoubleJump && jumpPressed && (state.stamina ?? 100) >= DOUBLE_JUMP_STAMINA_COST) {
     state.player.yVelocity = DOUBLE_JUMP_SPEED_MPS;
     state.player.canDoubleJump = false;
     state.player.doubleJumpFloatTimer = DOUBLE_JUMP_FLOAT_WINDOW_SEC;
+    state.player.supportSurfaceId = null;
     state.stamina = Math.max(0, (state.stamina ?? 100) - DOUBLE_JUMP_STAMINA_COST);
   }
 
-  state.player.y = Math.max(0, (state.player.y ?? 0) + state.player.yVelocity * dt);
-  if (state.player.y <= 0) {
-    state.player.y = 0;
+  const nextY = Math.max(0, previousY + state.player.yVelocity * dt);
+  const landingSurface = getPlayerLandingSurface(state, previousY, nextY);
+  if (landingSurface) {
+    state.player.y = landingSurface.y;
     state.player.yVelocity = 0;
     state.player.onGround = true;
+    state.player.supportSurfaceId = landingSurface.id;
     state.player.canDoubleJump = false;
     state.player.doubleJumpFloatTimer = 0;
   } else {
+    state.player.y = nextY;
     state.player.onGround = false;
+    state.player.supportSurfaceId = null;
   }
+}
+
+function getPlayerSupportSurface(state, feetY = state.player?.y ?? 0) {
+  const surfaces = getWalkableSurfacesAt(state, state.player.x, state.player.z)
+    .filter((surface) => surface.y <= feetY + WALKABLE_SURFACE_EPS)
+    .sort((a, b) => b.y - a.y);
+  return surfaces[0] ?? { id: "ground", label: "Ground", y: 0 };
+}
+
+function getPlayerLandingSurface(state, previousY, nextY) {
+  const surfaces = getWalkableSurfacesAt(state, state.player.x, state.player.z)
+    .filter((surface) =>
+      previousY >= surface.y - WALKABLE_SURFACE_EPS &&
+      nextY <= surface.y + PLAYER_LANDING_TOLERANCE
+    )
+    .sort((a, b) => b.y - a.y);
+  return surfaces[0] ?? null;
+}
+
+function getWalkableSurfacesAt(state, x, z) {
+  const surfaces = [{ id: "ground", label: "Ground", y: 0 }];
+  if (state.activeBuildingId) {
+    return surfaces;
+  }
+  for (const surface of WALKABLE_SURFACES) {
+    if (
+      Math.abs(x - surface.x) <= surface.halfX + SLICE_WORLD.playerRadius * 0.45 &&
+      Math.abs(z - surface.z) <= surface.halfZ + SLICE_WORLD.playerRadius * 0.45
+    ) {
+      surfaces.push(surface);
+    }
+  }
+  return surfaces;
 }
 
 // ── Obstacle collision ──────────────────────────────────────────────────────
@@ -1247,7 +1325,8 @@ function stepZombies(state, dt) {
           // Don't move this frame (wind-up freeze)
         } else {
           // Normal creep approach
-          const zigzag = Math.sin(state.elapsedSec * 2.2 + _idSeq(zombie.id)) * 0.18;
+          const zigzagStrength = Number(zombie.zigzagStrength ?? 0.18);
+          const zigzag = Math.sin(state.elapsedSec * 2.2 + _idSeq(zombie.id)) * zigzagStrength;
           const perpX = tz / dist;
           const perpZ = -tx / dist;
           zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * perpX * dt;
@@ -1316,9 +1395,12 @@ function stepZombies(state, dt) {
     }
 
     // ── GROUND (walker, runner, skitter, brute, etc.) ─────────────────────
-    const zigzag = zombie.type === "runner" || zombie.type === "skitter" ? Math.sin(state.elapsedSec * 3 + zombie.id.length) * 0.45 : 0;
-    zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * dt;
-    zombie.z += (tz / dist) * zombie.speedMps * dt;
+    const zigzagStrength = Number(zombie.zigzagStrength ?? 0);
+    const zigzag = zigzagStrength > 0 ? Math.sin(state.elapsedSec * 3 + _idSeq(zombie.id)) * zigzagStrength : 0;
+    const perpX = tz / dist;
+    const perpZ = -tx / dist;
+    zombie.x += (tx / dist) * zombie.speedMps * dt + zigzag * perpX * dt;
+    zombie.z += (tz / dist) * zombie.speedMps * dt + zigzag * perpZ * dt;
     zombie.y = 0;
   }
 
@@ -1390,26 +1472,16 @@ function stepFirePatches(state, dt) {
 
 export function fireSliceWeapon(state) {
   const weapon = getWeaponDef(state.equippedWeaponId);
-  if (!isCombatPhase(state.phase) || state.shotCooldownSec > 0 || state.pendingReload) {
+  if (!isCombatPhase(state.phase) || state.shotCooldownSec > 0) {
     return { hit: false, reason: "blocked" };
   }
 
-  if (weapon.category !== "melee" && (state.ammo ?? 0) <= 0) {
-    if (!state.pendingReload && (weapon.reloadSec ?? 0) > 0) {
-      state.pendingReload = true;
-      state.reloadTimerSec = weapon.reloadSec;
-      state.lastMessage = `${weapon.label} empty — reloading…`;
-    }
-    return { hit: false, reason: "empty" };
-  }
+  state.pendingReload = false;
+  state.reloadTimerSec = 0;
 
   state.shotCooldownSec = 60 / Math.max(1, weapon.rpm);
   if (weapon.category !== "melee") {
-    state.ammo = Math.max(0, (state.ammo ?? weapon.magSize) - 1);
-    if (state.ammo <= 0 && (weapon.reloadSec ?? 0) > 0) {
-      state.pendingReload = true;
-      state.reloadTimerSec = weapon.reloadSec;
-    }
+    state.ammo = weapon.magSize;
   }
   state.shotsFired += 1;
   state.lastCombatEvent = null;
@@ -1578,17 +1650,10 @@ export function reloadSliceWeapon(state) {
     state.lastMessage = "Melee weapons do not reload.";
     return state;
   }
-  if (state.pendingReload) {
-    state.lastMessage = `Already reloading ${weapon.label}…`;
-    return state;
-  }
-  if ((state.ammo ?? 0) >= weapon.magSize) {
-    state.lastMessage = `${weapon.label} magazine is already full.`;
-    return state;
-  }
-  state.pendingReload = true;
-  state.reloadTimerSec = weapon.reloadSec ?? 1.5;
-  state.lastMessage = `Reloading ${weapon.label}…`;
+  state.ammo = weapon.magSize;
+  state.pendingReload = false;
+  state.reloadTimerSec = 0;
+  state.lastMessage = `${weapon.label} has infinite ammo.`;
   return state;
 }
 
@@ -1879,8 +1944,11 @@ export function getPlayCanvasMiniMapSnapshot(state) {
     worldHalfExtent: SLICE_WORLD.arenaHalf,
     player: {
       x: Number(state.player.x.toFixed(2)),
+      y: Number((state.player.y ?? 0).toFixed(2)),
       z: Number(state.player.z.toFixed(2)),
       yaw: Number(state.player.yaw.toFixed(3)),
+      onGround: Boolean(state.player.onGround),
+      supportSurfaceId: state.player.supportSurfaceId ?? "ground",
     },
     village: {
       x: 0,
@@ -2010,6 +2078,7 @@ export function getPlayCanvasWeaponSnapshot(state) {
     rpm: weapon.rpm,
     spreadMoa: Number((weapon.spreadMoa ?? 0).toFixed(2)),
     family: identity.family,
+    fireMode: identity.fireMode ?? "semi",
     viewModel: identity.viewModel,
     reticle: identity.reticle,
     muzzleFx: identity.muzzleFx,
@@ -2024,7 +2093,7 @@ export function getPlayCanvasGuidanceSnapshot(state) {
     return {
       stage: "ready",
       title: "First run: hold the village line",
-      message: "Start the campaign, move with WASD or touch controls, fire with click or Space, and use G/Blast when zombies cluster. The shop opens between waves.",
+      message: "Start the campaign, move with WASD or touch controls, jump with Space, fire with click or E, and use G/Blast when zombies cluster. The shop opens between waves.",
       action: "start_campaign",
       recommendation: null,
       nextThreat: null,
@@ -2982,6 +3051,7 @@ function getWeaponIdentity(weapon) {
   if (weapon.id === "flamethrower") {
     return {
       family: "flame",
+      fireMode: "automatic",
       viewModel: "flamethrower",
       reticle: "flame",
       muzzleFx: "flame",
@@ -3015,6 +3085,7 @@ function getWeaponIdentity(weapon) {
   if (weapon.id === "lmg") {
     return {
       family: "heavy",
+      fireMode: "automatic",
       viewModel: "heavy",
       reticle: "heavy",
       muzzleFx: "strobe",
@@ -3026,6 +3097,7 @@ function getWeaponIdentity(weapon) {
   if (weapon.id === "smg" || weapon.id === "machine_pistol") {
     return {
       family: "automatic",
+      fireMode: "automatic",
       viewModel: "compact",
       reticle: "automatic",
       muzzleFx: "strobe",
@@ -3037,6 +3109,7 @@ function getWeaponIdentity(weapon) {
   if (weapon.id === "rifle" || weapon.id === "battle_rifle") {
     return {
       family: "rifle",
+      fireMode: weapon.id === "rifle" ? "automatic" : "semi",
       viewModel: "rifle",
       reticle: "rifle",
       muzzleFx: "flash",
@@ -3047,6 +3120,7 @@ function getWeaponIdentity(weapon) {
   }
   return {
     family: "sidearm",
+    fireMode: "semi",
     viewModel: "sidearm",
     reticle: "sidearm",
     muzzleFx: weapon.id === "revolver" ? "heavy-flash" : "flash",

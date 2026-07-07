@@ -1,8 +1,8 @@
 # PlayCanvas vs Legacy Three.js FPS — Feature Parity Audit
 
-**Audit date:** 2026-06-12 (updated 2026-06-13)  
-**Auditor:** Documentation agent (read-only inspection; no code changes)  
-**Verification baseline:** `npx vitest run` → 36 files, 169 tests, all pass  
+**Audit date:** 2026-06-12 (updated 2026-07-07)
+**Auditor:** Documentation agent (read-only inspection; no code changes)
+**Verification baseline:** `npm test` → 36 files, 195 tests, all pass; `npm run build` pass; `npm run smoke:playcanvas` pass
 **Method:** Static source inspection of `src/fps/` (legacy), `src/playcanvas/` (PlayCanvas),
 and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`,
 `src/fps/systems/`, `src/fps/scenes/`, and `src/fps/config/*.json`.
@@ -28,10 +28,10 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 1 | **Save / Load** | `saveFps.js`, `FpsGame.js` | `persistPlayCanvasSave` / `loadPlayCanvasSave` / `sanitizePlayCanvasSave` in `sliceSimulation.js` | FULL | Separate save key (`zombie_invasion_playcanvas_save_v1`). Sanitizes all legacy field aliases. |
 | 2 | **Wave director (budget, composition, timing)** | `waveDirector3D.js`, `waves_fps.json` | `spawnWaveZombies`, `pickWaveSpawnType`, `beginWave` in `sliceSimulation.js`; `wavesConfig` imported | FULL | PlayCanvas implements budget/composition inline rather than via `WaveDirector3D` class, but uses the same `waves_fps.json` config. |
 | 3 | **Enemy AI — ground movement** | `enemyAi3D.js` | `stepZombies` in `sliceSimulation.js` — 2D distance-check targeting, player-vs-village decision at 8 m | FULL | No Rapier physics; distance checks replace physics body movement. Behaviorally equivalent for players. |
-| 4 | **Enemy AI — zigzag (runner / skitter)** | `enemyAi3D.js` (`zigzagStrength`) | `sliceSimulation.js` line 715: `Math.sin(state.elapsedSec*3)*0.45` for runner/skitter | PARTIAL | Sine-wave zigzag present; legacy uses per-type `zigzagStrength` scalar, PlayCanvas uses a fixed amplitude. No gameplay regression; visual difference only at close range. |
+| 4 | **Enemy AI — zigzag (runner / skitter)** | `enemyAi3D.js` (`zigzagStrength`) | `spawnZombie` stores `def.zigzagStrength`; `stepZombies` applies target-relative sine strafing scaled by `zombie.zigzagStrength`; regression coverage in `test/playcanvas_slice.test.js` | FULL | Runner/skitter now use the same per-type config scalar as the legacy AI instead of a fixed amplitude. |
 | 5 | **Enemy AI — flyer / revenant (hover)** | `enemyAi3D.js` `movementMode=flyer` with `hoverHeight`, `hoverBobAmp` | `sliceSimulation.js` `stepZombies` mode=`flyer` branch: `zombie.y = hoverHeight + sin(elapsedSec*2+seq)*bobAmp`; straight approach; `zombie.y` drives entity Y in render | FULL | Flyers hover at `hoverHeight` with sine bob. GLB entity lift + grounded shadow counter-translation confirmed via live-GPU inspection. Jump/Jump_Idle clips play during hover. |
 | 6 | **Enemy AI — leaper / pouncer (jump)** | `enemyAi3D.js` `movementMode=leaper` with `jumpIntervalSec`, `jumpSpeed` | `sliceSimulation.js` `stepZombies` mode=`leaper` branch: 0.4 s amber telegraph → `POUNCE_DURATION_SEC=0.45` s parabolic arc at `jumpSpeed`, peak 1.1 m; amber ground ring + GLB Jump clip in render | FULL | Leaper pounce-attack fully implemented. `POUNCE_TELEGRAPH_SEC=0.4`, `POUNCE_PEAK_Y=1.1`, `slamHitFired`-gated. Confirmed: telegraph → airborne arc with `zombie.y≈0.76` mid-pounce, grounded shadow. Tests: +5 in playcanvas_slice.test.js. |
-| 7 | **Enemy AI — crawler (ground hug)** | `enemyAi3D.js` `movementMode=crawler` | `sliceSimulation.js`: stored and spawned; crawlers move at ground plane like walkers | PARTIAL | Crawler visual height offset (`visualYOffset=0.68`) not applied in 2D sim; GLB zombie uses Crawl animation clip when `type=crawler`. Movement mechanics identical to ground walker in sim. |
+| 7 | **Enemy AI — crawler (ground hug)** | `enemyAi3D.js` `movementMode=crawler` | `sliceSimulation.js`: crawler type stored/spawned; `zombieGlb.js` and `zombieRig.js` apply crawler scale/posture and Crawl animation | FULL | PlayCanvas achieves the player-facing crawler read through GLB/procedural visual scaling and Crawl animation. Movement remains ground-plane by design. |
 | 8 | **Enemy types — full roster** | `enemies_fps.json`: 17 types (crawler, walker, runner, leaper, brute, armored, flyer, skitter, pouncer, revenant, juggernaut, zombie_pig, zombie_horse, zombie_cow, zombie_chicken, mega_zombie, mini_boss) | `sliceSimulation.js` imports `enemies_fps.json`; all types spawn per wave composition | FULL | All 17 types spawn. Stat scaling (HP×waveScale, speedMps, coinReward) applied uniformly. |
 | 9 | **Headshot system** | `headshotRules.js`, `RaidScene3D.js` | `sliceSimulation.js` `fireSliceWeapon`: pitch < −8°, distance < 14, single target → 2.2× multiplier | FULL | PlayCanvas implements inline; same multiplier. |
 | 10 | **Weapon ballistics (projectile travel, drag, drop)** | `weaponBallistics.js` (3D physics projectile) | `sliceSimulation.js` `getWeaponAttackProfile`: per-weapon cone+range+falloff; distance falloff curve | PARTIAL | Legacy uses true 3D projectile with gravity drop and drag. PlayCanvas uses hitscan with distance falloff. Effective DPS and effective range match by design but trajectory and penetration through cover differ. |
@@ -52,7 +52,7 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 25 | **Village upgrade (levels, HP scaling, cost growth)** | `economy_fps.json`, `ShopScene3D.js` | `buyVillageUpgrade`, `getVillageUpgradeCost`, `getVillageMaxHp` | FULL | |
 | 26 | **Med kit** | `economy_fps.json`, `ShopScene3D.js` | `buyMedKit`, `getMedKitItem` | FULL | |
 | 27 | **Village damage rules (structure hits, material, friendly fire)** | `villageDamageRules.js` | `computeVillageStructureDamage` imported; `resolvePlayCanvasStructureShot`, `FRIENDLY_FIRE_VILLAGE_DAMAGE=false` | FULL | Friendly fire intentionally disabled in PlayCanvas (`FRIENDLY_FIRE_VILLAGE_DAMAGE=false`); legacy same default. |
-| 28 | **Village feedback (HP ratio, damage stage)** | `villageFeedback.js` | Not imported in `sliceSimulation.js` or `main.js` | PARTIAL | `villageFeedback.js` (damage stage thresholds, color cues) unused in PlayCanvas. Village HP is tracked and displayed but no visual "burning" damage-stage feedback equivalent. |
+| 28 | **Village feedback (HP ratio, damage stage)** | `villageFeedback.js` | `main.js` `updateVillageDistress(dt)` drives HP-ratio distress: dim/flickering windows, pooled smoke, ember glow, and low-HP danger light | FULL | PlayCanvas has an independent visual damage-stage implementation rather than importing the Three.js helper. |
 | 29 | **Breakable windows** | `villageDamageRules.js`, `RaidScene3D.js` | `BREAKABLE_WINDOW_DEFS`, `brokenWindowIds`, `entitiesByWindow` — window entities toggled off on break | FULL | |
 | 30 | **Structure impact FX (material particles)** | `RaidScene3D.js` | `STRUCTURE_IMPACT_DEFS`, `recordPlayCanvasStructureImpact`, `createImpactEntity`, material-tinted debris | FULL | |
 | 31 | **Villager escort system** | `villagerEscortRules.js`, `RaidScene3D.js` | `villagerEscortRules.js` imported; `stepVillagerEscort`, `interactWithPlayCanvasWorld`, `rescueVillager`, `killEscortedVillager` | FULL | |
@@ -101,18 +101,21 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 
 | Status | Count | Change from 2026-06-12 |
 |--------|-------|------------------------|
-| FULL | 51 | +5 (items 5, 6, 40, 42 → from PARTIAL; item 45 → from MISSING) |
-| PARTIAL | 3 | −5 |
+| FULL | 53 | +7 (items 4, 5, 6, 7, 28, 40, 42 → from PARTIAL; item 45 → from MISSING) |
+| PARTIAL | 1 | −7 |
 | MISSING | 1 | −1 |
 | N/A-BY-DESIGN | 5 | — |
-| **Total** | **60** | net: 6 flips reduce PARTIAL by 5 and MISSING by 1; audit table is 60 distinct features |
+| **Total** | **60** | net: 8 flips reduce PARTIAL by 7 and MISSING by 1; audit table is 60 distinct features |
 
-**Status flips (2026-06-13):**
+**Status flips (2026-06-13 through 2026-07-07):**
 
 | # | Feature | Old Status | New Status |
 |---|---|---|---|
+| 4 | Enemy zigzag strength | PARTIAL | FULL |
 | 5 | Flyer / revenant hover | PARTIAL | FULL |
 | 6 | Leaper / pouncer jump-pounce | PARTIAL | FULL |
+| 7 | Crawler ground-hug presentation | PARTIAL | FULL |
+| 28 | Village damage feedback stages | PARTIAL | FULL |
 | 40 | Game-over scene depth (stats + multi-offers) | PARTIAL | FULL |
 | 42 | Boot scene / loading screen | PARTIAL | FULL |
 | 45 | Rewarded ads — multi-offer (summary / game-over) | MISSING | FULL |
@@ -132,15 +135,7 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 
 ## PARTIAL Features (player-facing, ranked by impact)
 
-1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
-   (fire/smoke visual indicators as village HP drops) not implemented in PlayCanvas. Village HP
-   meter updates correctly; no visual state change.
-
-2. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
-   0.45 rather than per-type `zigzagStrength` scalar from config. No gameplay regression; visual
-   difference only at close range.
-
-3. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
    drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan. Transparent to most
    players; hardcore players may notice sniper arcs vanish.
 
@@ -151,10 +146,10 @@ loading screen were PARTIAL as of 2026-06-12; all promoted to FULL on 2026-06-13
 
 ## Notes on docs/current-state.md Alignment
 
-`current-state.md` was updated on 2026-06-13 in sync with this audit refresh. The prior
-version (2026-06-12) correctly stated full parity was not achieved. The 2026-06-13 update
-reflects the feature additions and the new counts above. Full parity remains not yet achieved:
-1 MISSING feature and 3 PARTIAL features remain open.
+`current-state.md` was updated on 2026-07-07 in sync with this audit refresh. The prior
+version correctly stated full parity was not achieved, but several rows were stale after
+subsequent implementation passes. Full parity remains not yet achieved:
+1 MISSING feature and 1 PARTIAL feature remain open.
 
 ---
 

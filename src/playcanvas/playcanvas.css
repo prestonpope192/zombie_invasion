@@ -44,10 +44,18 @@
 }
 
 html,
-body,
-#app {
+body {
   width: 100%;
   height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050809;
+  color: var(--pc-ink);
+}
+
+#app {
+  width: var(--game-width, 100vw);
+  height: var(--game-height, 100dvh);
   margin: 0;
   overflow: hidden;
   background: #050809;
@@ -65,7 +73,7 @@ a {
 }
 
 .pc-slice {
-  position: fixed;
+  position: absolute;
   inset: 0;
   overflow: hidden;
   background: #050809;
@@ -86,10 +94,22 @@ a {
 }
 
 .pc-slice-hud {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 5;
   pointer-events: none;
+}
+
+body.viewport-resizing #app *,
+body.viewport-resizing #app *::before,
+body.viewport-resizing #app *::after {
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.viewport-resizing .pc-slice-canvas {
+  filter: none !important;
 }
 
 /* When the full-cover flow modal is showing (ready/lost/won), suppress

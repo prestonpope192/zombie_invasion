@@ -1,6 +1,6 @@
 # Current State
 
-**As of 2026-06-13** | Vitest: 169 pass (36 files) | Smoke: green
+**As of 2026-07-07** | Vitest: 195 pass (36 files) | Build: green | Smoke: green
 
 ---
 
@@ -30,8 +30,9 @@ system modules under `src/fps/systems/`.
   - Boss (mini_boss / mega_zombie / secret_boss by id): 0.7 s red charge-slam telegraph,
     1.8× speed charge, one-shot bonus hit capped at `min(9, attackDps×0.4)` on land
     within 2 m, 3.5 s cooldown; `slamHitFired` prevents double-trigger
-  - Ground / crawler / walker / runner / zigzag: prior behavior unchanged
-- Weapons: all 14 from `weapons_fps.json`; mag reload, ADS spread, headshot (2.2× at pitch <−8°)
+  - Ground / crawler / walker / runner / skitter: config-driven movement, including
+    per-type `zigzagStrength` for runner/skitter strafing
+- Weapons: all 14 from `weapons_fps.json`; infinite-ammo firing, ADS spread, headshot (3.25× at pitch <−8°)
 - Ordnance: frag/thermo/breacher/EMP grenades, C4, nuke (all types from `economy_fps.json`)
 - Armor: cloth/kevlar/ceramic tiers; damage reduction applied per hit
 - Gear: flashlight (visual), flint & steel (fire patches with TTL, DPS, merge, cap=3)
@@ -157,11 +158,11 @@ All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was no
 Night ambient bed (`_startNightBed` / `_stopNightBed`): evolving slow pad on music channel;
 runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
-### Verified Baseline (2026-06-13)
+### Verified Baseline (2026-07-07)
 
 | Check | Result |
 |---|---|
-| `npx vitest run` | 36 files, 169 tests, all pass |
+| `npm test` | 36 files, 195 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
@@ -181,19 +182,19 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
 ## Parity Status — Honest Assessment
 
-A full requirement-by-requirement audit was completed on 2026-06-12 and updated on
-2026-06-13. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
+A full requirement-by-requirement audit was completed on 2026-06-12 and updated through
+2026-07-07. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
 
 | Status | Count |
 |---|---|
-| FULL | 50 |
-| PARTIAL | 4 |
+| FULL | 53 |
+| PARTIAL | 1 |
 | MISSING | 1 |
 | N/A-BY-DESIGN | 5 |
 | **Total features audited** | **60** |
 
-*(One feature (zigzag-strength) was re-confirmed PARTIAL; enemy-variety and multi-offer
-features previously PARTIAL/MISSING were promoted to FULL.)*
+*(Boot loading, village damage feedback, crawler presentation, and per-type zigzag
+strength are now verified FULL in the PlayCanvas route.)*
 
 **Full parity is not yet achieved.** The PlayCanvas route is feature-rich and
 playable end-to-end, but has residual gaps versus the legacy Three.js FPS route.
@@ -204,16 +205,9 @@ playable end-to-end, but has residual gaps versus the legacy Three.js FPS route.
   `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
   loss for ad effectiveness; no player-visible impact.
 
-### Remaining PARTIAL Features (ranked by player impact)
+### Remaining PARTIAL Feature
 
-1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
-   (fire/smoke visual indicators as village HP drops) not used in PlayCanvas. Village HP
-   meter updates correctly; no visual state change.
-2. **Boot loading indicator** (item 42): Legacy shows a loading bar. PlayCanvas starts with
-   the scene already rendered; GLB loads async in background with no user-visible indicator.
-3. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
-   0.45 rather than per-type `zigzagStrength` scalar from config.
-4. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
    drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan.
 
 See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with per-feature delta

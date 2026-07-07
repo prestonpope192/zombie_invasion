@@ -64,6 +64,11 @@ import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
 const MINIMAP_PADDING_PX = 10;
+const VIEWPORT_RESIZE_CONFIRM_MS = 120;
+const VIEWPORT_RESIZE_SETTLE_MS = 220;
+const DESKTOP_BACKBUFFER_PIXEL_BUDGET = 1_800_000;
+const MOBILE_BACKBUFFER_PIXEL_BUDGET = 1_200_000;
+const MIN_RENDER_PIXEL_RATIO = 0.8;
 
 const WEAPON_SLOT_BINDINGS = [
   { code: "Digit1", id: "pistol" },
@@ -88,20 +93,23 @@ const NO_FOG_MATERIALS = new Set(["cloud", "cloudDark", "moon", "moonHalo", "moo
 const MATERIALS = {
   cloud: { diffuse: [0.30, 0.48, 0.72], emissive: [0.10, 0.20, 0.34], roughness: 0.92 },
   cloudDark: { diffuse: [0.055, 0.13, 0.22], emissive: [0.012, 0.035, 0.07], roughness: 0.96 },
-  ground: { diffuse: [0.1, 0.15, 0.11], emissive: [0.008, 0.014, 0.01], roughness: 0.94 },
-  grassDark: { diffuse: [0.055, 0.12, 0.09], emissive: [0.006, 0.014, 0.012], roughness: 0.96 },
-  road: { diffuse: [0.19, 0.13, 0.09], emissive: [0.014, 0.01, 0.008], roughness: 0.76 },
-  wetRoad: { diffuse: [0.12, 0.11, 0.1], emissive: [0.06, 0.1, 0.14], roughness: 0.22 },
-  mudHighlight: { diffuse: [0.34, 0.23, 0.14], emissive: [0.06, 0.038, 0.018], roughness: 0.55 },
-  pathEdge: { diffuse: [0.3, 0.26, 0.2], emissive: [0.024, 0.02, 0.014], roughness: 0.9 },
-  wood: { diffuse: [0.42, 0.27, 0.15], emissive: [0.022, 0.014, 0.008], roughness: 0.82 },
-  timber: { diffuse: [0.22, 0.13, 0.07], emissive: [0.014, 0.009, 0.005], roughness: 0.84 },
-  houseWall: { diffuse: [0.5, 0.42, 0.34], emissive: [0.022, 0.018, 0.014], roughness: 0.9 },
-  roof: { diffuse: [0.2, 0.08, 0.06], emissive: [0.012, 0.004, 0.003], roughness: 0.88 },
-  roofDark: { diffuse: [0.16, 0.11, 0.11], emissive: [0.01, 0.009, 0.01], roughness: 0.82 },
+  ground: { diffuse: [0.085, 0.12, 0.09], emissive: [0.005, 0.01, 0.008], roughness: 0.96 },
+  grassDark: { diffuse: [0.045, 0.095, 0.075], emissive: [0.004, 0.01, 0.01], roughness: 0.98 },
+  road: { diffuse: [0.15, 0.105, 0.075], emissive: [0.009, 0.007, 0.005], roughness: 0.86 },
+  wetRoad: { diffuse: [0.09, 0.085, 0.078], emissive: [0.028, 0.04, 0.052], roughness: 0.32 },
+  mudHighlight: { diffuse: [0.24, 0.16, 0.1], emissive: [0.028, 0.018, 0.01], roughness: 0.68 },
+  pathEdge: { diffuse: [0.22, 0.2, 0.17], emissive: [0.012, 0.011, 0.008], roughness: 0.94 },
+  wood: { diffuse: [0.33, 0.22, 0.13], emissive: [0.011, 0.007, 0.004], roughness: 0.9 },
+  weatheredWood: { diffuse: [0.24, 0.18, 0.13], emissive: [0.007, 0.005, 0.003], roughness: 0.95 },
+  timber: { diffuse: [0.16, 0.095, 0.052], emissive: [0.007, 0.004, 0.002], roughness: 0.92 },
+  houseWall: { diffuse: [0.58, 0.52, 0.44], emissive: [0.018, 0.016, 0.012], roughness: 0.94 },
+  plasterShadow: { diffuse: [0.34, 0.32, 0.29], emissive: [0.008, 0.008, 0.007], roughness: 0.96 },
+  roof: { diffuse: [0.31, 0.105, 0.07], emissive: [0.008, 0.003, 0.002], roughness: 0.94 },
+  roofDark: { diffuse: [0.19, 0.15, 0.15], emissive: [0.006, 0.005, 0.005], roughness: 0.94 },
+  roofEdge: { diffuse: [0.095, 0.055, 0.04], emissive: [0.004, 0.002, 0.001], roughness: 0.96 },
   doorSafe: { diffuse: [0.72, 0.34, 0.12], emissive: [0.14, 0.06, 0.018], roughness: 0.65 },
-  windowGlow: { diffuse: [1, 0.72, 0.32], emissive: [2.2, 0.95, 0.28], roughness: 0.22 },
-  lantern: { diffuse: [1, 0.66, 0.26], emissive: [2.8, 1.15, 0.32], roughness: 0.22 },
+  windowGlow: { diffuse: [1, 0.76, 0.45], emissive: [1.45, 0.62, 0.2], roughness: 0.38 },
+  lantern: { diffuse: [1, 0.62, 0.28], emissive: [2.15, 0.88, 0.24], roughness: 0.35 },
   moon: { diffuse: [0.78, 0.9, 1], emissive: [0.95, 1.18, 1.55], roughness: 0.42 },
   zombie: { diffuse: [0.24, 0.19, 0.15], emissive: [0.01, 0.008, 0.006], roughness: 0.86 },
   runner: { diffuse: [0.28, 0.21, 0.16], emissive: [0.012, 0.009, 0.007], roughness: 0.82 },
@@ -136,14 +144,13 @@ const MATERIALS = {
   // Legacy key kept in case anything else references it
   moonHalo: { diffuse: [0.58, 0.72, 1], emissive: [0.08, 0.14, 0.28], roughness: 1, opacity: 0.18 },
   groundMist: { diffuse: [0.32, 0.44, 0.64], emissive: [0.06, 0.11, 0.20], roughness: 1, opacity: 0.16 },
-  // Barrel/scope — warm-cool steel, slightly brighter than frame for visual pop
-  metal: { diffuse: [0.40, 0.43, 0.50], emissive: [0.24, 0.28, 0.38], emissiveIntensity: 0.9, roughness: 0.30, metalness: 0.62 },
-  // Gun frame/receiver — dark blue-grey polymer; emissive gives moonlit ambient read
-  blackMetal: { diffuse: [0.25, 0.28, 0.34], emissive: [0.14, 0.18, 0.26], emissiveIntensity: 0.8, roughness: 0.45, metalness: 0.65 },
-  // Rail/handguard surfaces — medium gunmetal, clearly lighter than blackMetal
-  rail: { diffuse: [0.30, 0.33, 0.40], emissive: [0.18, 0.22, 0.32], emissiveIntensity: 0.9, roughness: 0.38, metalness: 0.65 },
-  // Slide top, sights, muzzle crown — brightest gun part, clear moonlit highlight
-  gunmetalLight: { diffuse: [0.48, 0.52, 0.64], emissive: [0.18, 0.22, 0.32], emissiveIntensity: 0.5, roughness: 0.22, metalness: 0.78 },
+  // Barrel/scope — neutral steel; low emissive avoids the old blue plastic read.
+  metal: { diffuse: [0.34, 0.34, 0.32], emissive: [0.075, 0.08, 0.085], emissiveIntensity: 0.7, roughness: 0.28, metalness: 0.78 },
+  blackMetal: { diffuse: [0.055, 0.058, 0.06], emissive: [0.035, 0.04, 0.045], emissiveIntensity: 0.65, roughness: 0.42, metalness: 0.82 },
+  rail: { diffuse: [0.19, 0.19, 0.18], emissive: [0.06, 0.065, 0.068], emissiveIntensity: 0.65, roughness: 0.36, metalness: 0.78 },
+  gunmetalLight: { diffuse: [0.46, 0.45, 0.4], emissive: [0.09, 0.092, 0.085], emissiveIntensity: 0.55, roughness: 0.24, metalness: 0.86 },
+  gunBlackVoid: { diffuse: [0.005, 0.005, 0.004], emissive: [0, 0, 0], roughness: 0.7, metalness: 0.4 },
+  gripRubber: { diffuse: [0.035, 0.04, 0.034], emissive: [0.008, 0.01, 0.008], roughness: 0.92, metalness: 0.05 },
   // Hand/arm materials — warm dark leather + olive drab sleeve
   glove: { diffuse: [0.16, 0.13, 0.10], emissive: [0.07, 0.05, 0.04], emissiveIntensity: 0.9, roughness: 0.88 },
   sleeve: { diffuse: [0.22, 0.24, 0.17], emissive: [0.08, 0.09, 0.06], emissiveIntensity: 0.8, roughness: 0.93 },
@@ -185,6 +192,7 @@ export class PlayCanvasZombieSlice {
       crouch: false,
       jump: false,
       ads: false,
+      fire: false,
       pointerLocked: false,
       dragLooking: false,
       lastPointerX: 0,
@@ -218,6 +226,12 @@ export class PlayCanvasZombieSlice {
     this.minimapOpen = true;
     this.lastRenderedPhase = null;
     this.minimapStructures = [];
+    this.viewportMetrics = this.getViewportMetrics();
+    this._viewportResizeRaf = 0;
+    this._viewportResizeConfirmTimer = 0;
+    this._viewportResizeSettledTimer = 0;
+    this._viewportResizeObserver = null;
+    this._lastViewportFrameKey = "";
 
     // GLB zombie flag — GLB is the DEFAULT.  Pass ?glb=0 to opt out to the procedural rig.
     // Until the container finishes loading (or if it fails), zombies use the procedural rig
@@ -749,7 +763,8 @@ export class PlayCanvasZombieSlice {
   }
 
   detectQualityProfile() {
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.innerWidth < 768 && "ontouchstart" in window);
+    const viewportWidth = Math.round(window.visualViewport?.width ?? window.innerWidth);
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (viewportWidth < 768 && "ontouchstart" in window);
     const savedPreset = this.state?.qualityPreset;
     if (savedPreset && qualityProfiles[savedPreset]) {
       return { key: savedPreset, profile: qualityProfiles[savedPreset] };
@@ -767,19 +782,21 @@ export class PlayCanvasZombieSlice {
     this.qualityProfileKey = key;
     this.qualityProfile = profile;
 
+    const renderParams = new URLSearchParams(globalThis.location?.search ?? "");
+    const preserveDrawingBuffer = renderParams.get("preserveDrawingBuffer") === "1" || navigator.webdriver === true;
+
     this.app = new pc.Application(this.canvas, {
       mouse: new pc.Mouse(this.canvas),
       keyboard: new pc.Keyboard(window),
       graphicsDeviceOptions: {
         antialias: true,
         powerPreference: "high-performance",
-        preserveDrawingBuffer: true,
+        preserveDrawingBuffer,
       },
     });
-    this.app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
+    this.app.setCanvasFillMode(pc.FILLMODE_NONE);
     this.app.setCanvasResolution(pc.RESOLUTION_AUTO);
-    const renderScaleDpr = (profile.renderScale ?? 1) * Math.min(window.devicePixelRatio || 1, 2);
-    this.app.graphicsDevice.maxPixelRatio = renderScaleDpr;
+    this.app.graphicsDevice.maxPixelRatio = this.getRenderPixelRatio(this.viewportMetrics.width, this.viewportMetrics.height);
     this.app.scene.exposure = 1.48;
     this.app.scene.ambientLight = new pc.Color(0.12, 0.17, 0.26);
     // Task 1: Distance fog — linear, night-sky colour, houses at 30-50m soften into dark
@@ -788,6 +805,7 @@ export class PlayCanvasZombieSlice {
     this.app.scene.fog.color = new pc.Color(0.04, 0.10, 0.22);
     this.app.scene.fog.start = 42;
     this.app.scene.fog.end = 95;
+    this.syncViewportFrame();
     this.app.start();
     // Hide the boot overlay on the first rendered frame — the canvas is live at this point.
     // GLB models may still be streaming (they use procedural fallback until ready), but the
@@ -802,7 +820,128 @@ export class PlayCanvasZombieSlice {
       }
       this.update(dt);
     });
-    window.addEventListener("resize", () => this.app.resizeCanvas());
+    this.installViewportResizeHandlers();
+  }
+
+  getViewportMetrics() {
+    const viewport = window.visualViewport;
+    const rawWidth = viewport?.width ?? window.innerWidth;
+    const rawHeight = viewport?.height ?? window.innerHeight;
+    const width = Math.max(1, Math.round(rawWidth));
+    const height = Math.max(1, Math.round(rawHeight));
+    const left = Math.max(0, Math.round(viewport?.offsetLeft ?? 0));
+    const top = Math.max(0, Math.round(viewport?.offsetTop ?? 0));
+    const layoutWidth = Math.max(width, Math.round(window.innerWidth || width));
+    const layoutHeight = Math.max(height, Math.round(window.innerHeight || height));
+    const right = Math.max(0, layoutWidth - left - width);
+    const bottom = Math.max(0, layoutHeight - top - height);
+
+    return { width, height, left, top, right, bottom };
+  }
+
+  syncViewportFrame() {
+    this.viewportMetrics = this.getViewportMetrics();
+    const { width, height, left, top, right, bottom } = this.viewportMetrics;
+    const frameKey = `${width}x${height}:${left},${top},${right},${bottom}:dpr${window.devicePixelRatio || 1}`;
+
+    if (frameKey === this._lastViewportFrameKey) {
+      return;
+    }
+    this._lastViewportFrameKey = frameKey;
+
+    const rootStyle = document.documentElement.style;
+
+    rootStyle.setProperty("--game-left", `${left}px`);
+    rootStyle.setProperty("--game-top", `${top}px`);
+    rootStyle.setProperty("--game-right", `${right}px`);
+    rootStyle.setProperty("--game-bottom", `${bottom}px`);
+    rootStyle.setProperty("--game-width", `${width}px`);
+    rootStyle.setProperty("--game-height", `${height}px`);
+
+    if (this.root) {
+      this.root.style.left = `${left}px`;
+      this.root.style.top = `${top}px`;
+      this.root.style.width = `${width}px`;
+      this.root.style.height = `${height}px`;
+    }
+
+    if (this.canvas) {
+      this.canvas.style.width = `${width}px`;
+      this.canvas.style.height = `${height}px`;
+    }
+
+    if (this.app) {
+      this.app.graphicsDevice.maxPixelRatio = this.getRenderPixelRatio(width, height);
+      this.app.resizeCanvas(width, height);
+      this.app.renderNextFrame = true;
+    }
+  }
+
+  getRenderPixelRatio(width, height) {
+    const deviceRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const profileScale = this.qualityProfile?.renderScale ?? 1;
+    const requestedRatio = deviceRatio * profileScale;
+    const pixelBudget = this.qualityProfileKey === "desktop_high"
+      ? DESKTOP_BACKBUFFER_PIXEL_BUDGET
+      : MOBILE_BACKBUFFER_PIXEL_BUDGET;
+    const cssPixelArea = Math.max(1, width * height);
+    const adaptiveCap = Math.sqrt(pixelBudget / cssPixelArea);
+    const minimumRatio = deviceRatio <= 1.05 ? 1 : MIN_RENDER_PIXEL_RATIO;
+
+    return Math.max(minimumRatio, Math.min(requestedRatio, adaptiveCap));
+  }
+
+  scheduleViewportFrameSync() {
+    document.body.classList.add("viewport-resizing");
+    if (!this._viewportResizeRaf) {
+      this._viewportResizeRaf = window.requestAnimationFrame(() => {
+        this._viewportResizeRaf = 0;
+        this.syncViewportFrame();
+      });
+    }
+
+    window.clearTimeout(this._viewportResizeConfirmTimer);
+    this._viewportResizeConfirmTimer = window.setTimeout(() => {
+      this.syncViewportFrame();
+    }, VIEWPORT_RESIZE_CONFIRM_MS);
+
+    window.clearTimeout(this._viewportResizeSettledTimer);
+    this._viewportResizeSettledTimer = window.setTimeout(() => {
+      document.body.classList.remove("viewport-resizing");
+    }, VIEWPORT_RESIZE_SETTLE_MS);
+  }
+
+  installViewportResizeHandlers() {
+    const sync = () => this.scheduleViewportFrameSync();
+
+    window.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+    window.addEventListener("fullscreenchange", sync);
+    window.addEventListener("webkitfullscreenchange", sync);
+    window.visualViewport?.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("scroll", sync);
+
+    if (typeof ResizeObserver !== "undefined") {
+      this._viewportResizeObserver = new ResizeObserver(sync);
+      this._viewportResizeObserver.observe(document.documentElement);
+      if (this.root) {
+        this._viewportResizeObserver.observe(this.root);
+      }
+    }
+  }
+
+  getGameFrameRect() {
+    const rect = this.canvas?.getBoundingClientRect();
+    if (rect?.width && rect?.height) {
+      return rect;
+    }
+    const metrics = this.viewportMetrics ?? this.getViewportMetrics();
+    return {
+      left: metrics.left,
+      top: metrics.top,
+      width: metrics.width,
+      height: metrics.height,
+    };
   }
 
   createMaterials() {
@@ -943,6 +1082,12 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`lane-stone-${z}`, "box", [Math.sin(z) * 2.9, 0.02, z], [1.25, 0.05, 0.36], "stone").setEulerAngles(0, z * 7, 0);
       this.addPrimitive(`mud-shine-${z}`, "box", [Math.cos(z * 0.4) * 1.9, 0.025, z + 1.3], [1.7, 0.035, 0.22], z % 11 === 0 ? "mudHighlight" : "wetRoad").setEulerAngles(0, z * 9, 0);
     }
+    for (let z = -52; z <= 24; z += 3.8) {
+      const seam = this.addPrimitive(`lane-rut-${z}`, "box", [-2.8 + Math.sin(z * 0.6) * 0.18, 0.032, z], [0.08, 0.035, 2.6], "wetRoad");
+      seam.setEulerAngles(0, 1.8 + Math.sin(z) * 1.5, 0);
+      const seamR = this.addPrimitive(`lane-rut-r-${z}`, "box", [2.7 + Math.cos(z * 0.4) * 0.2, 0.032, z + 0.7], [0.07, 0.035, 2.3], "wetRoad");
+      seamR.setEulerAngles(0, -1.4 + Math.cos(z) * 1.5, 0);
+    }
   }
 
   addVillage() {
@@ -1040,9 +1185,11 @@ export class PlayCanvasZombieSlice {
     // the wall stopped at 4.8 while the roof sat at 6.6, leaving the roof
     // floating above a ~1.2m sky gap.
     this.addPrimitive("bell-tower-base", "box", [x, 3.0, z], [3.3, 6.0, 2.8], "houseWall");
+    this.addPrimitive("bell-tower-plaster-stain", "box", [x - 0.65, 2.0, z - 1.43], [0.9, 1.6, 0.05], "plasterShadow");
     this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
     this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
     this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z - 1.43], [0.72, 1.15, 0.08], "windowGlow"));
+    this.addWindowFrame("bell-window-frame", x, 3.2, z - 1.48, 0.9, 1.34);
     // Belfry arch + bell read against the upper wall, just under the roofline.
     this.addPrimitive("bell-arch", "box", [x, 5.35, z - 1.45], [2.1, 1.1, 0.22], "timber");
     this.addPrimitive("bell", "sphere", [x, 5.0, z - 1.62], [0.55, 0.55, 0.55], "metal");
@@ -1055,19 +1202,38 @@ export class PlayCanvasZombieSlice {
     const side = Math.sign(x) || 1;
     this.minimapStructures.push({ x, z, sx, sz, kind: "building" });
     this.addPrimitive(`${name}-body`, "box", [x, sy / 2, z], [sx, sy, sz], "houseWall");
+    this.addPrimitive(`${name}-foundation`, "box", [x, 0.22, z + sz / 2 + 0.035], [sx * 0.96, 0.42, 0.16], "stoneDark");
+    this.addPrimitive(`${name}-plaster-patch-a`, "box", [x - side * sx * 0.08, sy * 0.42, z + sz / 2 + 0.062], [sx * 0.28, sy * 0.34, 0.045], "plasterShadow");
+    this.addPrimitive(`${name}-plaster-patch-b`, "box", [x + side * sx * 0.26, sy * 0.28, z + sz / 2 + 0.064], [sx * 0.18, sy * 0.22, 0.045], "plasterShadow");
     this.addPitchedRoof(`${name}-roof`, x, z, sx * 1.14, sz * 1.1, sy + 0.66, index > 3 ? "roofDark" : "roof");
     this.addPrimitive(`${name}-timber-mid`, "box", [x, sy * 0.58, z + sz / 2 + 0.05], [sx * 0.88, 0.16, 0.12], "timber");
+    this.addPrimitive(`${name}-timber-upper`, "box", [x, sy * 0.86, z + sz / 2 + 0.055], [sx * 0.82, 0.13, 0.12], "timber");
     this.addPrimitive(`${name}-timber-left`, "box", [x - sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber");
     this.addPrimitive(`${name}-timber-right`, "box", [x + sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber");
+    this.addPrimitive(`${name}-brace-left`, "box", [x - sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber").setEulerAngles(0, 0, 22);
+    this.addPrimitive(`${name}-brace-right`, "box", [x + sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber").setEulerAngles(0, 0, -22);
     this.addPrimitive(`${name}-door`, "box", [x + side * sx * 0.18, 0.72, z + sz / 2 + 0.08], [0.76, 1.25, 0.09], "timber");
+    this.addPrimitive(`${name}-door-panel`, "box", [x + side * sx * 0.18, 0.78, z + sz / 2 + 0.135], [0.52, 0.86, 0.045], "weatheredWood");
+    this.addPrimitive(`${name}-door-step`, "box", [x + side * sx * 0.18, 0.11, z + sz / 2 + 0.45], [1.05, 0.18, 0.5], "stone");
     this.registerWindowEntity(`${name}-window-a`, this.addPrimitive(`${name}-window-a`, "box", [x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.09], [0.72, 0.82, 0.08], "windowGlow"));
     this.registerWindowEntity(`${name}-window-b`, this.addPrimitive(`${name}-window-b`, "box", [x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.09], [0.48, 0.62, 0.08], "windowGlow"));
+    this.addWindowFrame(`${name}-window-a-frame`, x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.135, 0.88, 0.98);
+    this.addWindowFrame(`${name}-window-b-frame`, x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.135, 0.62, 0.78);
     this.addLantern(x - side * sx * 0.5, 1.55, z + sz / 2 + 0.28);
     if (index >= 4) {
       this.addPrimitive(`${name}-wagon`, "box", [x - side * 2.1, 0.55, z + sz / 2 + 1.3], [2.0, 0.6, 0.9], "wood");
       this.addPrimitive(`${name}-wheel-a`, "cylinder", [x - side * 2.9, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber").setEulerAngles(90, 0, 0);
       this.addPrimitive(`${name}-wheel-b`, "cylinder", [x - side * 1.35, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber").setEulerAngles(90, 0, 0);
     }
+  }
+
+  addWindowFrame(name, x, y, z, width, height) {
+    this.addPrimitive(`${name}-top`, "box", [x, y + height * 0.5, z], [width, 0.08, 0.08], "timber");
+    this.addPrimitive(`${name}-bottom`, "box", [x, y - height * 0.5, z], [width, 0.08, 0.08], "timber");
+    this.addPrimitive(`${name}-left`, "box", [x - width * 0.5, y, z], [0.08, height, 0.08], "timber");
+    this.addPrimitive(`${name}-right`, "box", [x + width * 0.5, y, z], [0.08, height, 0.08], "timber");
+    this.addPrimitive(`${name}-cross-v`, "box", [x, y, z + 0.015], [0.045, height * 0.72, 0.06], "weatheredWood");
+    this.addPrimitive(`${name}-cross-h`, "box", [x, y, z + 0.015], [width * 0.68, 0.045, 0.06], "weatheredWood");
   }
 
   addPitchedRoof(name, x, z, width, depth, y, materialKey) {
@@ -1078,18 +1244,26 @@ export class PlayCanvasZombieSlice {
     left.setEulerAngles(0, 0, 25);
     const right = this.addPrimitive(`${name}-right`, "box", [x + width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey);
     right.setEulerAngles(0, 0, -25);
-    this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "timber");
+    this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "roofEdge");
+    for (let i = -2; i <= 2; i += 1) {
+      const zOff = i * depth * 0.18;
+      const leftBatten = this.addPrimitive(`${name}-batten-l-${i}`, "box", [x - width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge");
+      leftBatten.setEulerAngles(0, 0, 25);
+      const rightBatten = this.addPrimitive(`${name}-batten-r-${i}`, "box", [x + width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge");
+      rightBatten.setEulerAngles(0, 0, -25);
+    }
   }
 
   addPine(name, x, z, scale, rotY = 0) {
     const root = new pc.Entity(name);
+    root.setLocalPosition(x, 0, z);
     this.app.root.addChild(root);
     // Task 3: thicker trunk + 4 tiers (was 3) + per-tree rotY variety
-    this.addPrimitive(`${name}-trunk`, "cylinder", [x, 1.1 * scale, z], [0.28 * scale, 2.2 * scale, 0.28 * scale], "timber", root);
+    this.addPrimitive(`${name}-trunk`, "cylinder", [0, 1.1 * scale, 0], [0.24 * scale, 2.05 * scale, 0.24 * scale], "timber", root);
     for (let tier = 0; tier < 4; tier += 1) {
       const y = (1.65 + tier * 0.72) * scale;
       const size = (1.65 - tier * 0.28) * scale;
-      this.addPrimitive(`${name}-tier-${tier}`, "cone", [x, y, z], [size, 1.6 * scale, size], "pine", root);
+      this.addPrimitive(`${name}-tier-${tier}`, "cone", [0, y, 0], [size, 1.6 * scale, size], "pine", root);
     }
     root.setEulerAngles(0, rotY, 0);
     return root;
@@ -1102,28 +1276,27 @@ export class PlayCanvasZombieSlice {
     for (let i = 0; i < 32; i += 1) {
       const side = i % 2 === 0 ? -1 : 1;
       const z = 18 - i * 2.65;
-      const x = side * (11.5 + Math.sin(i * 1.7) * 4.4);
+      const x = side * (36 + Math.sin(i * 1.7) * 6);
       const landscapeId = `landscape-${i}`;
-      // Cull trees in the camera's near zone around spawn (player at ~x0,z12 facing -Z).
-      // Skip any tree at z∈[4,18] AND |x|<14 — that's the immediate right/left edge
-      // of the spawn view where a big trunk clips the camera frustum.
-      if (z >= 4 && z <= 18 && Math.abs(x) < 14) {
+      // Cull every foreground tree around spawn. Even side trees just outside the
+      // lane can project as huge black columns in the first-person camera.
+      if (z > -54) {
         continue;
       }
       if (i % 3 === 0) {
         // Task 3: pines — extra tier + per-tree rotation
         const rotY = rand() * 360;
-        this.entitiesByLandscape.set(landscapeId, this.addPine(`pine-${i}`, x, z, 1.3 + rand() * 0.8, rotY));
+        this.entitiesByLandscape.set(landscapeId, this.addPine(`pine-${i}`, x, z, 0.9 + rand() * 0.36, rotY));
       } else {
         // Task 3: deciduous — cluster of 3-4 overlapping spheres + thicker trunk
         const root = new pc.Entity(`tree-${i}`);
         this.app.root.addChild(root);
-        const trunkScale = 0.36 + rand() * 0.1;
-        const trunkH = 2.0 + rand() * 0.6;
+        const trunkScale = 0.22 + rand() * 0.06;
+        const trunkH = 1.45 + rand() * 0.35;
         const trunk = this.addPrimitive(`tree-trunk-${i}`, "cylinder", [x, trunkH * 0.5, z], [trunkScale, trunkH, trunkScale], "wood", root);
         trunk.setEulerAngles(Math.sin(i) * 4, 0, Math.cos(i) * 4);
         const crownY = trunkH + 0.3;
-        const baseR = 1.4 + rand() * 0.5;
+        const baseR = 0.92 + rand() * 0.26;
         const mats = ["pine", "grassDark", "pine", "grassDark"];
         // main crown sphere
         this.addPrimitive(`tree-crown-${i}-a`, "sphere", [x, crownY, z], [baseR, baseR * 0.88, baseR], mats[i % 2], root);
@@ -1187,6 +1360,8 @@ export class PlayCanvasZombieSlice {
     for (let z = -46; z <= 18; z += 8) {
       this.addPrimitive(`fence-left-${z}`, "box", [-7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
       this.addPrimitive(`fence-right-${z}`, "box", [7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
+      this.addPrimitive(`fence-cap-left-${z}`, "box", [-7.2, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
+      this.addPrimitive(`fence-cap-right-${z}`, "box", [7.2, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
       if (z < 18) {
         for (const [rail, ry] of [["top", 1.04], ["mid", 0.58]]) {
           this.addPrimitive(`fence-${rail}-left-${z}`, "box", [-7.2, ry, z + 4], [0.16, 0.2, 8.1], "wood");
@@ -1221,8 +1396,8 @@ export class PlayCanvasZombieSlice {
     const viewmodelLight = new pc.Entity("viewmodel-fill-light");
     viewmodelLight.addComponent("light", {
       type: "omni",
-      color: new pc.Color(0.72, 0.84, 1.0),
-      intensity: 2.0,
+      color: new pc.Color(0.86, 0.9, 0.94),
+      intensity: 1.45,
       range: 2.2,
       castShadows: false,
     });
@@ -1236,7 +1411,7 @@ export class PlayCanvasZombieSlice {
     viewmodelRim.addComponent("light", {
       type: "omni",
       color: new pc.Color(1.0, 0.72, 0.38),
-      intensity: 1.0,
+      intensity: 0.68,
       range: 1.8,
       castShadows: false,
     });
@@ -1274,7 +1449,7 @@ export class PlayCanvasZombieSlice {
     // Root offset: X=0.28 places the gun well in the bottom-right without being cut off.
     // Internal parts are shifted slightly left (X reduced) so the rightmost piece (forearm-r)
     // stays within screen bounds at 375px mobile width.
-    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.28, -0.44, -0.76] });
+    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.36, -0.43, -1.08], rootEuler: [-2, -18, 0] });
     // Tag the slide entity so the per-weapon animation can rack it back on fire.
     const slide = this.addPrimitive("sidearm-slide", "box", [0, 0.08, -0.2], [0.22, 0.16, 0.64], "blackMetal", root);
     root._actionPart = slide;
@@ -1283,16 +1458,26 @@ export class PlayCanvasZombieSlice {
     root._actionRestZ = -0.2;   // local Z at rest
     root._actionType = "slide"; // drives backward travel on kick peak
     this.addPrimitive("sidearm-slide-top", "box", [0, 0.165, -0.2], [0.22, 0.02, 0.64], "gunmetalLight", root);
+    this.addPrimitive("sidearm-ejection-port", "box", [0.085, 0.17, -0.18], [0.065, 0.026, 0.18], "gunBlackVoid", root);
+    for (let i = 0; i < 4; i += 1) {
+      this.addPrimitive(`sidearm-rear-serration-${i}`, "box", [0.114, 0.1, 0.02 + i * 0.04], [0.018, 0.13, 0.012], "gunmetalLight", root).setLocalEulerAngles(0, 0, -14);
+    }
     this.addPrimitive("sidearm-front-sight", "box", [0, 0.175, -0.48], [0.04, 0.05, 0.03], "gunmetalLight", root);
     this.addPrimitive("sidearm-rear-sight", "box", [0, 0.175, 0.06], [0.1, 0.05, 0.04], "gunmetalLight", root);
     this.addPrimitive("sidearm-muzzle-crown", "cylinder", [0.01, 0.07, -0.75], [0.042, 0.04, 0.042], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("sidearm-bore", "cylinder", [0.01, 0.07, -0.775], [0.024, 0.022, 0.024], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("sidearm-frame", "box", [0.01, -0.03, -0.02], [0.2, 0.12, 0.42], "rail", root);
+    this.addPrimitive("sidearm-trigger-guard", "box", [0.012, -0.13, -0.08], [0.16, 0.035, 0.18], "blackMetal", root).setLocalEulerAngles(-8, 0, 0);
+    this.addPrimitive("sidearm-trigger", "box", [0.012, -0.16, -0.06], [0.035, 0.12, 0.035], "gunBlackVoid", root).setLocalEulerAngles(-14, 0, 0);
     // Grip/hand shifted slightly left (-0.02 on X) to reduce off-screen extension
-    this.addPrimitive("sidearm-grip", "box", [0.03, -0.22, 0.14], [0.18, 0.36, 0.16], "blackMetal", root).setLocalEulerAngles(-13, 0, 0);
+    this.addPrimitive("sidearm-grip", "box", [0.03, -0.22, 0.14], [0.18, 0.36, 0.16], "gripRubber", root).setLocalEulerAngles(-13, 0, 0);
+    for (let i = 0; i < 4; i += 1) {
+      this.addPrimitive(`sidearm-grip-rib-${i}`, "box", [0.032, -0.31 + i * 0.06, 0.055], [0.19, 0.012, 0.018], "gunBlackVoid", root).setLocalEulerAngles(-13, 0, 0);
+    }
     this.addPrimitive("sidearm-barrel", "cylinder", [0.01, 0.07, -0.58], [0.035, 0.32, 0.035], "metal", root).setLocalEulerAngles(90, 0, 0);
     // Right hand + forearm — forearm-r X reduced from 0.18 to 0.10 to keep it on screen
-    this.addPrimitive("sidearm-hand-r", "box", [0.03, -0.22, 0.14], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-13, 0, 4);
-    this.addPrimitive("sidearm-forearm-r", "box", [0.10, -0.36, 0.30], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(36, -12, 0);
+    this.addPrimitive("sidearm-hand-r", "box", [0.03, -0.24, 0.14], [0.14, 0.12, 0.18], "glove", root).setLocalEulerAngles(-13, 0, 4);
+    this.addPrimitive("sidearm-forearm-r", "box", [0.11, -0.43, 0.34], [0.12, 0.1, 0.42], "sleeve", root).setLocalEulerAngles(38, -12, 0);
   }
 
   createCompactModel() {
@@ -1318,14 +1503,24 @@ export class PlayCanvasZombieSlice {
     this.addPrimitive("rifle-handguard", "box", [0, 0.015, -0.55], [0.22, 0.16, 0.72], "rail", root);
     this.addPrimitive("rifle-stock", "box", [0.04, -0.025, 0.48], [0.34, 0.18, 0.28], "blackMetal", root);
     this.addPrimitive("rifle-grip", "box", [0.02, -0.22, 0.2], [0.14, 0.36, 0.16], "blackMetal", root).setLocalEulerAngles(-12, 0, 0);
+    this.addPrimitive("rifle-trigger-guard", "box", [0.01, -0.13, 0.08], [0.17, 0.035, 0.19], "blackMetal", root).setLocalEulerAngles(-8, 0, 0);
+    this.addPrimitive("rifle-trigger", "box", [0.01, -0.17, 0.09], [0.035, 0.12, 0.035], "gunBlackVoid", root).setLocalEulerAngles(-14, 0, 0);
+    this.addPrimitive("rifle-magwell", "box", [0.02, -0.13, -0.14], [0.2, 0.16, 0.16], "rail", root).setLocalEulerAngles(-4, 0, 0);
+    this.addPrimitive("rifle-magazine", "box", [0.03, -0.33, -0.18], [0.18, 0.42, 0.18], "blackMetal", root).setLocalEulerAngles(-9, 0, 0);
+    this.addPrimitive("rifle-ejection-port", "box", [0.125, 0.055, -0.05], [0.035, 0.08, 0.2], "gunBlackVoid", root);
     this.addPrimitive("rifle-top-rail", "box", [0, 0.13, -0.18], [0.31, 0.035, 1.05], "rail", root);
     for (let i = 0; i < 7; i += 1) {
       this.addPrimitive(`rifle-rail-notch-${i}`, "box", [0, 0.17, 0.24 - i * 0.13], [0.34, 0.035, 0.045], "blackMetal", root);
+    }
+    for (let i = 0; i < 5; i += 1) {
+      this.addPrimitive(`rifle-handguard-slot-l-${i}`, "box", [-0.115, 0.02, -0.78 + i * 0.11], [0.018, 0.08, 0.052], "gunBlackVoid", root);
+      this.addPrimitive(`rifle-handguard-slot-r-${i}`, "box", [0.115, 0.02, -0.78 + i * 0.11], [0.018, 0.08, 0.052], "gunBlackVoid", root);
     }
     this.addPrimitive("rifle-front-sight", "box", [0, 0.31, -0.82], [0.08, 0.23, 0.06], "gunmetalLight", root);
     this.addPrimitive("rifle-rear-sight", "box", [0, 0.25, 0.16], [0.12, 0.16, 0.06], "gunmetalLight", root);
     this.addPrimitive("rifle-barrel", "cylinder", [0, 0.04, -0.96], [0.045, 0.78, 0.045], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("rifle-muzzle-crown", "cylinder", [0, 0.04, -1.38], [0.054, 0.05, 0.054], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("rifle-bore", "cylinder", [0, 0.04, -1.41], [0.03, 0.024, 0.03], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
     // Right hand on pistol grip + forearm; left support hand on handguard
     this.addPrimitive("rifle-hand-r", "box", [0.02, -0.22, 0.2], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-12, 0, 4);
     this.addPrimitive("rifle-forearm-r", "box", [0.2, -0.38, 0.36], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(38, -15, 0);
@@ -1336,19 +1531,26 @@ export class PlayCanvasZombieSlice {
   createShotgunModel() {
     const root = this.createWeaponGroup("shotgun", { muzzle: [0, 0.02, -1.42], rootPosition: [0.5, -0.5, -0.98] });
     this.addPrimitive("shotgun-receiver", "box", [0.01, 0, -0.04], [0.3, 0.2, 0.62], "blackMetal", root);
+    this.addPrimitive("shotgun-ejection-port", "box", [0.15, 0.065, -0.04], [0.035, 0.08, 0.22], "gunBlackVoid", root);
     this.addPrimitive("shotgun-rib", "box", [0, 0.12, -0.62], [0.06, 0.02, 1.22], "gunmetalLight", root);
     // Tag the pump fore-end so the animation can slam it rearward on each shot.
     const pump = this.addPrimitive("shotgun-pump", "box", [0, -0.005, -0.62], [0.3, 0.18, 0.48], "wood", root);
+    for (let i = 0; i < 5; i += 1) {
+      this.addPrimitive(`shotgun-pump-groove-${i}`, "box", [0, 0.092, -0.81 + i * 0.095], [0.32, 0.018, 0.024], "weatheredWood", root);
+    }
     root._actionPart = pump;
     root._actionRestX = 0;
     root._actionRestY = -0.005;
     root._actionRestZ = -0.62;
     root._actionType = "pump";
     this.addPrimitive("shotgun-stock", "box", [0.04, -0.02, 0.43], [0.4, 0.2, 0.36], "wood", root);
+    this.addPrimitive("shotgun-recoil-pad", "box", [0.06, -0.025, 0.63], [0.38, 0.18, 0.055], "gripRubber", root);
     this.addPrimitive("shotgun-barrel-a", "cylinder", [-0.04, 0.06, -0.96], [0.04, 0.84, 0.04], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-barrel-b", "cylinder", [0.04, 0.06, -0.96], [0.04, 0.84, 0.04], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-muzzle-a", "cylinder", [-0.04, 0.06, -1.4], [0.048, 0.04, 0.048], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-muzzle-b", "cylinder", [0.04, 0.06, -1.4], [0.048, 0.04, 0.048], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("shotgun-bore-a", "cylinder", [-0.04, 0.06, -1.425], [0.031, 0.022, 0.031], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("shotgun-bore-b", "cylinder", [0.04, 0.06, -1.425], [0.031, 0.022, 0.031], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-bead-sight", "sphere", [0, 0.13, -1.36], [0.03, 0.03, 0.03], "gunmetalLight", root);
     // Right hand on pump grip + forearm; left support hand pumping the fore-end
     this.addPrimitive("shotgun-hand-r", "box", [0.04, -0.12, 0.18], [0.16, 0.14, 0.22], "glove", root).setLocalEulerAngles(-8, 0, 4);
@@ -1741,6 +1943,11 @@ export class PlayCanvasZombieSlice {
     window.addEventListener("mousemove", (event) => this.handleLookMove(event));
     window.addEventListener("pointerup", () => {
       this.input.dragLooking = false;
+      this.input.fire = false;
+    });
+    window.addEventListener("pointercancel", () => {
+      this.input.dragLooking = false;
+      this.input.fire = false;
     });
     // Losing focus (alt-tab, click another window) or backgrounding the tab
     // (mobile app-switch) means held-key `keyup` events never arrive, which used
@@ -1782,15 +1989,23 @@ export class PlayCanvasZombieSlice {
       if (event.pointerType !== "mouse") {
         return;
       }
+      if (isActivePlayPhase(this.state.phase) && !this._isUiOverlayOpen()) {
+        this.unlockAudio();
+        this.requestPointerLock();
+        this.input.fire = true;
+        this.fire();
+      }
       this.input.dragLooking = true;
       this.input.lastPointerX = event.clientX;
       this.input.lastPointerY = event.clientY;
-      this.canvas.setPointerCapture?.(event.pointerId);
+      this.safeSetPointerCapture(this.canvas, event.pointerId);
     });
     this.canvas.addEventListener("pointerup", (event) => {
       if (event.button === 2) {
         this.input.ads = false;
         setPlayerAds(this.state, false);
+      } else if (event.button === 0) {
+        this.input.fire = false;
       }
     });
     this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -1808,7 +2023,6 @@ export class PlayCanvasZombieSlice {
         return;
       }
       this.requestPointerLock();
-      this.fire();
     });
   }
 
@@ -1832,7 +2046,7 @@ export class PlayCanvasZombieSlice {
         shopType: item.dataset.shopType,
         shopId: item.dataset.shopId,
       };
-      item.setPointerCapture?.(event.pointerId);
+      this.safeSetPointerCapture(item, event.pointerId);
     });
     this.shopItemsRoot.addEventListener("pointerup", (event) => {
       if (!pendingTap || pendingTap.pointerId !== event.pointerId) {
@@ -1865,7 +2079,11 @@ export class PlayCanvasZombieSlice {
         return;
       }
       event.preventDefault();
-      if (performance.now() - lastPointerActionAt < 450 || item.dataset.shopDisabled === "true") {
+      if (performance.now() - lastPointerActionAt < 450) {
+        return;
+      }
+      if (item.dataset.shopDisabled === "true") {
+        this.explainShopItemUnavailable(item.dataset.shopType, item.dataset.shopId);
         return;
       }
       this.activateShopItem(item.dataset.shopType, item.dataset.shopId);
@@ -1876,12 +2094,39 @@ export class PlayCanvasZombieSlice {
         return;
       }
       const item = getShopActionEl(event.target);
-      if (!item || item.dataset.shopDisabled === "true") {
+      if (!item) {
         return;
       }
       event.preventDefault();
+      if (item.dataset.shopDisabled === "true") {
+        this.explainShopItemUnavailable(item.dataset.shopType, item.dataset.shopId);
+        return;
+      }
       this.activateShopItem(item.dataset.shopType, item.dataset.shopId);
     });
+  }
+
+  explainShopItemUnavailable(shopType, shopId) {
+    const item = getShopItems(this.state).find((entry) => entry.type === shopType && entry.id === shopId);
+    if (!item) {
+      this.state.lastMessage = "That shop item is unavailable.";
+    } else if (item.equipped || item.status === "Equipped") {
+      this.state.lastMessage = `${item.label} is already equipped.`;
+    } else if (item.owned || item.status === "Owned") {
+      this.state.lastMessage = `${item.label} is already owned.`;
+    } else if (item.atMax || item.status === "Maxed") {
+      this.state.lastMessage = `${item.label} is already maxed.`;
+    } else if (item.atFullHealth || item.status === "Full Health") {
+      this.state.lastMessage = "Health is already full.";
+    } else if (!item.unlocked) {
+      this.state.lastMessage = `${item.label} unlocks at wave ${item.unlockWave}.`;
+    } else if (!item.affordable && Number.isFinite(item.cost)) {
+      this.state.lastMessage = `Need ${item.cost} coins for ${item.label}. You have ${this.state.coins}.`;
+    } else {
+      this.state.lastMessage = `${item.label} is unavailable right now.`;
+    }
+    this._sfxUiClick();
+    this.updateHud();
   }
 
   activateShopItem(shopType, shopId) {
@@ -1927,6 +2172,7 @@ export class PlayCanvasZombieSlice {
     this.input.crouch = false;
     this.input.jump = false;
     this.input.ads = false;
+    this.input.fire = false;
     this.input.dragLooking = false;
     this.input.lookTouch = null;
     this.input.lookVelX = 0;
@@ -1936,6 +2182,15 @@ export class PlayCanvasZombieSlice {
       this._joystickPointerId = null;
       this._joystickBase?.classList.remove("is-active");
       if (this._joystickKnob) this._joystickKnob.style.transform = "translate(-50%, -50%)";
+    }
+  }
+
+  safeSetPointerCapture(target, pointerId) {
+    try {
+      target?.setPointerCapture?.(pointerId);
+    } catch {
+      // Some browser/test pointer streams are already released by the time the
+      // handler runs. Capture is an input enhancement, not required for firing.
     }
   }
 
@@ -1995,19 +2250,21 @@ export class PlayCanvasZombieSlice {
         } else if (action === "ads") {
           this.input.ads = active;
           setPlayerAds(this.state, active);
-        } else if (action === "fire" && active) {
-          this.unlockAudio();
-          if (this.state.phase === "ready") {
-            startSlice(this.state);
-            this.playWaveStartAudio();
+        } else if (action === "fire") {
+          this.input.fire = active;
+          if (active) {
+            this.unlockAudio();
+            if (this.state.phase === "ready") {
+              this.startOrContinueCampaign();
+            }
+            this.fire();
           }
-          this.fire();
         }
         button.classList.toggle("is-active", active);
       };
       button.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        button.setPointerCapture?.(event.pointerId);
+        this.safeSetPointerCapture(button, event.pointerId);
         setActive(true);
       });
       button.addEventListener("pointerup", (event) => {
@@ -2068,8 +2325,9 @@ export class PlayCanvasZombieSlice {
     // Zone: bottom-left 45% width, lower 55% height (excluding button elements)
     const inJoystickZone = (event) => {
       if (event.target.closest?.("button, a")) return false;
-      const relX = event.clientX / window.innerWidth;
-      const relY = event.clientY / window.innerHeight;
+      const frameRect = this.getGameFrameRect();
+      const relX = (event.clientX - frameRect.left) / frameRect.width;
+      const relY = (event.clientY - frameRect.top) / frameRect.height;
       return relX < 0.45 && relY > 0.45;
     };
 
@@ -2153,7 +2411,7 @@ export class PlayCanvasZombieSlice {
       const relX = (event.clientX - canvasRect.left) / canvasRect.width;
       if (relX < LOOK_ZONE_SPLIT) return;
 
-      this.canvas.setPointerCapture?.(event.pointerId);
+      this.safeSetPointerCapture(this.canvas, event.pointerId);
       this.input.lookTouch = {
         id: event.pointerId,
         startX: event.clientX,
@@ -2177,8 +2435,9 @@ export class PlayCanvasZombieSlice {
       lt.curY = event.clientY;
       // Normalise delta to a ±1 range by viewport scale so sensitivity is
       // consistent across screen sizes.
-      const vpW = window.innerWidth || 360;
-      const vpH = window.innerHeight || 640;
+      const frameRect = this.getGameFrameRect();
+      const vpW = frameRect.width || 360;
+      const vpH = frameRect.height || 640;
       const ndx = dx / (vpW * 0.08);   // ÷8% of viewport width ≈ full deflection at 80px
       const ndy = dy / (vpH * 0.08);
       // Apply response curve
@@ -2266,7 +2525,7 @@ export class PlayCanvasZombieSlice {
     if (active) {
       this.unlockAudio();
     }
-    if (active && (event.code === "Enter" || event.code === "NumpadEnter")) {
+    if (active && (event.code === "Enter" || event.code === "NumpadEnter" || event.code === "Space")) {
       if (this.state.phase === "ready" || this.state.phase === "intermission") {
         event.preventDefault();
         this.startOrContinueCampaign({ pointerLock: true });
@@ -2300,6 +2559,7 @@ export class PlayCanvasZombieSlice {
     if (event.code === "KeyG" && active) this.useActiveOrdnance();
     if (event.code === "KeyT" && active) this.useFlint();
     if (event.code === "KeyE") {
+      this.input.fire = active && !this._isUiOverlayOpen();
       if (active && !this._isUiOverlayOpen()) {
         event.preventDefault();
         this.fire();
@@ -2307,6 +2567,7 @@ export class PlayCanvasZombieSlice {
       return;
     }
     if (event.code === "KeyM" && active) this.toggleMiniMap();
+    if (event.code === "Escape" && active && this.morePopover && !this.morePopover.hidden) { this.closeMorePopover(); return; }
     if (event.code === "Escape" && active && this.shopOpen) this.closeShop();
     if (event.code === "KeyF" && active) this.toggleFullscreen();
   }
@@ -2335,7 +2596,7 @@ export class PlayCanvasZombieSlice {
   // Used to suppress pointer-lock re-grab + fire on stray canvas clicks that
   // land behind the overlay.
   _isUiOverlayOpen() {
-    return Boolean(this.shopOpen || this._isSettingsOpen());
+    return Boolean(this.shopOpen || this._isSettingsOpen() || (this.morePopover && !this.morePopover.hidden));
   }
 
   _isSettingsOpen() {
@@ -2420,14 +2681,20 @@ export class PlayCanvasZombieSlice {
       }
     };
     document.addEventListener('keydown', onKeyDown, true);
-    this._focusTrapTeardown = () => document.removeEventListener('keydown', onKeyDown, true);
-    return this._focusTrapTeardown;
+    if (!this._focusTraps) this._focusTraps = [];
+    const teardown = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      const idx = this._focusTraps ? this._focusTraps.indexOf(teardown) : -1;
+      if (idx !== -1) this._focusTraps.splice(idx, 1);
+    };
+    this._focusTraps.push(teardown);
+    return teardown;
   }
 
   _releaseFocusTrap() {
-    if (this._focusTrapTeardown) {
-      this._focusTrapTeardown();
-      this._focusTrapTeardown = null;
+    if (this._focusTraps && this._focusTraps.length > 0) {
+      const teardown = this._focusTraps[this._focusTraps.length - 1];
+      teardown();
     }
   }
 
@@ -2494,6 +2761,7 @@ export class PlayCanvasZombieSlice {
 
   cycleWeapon() {
     cycleOwnedWeapon(this.state);
+    this._sfxUiClick();
     this.updateHud();
     if (this.shopOpen) {
       this.renderShop();
@@ -2502,10 +2770,9 @@ export class PlayCanvasZombieSlice {
 
   selectWeaponByKey(code) {
     const slot = WEAPON_SLOT_BINDINGS.find((binding) => binding.code === code);
-    if (!slot) {
-      return;
-    }
+    if (!slot || slot.id === this.state.equippedWeaponId) return;
     equipOwnedWeapon(this.state, slot.id);
+    this._sfxUiClick();
     this.updateHud();
     if (this.shopOpen) {
       this.renderShop();
@@ -2524,7 +2791,8 @@ export class PlayCanvasZombieSlice {
       } else {
         await this.root.requestFullscreen?.();
       }
-      this.app.resizeCanvas();
+      this.syncViewportFrame();
+      this.scheduleViewportFrameSync();
     } catch {
       this.state.lastMessage = "Fullscreen is unavailable in this browser context.";
       this.updateHud();
@@ -3547,8 +3815,14 @@ export class PlayCanvasZombieSlice {
   updateAudioState(dt = 0, { force = false } = {}) {
     this.audioDamagePulseSec = Math.max(0, this.audioDamagePulseSec - dt);
     this.audioPlayerDamagePulseSec = Math.max(0, this.audioPlayerDamagePulseSec - dt);
-    this.audio.setMusicEnabled(this.state.musicEnabled);
-    this.audio.setSfxEnabled(this.state.sfxEnabled);
+    if (this.state.musicEnabled !== this._lastMusicEnabled) {
+      this.audio.setMusicEnabled(this.state.musicEnabled);
+      this._lastMusicEnabled = this.state.musicEnabled;
+    }
+    if (this.state.sfxEnabled !== this._lastSfxEnabled) {
+      this.audio.setSfxEnabled(this.state.sfxEnabled);
+      this._lastSfxEnabled = this.state.sfxEnabled;
+    }
     this.audio.setListenerPosition({ x: this.state.player.x, y: 1.65, z: this.state.player.z });
 
     const audio = getPlayCanvasAudioSnapshot(this.state, {
@@ -3605,8 +3879,9 @@ export class PlayCanvasZombieSlice {
     // Apply right-zone touch look velocity — only when there's an active look touch
     // and the pointer isn't locked (pointer-lock path uses handleLookMove).
     if (!gameplayPausedByUi && this.input.lookTouch !== null && !this.input.pointerLocked) {
-      const vpW = window.innerWidth || 360;
-      const vpH = window.innerHeight || 640;
+      const frameRect = this.getGameFrameRect();
+      const vpW = frameRect.width || 360;
+      const vpH = frameRect.height || 640;
       // lookVelX/Y are normalised ±1 after response curve; scale to pixels/frame
       // equivalent so applyLookDelta receives the same units it always does (px delta).
       const fakePixDx = this.input.lookVelX * vpW * 0.08;
@@ -3621,6 +3896,9 @@ export class PlayCanvasZombieSlice {
     // negative/NaN frame delta would inflate countdown timers like the wave
     // grace) and never take a huge step after a tab stall.
     if (!gameplayPausedByUi) {
+      if (this.input.fire && getPlayCanvasWeaponSnapshot(this.state).fireMode === "automatic") {
+        this.fire();
+      }
       stepSlice(this.state, this.input, Math.max(0, Math.min(frameDt, 0.05)) || 0);
     }
     this.input.jump = false;
@@ -5559,6 +5837,9 @@ export class PlayCanvasZombieSlice {
         `saveVersion=${this.state.version ?? 1}`,
         `profileType=${this.state.profileType ?? "playcanvas"}`,
         `wave=${this.state.waveNumber}`,
+        `playerY=${Number(this.state.player?.y ?? 0).toFixed(2)}`,
+        `playerSurface=${this.state.player?.supportSurfaceId ?? "ground"}`,
+        `playerGrounded=${Boolean(this.state.player?.onGround)}`,
         `villageHp=${Math.ceil(this.state.villageHp)}`,
         `maxVillageHp=${this.state.maxVillageHp}`,
         `playerHp=${Math.ceil(this.state.playerHp)}`,
