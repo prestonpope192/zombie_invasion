@@ -1,6 +1,95 @@
 Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
 
 ## Progress log
+- 2026-07-07 — PlayCanvas ballistic tracer feel:
+  - Turned the new ballistic telemetry into visible game feel by applying subtle visual sag to PlayCanvas tracer FX from `lastCombatEvent.ballistic.dropMeters`, without changing hit detection, damage, or balance.
+  - Added `computeBallisticTracerDrop` as a small tested shot-FX rule and exposed `tracerDropVisual` / `tracerDropActual` through the PlayCanvas automation text hook.
+  - Validation: `npm test -- test/shot_fx_rules.test.js test/playcanvas_slice.test.js` passed (79 tests), `npm run smoke:playcanvas` passed with `tracerDropVisual=0.096`, `npm run build` passed with the existing chunk-size warning, and `npm run test:full` passed (37 files, 201 tests + build + smoke).
+- 2026-07-07 — PlayCanvas ballistic telemetry slice:
+  - Added PlayCanvas weapon-shot ballistic metadata for hits, clean misses, launcher blasts, and village structure impacts without changing hit resolution, damage, cooldowns, or targeting behavior.
+  - Reused the legacy `ballisticDropAtDistance` helper so `lastCombatEvent.ballistic` and weapon fire results report distance, muzzle velocity, travel time, drop, drag, and projectile mass.
+  - Updated browser smoke coverage to prove the combat-event text hook exposes ballistic telemetry, while parity docs still mark true projectile travel/penetration as PARTIAL.
+- 2026-07-07 — PlayCanvas performance telemetry surface:
+  - Added rolling frame-performance telemetry to the PlayCanvas runtime: average FPS, average frame time, slow-frame count, worst frame time, active quality profile, and render scale.
+  - Exposed the telemetry through `window.render_game_to_text()` / `window.render_playcanvas_game_to_text()` so browser smoke and future visual/performance tuning can detect regressions without manual profiling.
+  - Added PlayCanvas smoke assertions for the new telemetry fields.
+  - Validation: `npm run build` passed with the existing chunk-size warning, `npm run smoke:playcanvas` passed with visual artifact `output/playcanvas-slice-smoke.png`, and `npm test` passed (36 files, 197 tests).
+- 2026-07-07 — PlayCanvas rewarded-ad telemetry parity:
+  - Closed the last documented MISSING parity item by adding PlayCanvas rewarded run-state telemetry using the shared `createRewardedRunState` shape, capped at 80 events per run.
+  - Wired the PlayCanvas ad offer flow to record `offer_clicked`, `ad_completed`, `ad_failed`, `reward_granted`, and `reward_rejected`, then dispatch `zombie_invasion_rewarded_ad` `CustomEvent` details for analytics listeners.
+  - Added automation/debug text fields for rewarded telemetry count, last event, last offer, provider, revive status, and claimed-offer count.
+  - Added regression coverage for telemetry buffer capping and reward snapshot mirroring. Parity docs now report 54 FULL / 1 PARTIAL / 0 MISSING / 5 N/A, with true 3D ballistics still the one partial item.
+  - Validation: `npm test -- test/playcanvas_slice.test.js` passed (75 tests), `npm test` passed (36 files, 197 tests), `npm run build` passed with the existing chunk-size warning, and `npm run smoke:playcanvas` passed with visual artifact `output/playcanvas-slice-smoke.png`.
+- 2026-07-07 — PlayCanvas zigzag parity + docs refresh:
+  - Closed the documented runner/skitter zigzag parity gap by carrying `zigzagStrength` from `enemies_fps.json` into spawned PlayCanvas zombie state and applying target-relative lateral strafing in `stepZombies`.
+  - Added regression coverage proving walker has no lateral drift, runner uses configured `0.24`, and skitter uses stronger configured `0.5`.
+  - Refreshed `docs/current-state.md` and `docs/parity-audit.md` after verifying stale rows: boot overlay, village distress, crawler presentation, and per-type zigzag are now listed as FULL. Remaining open parity items are rewarded-ad telemetry/run-state (MISSING) and true 3D ballistics/penetration (PARTIAL).
+  - Validation: `npm test -- test/playcanvas_slice.test.js` passed (73 tests), `npm test` passed (36 files, 195 tests), `npm run build` passed with the existing chunk-size warning, and `npm run smoke:playcanvas` passed with visual artifact `output/playcanvas-slice-smoke.png`.
+  - Shared web-game client also produced `output/playcanvas-zigzag-webgame/shot-0.png` and `state-0.json` with no `errors-*.json`; its generic action sequence ended in `phase=lost`, so the repo-specific smoke screenshot remains the primary browser proof for this pass.
+- PlayCanvas automatic weapon hold-fire pass:
+  - Added explicit `fireMode` metadata to PlayCanvas weapon snapshots so machine-gun-style weapons are identified as `automatic`.
+  - Marked `smg`, `machine_pistol`, `rifle`, `lmg`, and `flamethrower` as automatic; sidearms and other slower weapons stay `semi`.
+  - Updated the held-fire frame loop in `src/playcanvas/main.js` so holding mouse/touch FIRE/E repeats shots only when the equipped weapon has `fireMode: "automatic"`; the initial press still fires once for every weapon.
+  - Added regression coverage proving machine-pistol and LMG snapshots are automatic and the held-fire loop is gated by automatic fire mode.
+  - Validation: `npm test -- test/active_game_contract.test.js test/playcanvas_slice.test.js` passed (77 tests), `npm run build` passed, `npm run smoke:playcanvas` passed, standard web-game client passed in `/Users/preston/Code/zombie_invasion/output/machine-gun-held-fire-client` with no errors, and targeted machine-pistol browser proof in `/Users/preston/Code/zombie_invasion/output/machine-gun-held-fire-targeted/proof.json` showed `shotsFired: 46`, `ammo: 24`, `pendingReload: false`, and no page errors while holding mouse down.
+- PlayCanvas held-fire/no-reload fix:
+  - Root cause: PlayCanvas still had magazine/reload blocking even though the HUD/state reported `ammoMode=infinite`; after enough pistol shots, `pendingReload` could block firing while enemies kept closing.
+  - Added held-fire input state in `src/playcanvas/main.js` for mouse, touch FIRE, and E-key paths so firing continues at weapon RPM while held instead of depending on repeated click events.
+  - Hardened pointer capture with a safe wrapper so browser/test `InvalidStateError` from `setPointerCapture` cannot break the active input path.
+  - Updated `src/playcanvas/sliceSimulation.js` so PlayCanvas weapons keep ammo topped off, never enter reload from firing, and manual reload is a no-op message for infinite ammo.
+  - Validation: `npm test -- test/active_game_contract.test.js test/playcanvas_slice.test.js` passed (77 tests), `npm run build` passed, `npm run smoke:playcanvas` passed, web-game client held-fire artifact passed in `/Users/preston/Code/zombie_invasion/output/held-fire-fix-client` with no errors, and targeted browser proof in `/Users/preston/Code/zombie_invasion/output/held-fire-fix-targeted/proof.json` showed `shotsFired: 21`, `ammo: 15`, `pendingReload: false`, and no page errors.
+- PlayCanvas village/gun realism design audit:
+  - Ran a screenshot-backed design audit for village graphics and gun viewmodels, with artifacts in `/Users/preston/Code/zombie_invasion/output/design-audit-realism`.
+  - Village completed 3 loops: realism palette pass, construction/detail pass, and tree/capture correction so active-play evidence isolates the village instead of enemy artifacts.
+  - Guns completed 3 loops: steel/rubber/wood material pass, firearm focal details, and sidearm placement/occlusion correction; rifle and shotgun now read strongest, pistol remains limited by primitive-box geometry.
+  - Updated `src/playcanvas/main.js` with darker grounded village materials, roof/fence/house/road details, fixed pine transforms, farther lane dressing, and firearm viewmodel details for pistol/rifle/shotgun.
+  - Remaining visual risk: spawned GLB zombies were observed creating huge dark vertical columns because their mesh scale appears too large; that is outside this village/gun pass but should be the next visual bug fix.
+  - Validation: `npm test -- test/active_game_contract.test.js test/playcanvas_slice.test.js` passed (76 tests), `npm run build` passed, `npm run smoke:playcanvas` passed, and web-game client passed with active `phase=running` in `/Users/preston/Code/zombie_invasion/output/design-audit-realism/web-game-client` with no `errors-0.json`.
+- Wave 3 mini-boss tuning:
+  - Updated `src/fps/config/waves_fps.json` so wave 3 is a boss wave.
+  - Reused the existing PlayCanvas boss reservation logic, which reserves exactly one slot for `mini_boss`; no special-case spawner was added.
+  - Added regression coverage in `test/playcanvas_slice.test.js` proving wave 3 spawns exactly one `mini_boss`, zero `mega_zombie`, and consumes the full 12-enemy wave budget.
+  - Validation: `npm test -- test/playcanvas_slice.test.js` passed (72 tests), `npm run build` passed, `npm run smoke:playcanvas` passed, web-game client rendered with no errors in `/Users/preston/Code/zombie_invasion/output/mini-boss-wave3-client`, and targeted browser proof in `/Users/preston/Code/zombie_invasion/output/mini-boss-wave3-targeted/state-runtime.json` showed `waveNumber: 3`, `miniBossCount: 1`, `megaCount: 0`, and `bossWaveActive=true`.
+- PlayCanvas Space key fix:
+  - Root cause: default PlayCanvas keyboard flow only let Enter advance ready/intermission/lost/won states; Space was only mapped to jump, despite prior progress notes and player expectations that Space should start/continue flow panels.
+  - Updated `src/playcanvas/main.js` so Space shares the same ready/intermission/end-state advance path as Enter, then continues to act as jump during active play.
+  - Updated ready guidance in `src/playcanvas/sliceSimulation.js` to remove stale "Space fires" copy; Space is now documented as jump, with click/E as fire.
+  - Added contract coverage in `test/active_game_contract.test.js` for Space flow advance, Space jump mapping, and corrected guidance copy.
+  - Validation: `npm test -- test/active_game_contract.test.js test/playcanvas_slice.test.js` passed (75 tests), `npm run build` passed, `npm run smoke:playcanvas` passed, and web-game client Space-only proof in `/Users/preston/Code/zombie_invasion/output/space-key-fix` captured `phase=running` with no `errors-0.json`.
+- Zombie damage balance pass:
+  - Reduced FPS enemy `attackDps` values in `src/fps/config/enemies_fps.json` by roughly 20-30%, with the largest relief on common early-wave enemies.
+  - Left zombie HP, speed, spawn counts, rewards, armor, and wave progression unchanged so the game stays active but is less punishing when enemies reach bite range.
+  - Validation: `npm test` pass (36 files, 191 tests), `npm run build` pass, `npm run smoke:playcanvas` pass, web-game client screenshot/state artifact at `/Users/preston/Code/zombie_invasion/output/zombie-damage-balance-client/shot-0.png`, and targeted runtime proof at `/Users/preston/Code/zombie_invasion/output/zombie-damage-balance-targeted/state-runtime.json` showed spawned wave-1 walkers using `attackDps: 7`.
+- PlayCanvas shop tap feedback fix:
+  - Reproduced mobile/touch shop behavior: actionable cards/buttons worked, but disabled/equipped/locked cards left the old HUD message unchanged, making taps feel ignored.
+  - Added `explainShopItemUnavailable(...)` in `src/playcanvas/main.js` so disabled shop clicks and Enter/Space keyboard activation now show concrete feedback: already equipped/owned, full health, maxed, unlock wave, or required coins.
+  - Kept purchase/equip rules unchanged; actionable mobile taps still equip/buy normally, and the shop Close button works on touch.
+  - Validation: targeted iPhone Playwright tap proof shows disabled Colt Python reports `Colt Python unlocks at wave 2.`, actionable Pipe equips successfully, and Close hides the shop. `npm test` pass (36 files, 191 tests), `npm run build` pass, `npm run smoke:playcanvas` pass, web-game client screenshot passed at `/Users/preston/Code/zombie_invasion/output/shop-click-feedback-client/shot-0.png` with no `errors-*.json`.
+- PlayCanvas smoothness / resize-jank pass:
+  - Diagnosis: viewport sync was no longer stuck, but fullscreen/large HiDPI windows were over-rendering. A 1600x900 DPR-2 viewport allocated a 3200x1800 WebGL backing buffer (~5.76M pixels), and Playwright diagnostics showed poor frame pacing under that load.
+  - Added adaptive render pixel-ratio budgeting in `src/playcanvas/main.js`: desktop caps near 1.8M backing pixels, mobile near 1.2M, while preserving 1:1 rendering on normal DPR-1 displays.
+  - Turned `preserveDrawingBuffer` off for normal play to avoid extra WebGL buffer overhead; it remains enabled for Playwright/explicit `?preserveDrawingBuffer=1` capture so automated screenshots still work.
+  - Added a temporary `body.viewport-resizing` mode during browser/fullscreen resize that disables expensive CSS `backdrop-filter`, blur filters, and transitions until the viewport settles.
+  - Validation: DPR-2 1600x900 backing buffer dropped to ~1788x1006 (~1.8M pixels); after resizing to 1950x900 it stayed near ~1.8M pixels and full-frame. `npm test` pass (36 files, 191 tests), `npm run build` pass, `npm run smoke:playcanvas` pass, web-game client screenshot passed at `/Users/preston/Code/zombie_invasion/output/playcanvas-smoothness-client-2/shot-0.png` with no `errors-*.json`.
+- 2026-06-27 rooftop/platforming pass:
+  - Added PlayCanvas walkable roof platforms for the six village building roofs and the bell tower roof in `src/playcanvas/sliceSimulation.js`.
+  - Player landing now snaps to a roof only while descending through that surface; walking underneath a roof stays on the ground, jumping from a roof works, and walking off an edge falls back to ground physics.
+  - Added `playerY`, `playerSurface`, and `playerGrounded` to `render_game_to_text` output for browser-proofing traversal state.
+  - Added regression coverage for landing on `house-0-roof`, jumping from it, and falling off the edge back to `ground`.
+  - Validation: `npm test -- test/playcanvas_slice.test.js` passed (71 tests), `npm test` passed (36 files, 191 tests), `npm run build` passed, `npm run smoke:playcanvas` passed, standard web-game client rendered clean artifacts in `output/roof-platform-webgame`, and targeted Playwright proof captured `output/roof-platform-targeted/roof-landing.png` with `playerY=4.02`, `playerSurface=house-0-roof`, `playerGrounded=true`, and no console/page errors.
+- 2026-06-27 headshot damage tuning:
+  - Raised active PlayCanvas headshot damage multiplier in `src/playcanvas/sliceSimulation.js` from 2.2x to 3.25x.
+  - Added a regression test comparing identical pistol body-shot/headshot setups and asserting headshots deal at least 3x body-shot damage and show the HEADSHOT combat message.
+  - Validation: `npm test -- test/playcanvas_slice.test.js` passed (70 tests), `npm run smoke:playcanvas` passed and produced `output/playcanvas-slice-smoke.png`, `npm run build` passed. The standard web-game client also reached the local rendered canvas at `output/headshot-damage-check`, but its start selector hit a hidden stub button in the current ready-state DOM, so the repo smoke script is the gameplay browser proof for this pass.
+- PlayCanvas viewport blank-space fix pass:
+  - Root cause hypothesis: browser UI/fullscreen transitions can change the visual viewport without the PlayCanvas route's one-line `window.resize` handler resizing the WebGL drawing buffer; the imported PlayCanvas CSS also overrode shared `--game-width/--game-height` frame sizing.
+  - Switched PlayCanvas to explicit measured viewport sizing via `visualViewport`, fullscreen/orientation/resize events, and `ResizeObserver`.
+  - Updated the PlayCanvas shell CSS so `#app`, `.pc-slice`, and `.pc-slice-hud` share the measured game frame instead of raw layout viewport sizing.
+  - Updated mobile touch-look/joystick math to use the actual canvas rect after browser chrome/sidebar size changes.
+  - Validation: `npm test` pass (36 files, 189 tests), `npm run build` pass, `npm run smoke:playcanvas` pass.
+  - Playwright validation artifacts:
+    - `/Users/preston/Code/zombie_invasion/output/playcanvas-viewport-fix-client/shot-0.png`
+    - `/Users/preston/Code/zombie_invasion/output/playcanvas-viewport-fix-resize.png` after resizing from 1400x900 to 1950x900; canvas CSS rect, app rect, and WebGL backing store all reported 1950x900 with no console/page errors.
 - Mobile/frame-fit pass (current):
   - moved FPS viewport sizing to shared runtime metrics based on `visualViewport`
   - updated HUD, overlays, minimap, crosshair, prompts, weapon card, and mobile controls to anchor to the measured game frame instead of raw `100vw/100vh`
@@ -218,6 +307,28 @@ Original prompt: build this game and deploy it to a docker container and spin it
     - Screenshot: `/Users/preston/Code/zombie_invasion/output/fps-window-reactivity-strafe/shot-0.png`
 - Night readability lighting pass (slightly lighter):
   - Increased tone-mapping exposure in `src/fps/systems/renderPipeline.js` from `1.55` to `1.8`.
+- Settings pause pass:
+  - Added PlayCanvas runtime pause gating so opening the HUD settings sheet freezes simulation advancement and gameplay timers while preserving render/HUD updates.
+  - Added `settingsOpen` to `render_game_to_text` output for automation verification.
+- Airborne grenade throw fix:
+  - PlayCanvas lobbed grenades now launch from current player height plus shoulder offset instead of fixed ground-standing height.
+  - Projectile-zombie contact now requires vertical overlap, so airborne grenades do not detonate just because they pass over a zombie's ground X/Z position.
+- Shop pause pass:
+  - PlayCanvas runtime pause gating now uses the shared UI-overlay state, so both Settings and Shop freeze simulation advancement and gameplay timers while leaving render/HUD updates active.
+  - Added `gameplayPaused` to `render_game_to_text` for shop/settings pause verification.
+- Mobile browser zoom guard:
+  - Locked viewport min/max scale and installed a global bootstrap guard for iOS gesture events, pinch `touchmove`, `dblclick`, and rapid second `touchend`.
+  - Applies before either PlayCanvas or legacy/FPS route boots, preventing accidental double-tap/pinch zoom during mobile/iPad play.
+- Shop tap reliability pass:
+  - Field shop now activates buy/equip actions on pointer-up with movement slop, plus click/keyboard fallback through a shared action path.
+  - Buyable/equippable shop cards are full-card tap targets, buttons are 44px tall, and scroll gestures are distinguished from taps.
+  - Renamed the shop close control from `Done` to `Close` so the visible label matches its action.
+- Desktop fire key follow-up:
+  - Bound `E` to fire on desktop when no shop/settings overlay is open.
+  - Updated PlayCanvas desktop help/onboarding text from `Click / F` to `Click / E`.
+- Desktop shop key follow-up:
+  - Allowed desktop `Q` to open the field shop from the ready/menu phase, matching the visible Shop button behavior.
+  - Shop still stays blocked during secret boss, lost, and won phases.
 - PlayCanvas conversion readiness pass:
   - Added compact touch controls to the PlayCanvas route for mobile movement, sprint, and fire.
   - Added a fullscreen toggle button plus `F` fullscreen shortcut for the PlayCanvas route.
@@ -250,6 +361,21 @@ Original prompt: build this game and deploy it to a docker container and spin it
   - Visual verification artifacts:
     - in-scene gallery state: `/Users/preston/Code/zombie_invasion/output/fps-realism-custom/state-field-gallery.json`
     - canvas-only mesh gallery shot: `/Users/preston/Code/zombie_invasion/output/fps-realism-custom/shot-mesh-gallery.png`
+- PlayCanvas wall collision fix in progress:
+  - Changed side wall/fence collision so ground zombies, climber-flagged zombies, leapers, and boss-class zombies are blocked instead of crossing through/over wall geometry.
+  - Removed runner/skitter `canClimb` config flags that made side walls look non-solid.
+  - Updated PlayCanvas slice regression tests to assert climbers, leapers, and boss zombies remain inside the fenced lane.
+  - Validation:
+    - `npm test -- test/playcanvas_slice.test.js` pass (62 tests).
+    - `npm test` pass (36 files, 182 tests).
+    - `npm run build` pass.
+    - `npm run smoke:playcanvas` pass locally with screenshot `/Users/preston/Code/zombie_invasion/output/playcanvas-slice-smoke.png`.
+    - Shared web-game client pass with screenshots/states in `/Users/preston/Code/zombie_invasion/output/fps-wall-collision-web-client`.
+  - Deployed Vercel preview:
+    - `https://zombie-invasion-7yo5cfsp3-preston-popes-projects.vercel.app`
+    - `vercel inspect` reports `Ready` for deployment `dpl_CFEV2fhQPeNfpi2WjvSBo5FuzeTw`.
+    - `curl -I -L https://zombie-invasion-7yo5cfsp3-preston-popes-projects.vercel.app/playcanvas` returns `HTTP/2 200`.
+    - Deployed smoke pass with screenshot `/Users/preston/Code/zombie_invasion/output/playcanvas-slice-smoke-deployed-wall-fix.png`.
 - Expanded store weapon roster:
   - Added new purchasable weapons in `src/fps/config/weapons_fps.json`:
     - `revolver`

@@ -37,6 +37,8 @@ import {
   getPlayCanvasAudioSnapshot,
   getPlayCanvasWeaponSnapshot,
   getPlayCanvasVillagerSnapshot,
+  getPlayCanvasOrdnanceProjectiles,
+  consumePlayCanvasOrdnanceDetonations,
   getShopItems,
   getWeaponDef,
   interactWithPlayCanvasWorld,
@@ -54,14 +56,22 @@ import {
   getPlayCanvasSummaryOffers,
   getPlayCanvasGameOverOffers,
   applyPlayCanvasRewardedOffer,
+  getPlayCanvasRewardedAdSnapshot,
+  recordPlayCanvasRewardedAdEvent,
   getGoalsSnapshot,
 } from "./sliceSimulation";
 import { showRewardedAd } from "../fps/systems/rewardedAds";
 import { SfxSampleManager } from "./sfxSamples";
+import { computeBallisticTracerDrop } from "./shotFxRules";
 import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
 const MINIMAP_PADDING_PX = 10;
+const VIEWPORT_RESIZE_CONFIRM_MS = 120;
+const VIEWPORT_RESIZE_SETTLE_MS = 220;
+const DESKTOP_BACKBUFFER_PIXEL_BUDGET = 1_800_000;
+const MOBILE_BACKBUFFER_PIXEL_BUDGET = 1_200_000;
+const MIN_RENDER_PIXEL_RATIO = 0.8;
 
 const WEAPON_SLOT_BINDINGS = [
   { code: "Digit1", id: "pistol" },
@@ -81,32 +91,32 @@ const WEAPON_SLOT_BINDINGS = [
 ];
 
 // Sky/backdrop materials that should not receive scene fog
-const NO_FOG_MATERIALS = new Set(["skyBand", "cloud", "cloudDark", "moon", "moonHalo", "moonHaloInner", "moonHaloMid", "moonHaloOuter", "moonPool"]);
+const NO_FOG_MATERIALS = new Set(["cloud", "cloudDark", "moon", "moonHalo", "moonHaloInner", "moonHaloMid", "moonHaloOuter"]);
 
 const MATERIALS = {
-  skyBand: { diffuse: [0.05, 0.18, 0.34], emissive: [0.035, 0.12, 0.24], roughness: 1 },
   cloud: { diffuse: [0.30, 0.48, 0.72], emissive: [0.10, 0.20, 0.34], roughness: 0.92 },
   cloudDark: { diffuse: [0.055, 0.13, 0.22], emissive: [0.012, 0.035, 0.07], roughness: 0.96 },
-  ground: { diffuse: [0.1, 0.15, 0.11], emissive: [0.008, 0.014, 0.01], roughness: 0.94 },
-  grassDark: { diffuse: [0.055, 0.12, 0.09], emissive: [0.006, 0.014, 0.012], roughness: 0.96 },
-  road: { diffuse: [0.19, 0.13, 0.09], emissive: [0.014, 0.01, 0.008], roughness: 0.76 },
-  wetRoad: { diffuse: [0.12, 0.11, 0.1], emissive: [0.06, 0.1, 0.14], roughness: 0.22 },
-  mudHighlight: { diffuse: [0.34, 0.23, 0.14], emissive: [0.06, 0.038, 0.018], roughness: 0.55 },
-  pathEdge: { diffuse: [0.3, 0.26, 0.2], emissive: [0.024, 0.02, 0.014], roughness: 0.9 },
-  wood: { diffuse: [0.42, 0.27, 0.15], emissive: [0.022, 0.014, 0.008], roughness: 0.82 },
-  timber: { diffuse: [0.22, 0.13, 0.07], emissive: [0.014, 0.009, 0.005], roughness: 0.84 },
-  houseWall: { diffuse: [0.5, 0.42, 0.34], emissive: [0.022, 0.018, 0.014], roughness: 0.9 },
-  roof: { diffuse: [0.2, 0.08, 0.06], emissive: [0.012, 0.004, 0.003], roughness: 0.88 },
-  roofDark: { diffuse: [0.16, 0.11, 0.11], emissive: [0.01, 0.009, 0.01], roughness: 0.82 },
+  ground: { diffuse: [0.085, 0.12, 0.09], emissive: [0.005, 0.01, 0.008], roughness: 0.96 },
+  grassDark: { diffuse: [0.045, 0.095, 0.075], emissive: [0.004, 0.01, 0.01], roughness: 0.98 },
+  road: { diffuse: [0.15, 0.105, 0.075], emissive: [0.009, 0.007, 0.005], roughness: 0.86 },
+  wetRoad: { diffuse: [0.09, 0.085, 0.078], emissive: [0.028, 0.04, 0.052], roughness: 0.32 },
+  mudHighlight: { diffuse: [0.24, 0.16, 0.1], emissive: [0.028, 0.018, 0.01], roughness: 0.68 },
+  pathEdge: { diffuse: [0.22, 0.2, 0.17], emissive: [0.012, 0.011, 0.008], roughness: 0.94 },
+  wood: { diffuse: [0.33, 0.22, 0.13], emissive: [0.011, 0.007, 0.004], roughness: 0.9 },
+  weatheredWood: { diffuse: [0.24, 0.18, 0.13], emissive: [0.007, 0.005, 0.003], roughness: 0.95 },
+  timber: { diffuse: [0.16, 0.095, 0.052], emissive: [0.007, 0.004, 0.002], roughness: 0.92 },
+  houseWall: { diffuse: [0.58, 0.52, 0.44], emissive: [0.018, 0.016, 0.012], roughness: 0.94 },
+  plasterShadow: { diffuse: [0.34, 0.32, 0.29], emissive: [0.008, 0.008, 0.007], roughness: 0.96 },
+  roof: { diffuse: [0.31, 0.105, 0.07], emissive: [0.008, 0.003, 0.002], roughness: 0.94 },
+  roofDark: { diffuse: [0.19, 0.15, 0.15], emissive: [0.006, 0.005, 0.005], roughness: 0.94 },
+  roofEdge: { diffuse: [0.095, 0.055, 0.04], emissive: [0.004, 0.002, 0.001], roughness: 0.96 },
   doorSafe: { diffuse: [0.72, 0.34, 0.12], emissive: [0.14, 0.06, 0.018], roughness: 0.65 },
-  windowGlow: { diffuse: [1, 0.72, 0.32], emissive: [2.2, 0.95, 0.28], roughness: 0.22 },
-  lantern: { diffuse: [1, 0.66, 0.26], emissive: [2.8, 1.15, 0.32], roughness: 0.22 },
-  moonPool: { diffuse: [0.55, 0.72, 1], emissive: [0.03, 0.05, 0.12], roughness: 0.35, opacity: 0.28 },
+  windowGlow: { diffuse: [1, 0.76, 0.45], emissive: [1.45, 0.62, 0.2], roughness: 0.38 },
+  lantern: { diffuse: [1, 0.62, 0.28], emissive: [2.15, 0.88, 0.24], roughness: 0.35 },
   moon: { diffuse: [0.78, 0.9, 1], emissive: [0.95, 1.18, 1.55], roughness: 0.42 },
-  fog: { diffuse: [0.3, 0.46, 0.68], emissive: [0.04, 0.07, 0.14], roughness: 1, opacity: 0.28 },
   zombie: { diffuse: [0.24, 0.19, 0.15], emissive: [0.01, 0.008, 0.006], roughness: 0.86 },
   runner: { diffuse: [0.28, 0.21, 0.16], emissive: [0.012, 0.009, 0.007], roughness: 0.82 },
-  zombieHit: { diffuse: [0.96, 0.58, 0.18], emissive: [1.35, 0.48, 0.08], roughness: 0.58 },
+  zombieHit: { diffuse: [0.72, 0.10, 0.12], emissive: [0.5, 0.06, 0.06], roughness: 0.7 },
   brute: { diffuse: [0.18, 0.14, 0.12], emissive: [0.008, 0.006, 0.005], roughness: 0.88 },
   zombieShirt: { diffuse: [0.28, 0.12, 0.09], emissive: [0.018, 0.006, 0.004], roughness: 0.9 },
   // Articulated rig materials — moonlit pale-green flesh, faint cool emissive for distance read
@@ -137,14 +147,13 @@ const MATERIALS = {
   // Legacy key kept in case anything else references it
   moonHalo: { diffuse: [0.58, 0.72, 1], emissive: [0.08, 0.14, 0.28], roughness: 1, opacity: 0.18 },
   groundMist: { diffuse: [0.32, 0.44, 0.64], emissive: [0.06, 0.11, 0.20], roughness: 1, opacity: 0.16 },
-  // Barrel/scope — warm-cool steel, slightly brighter than frame for visual pop
-  metal: { diffuse: [0.40, 0.43, 0.50], emissive: [0.24, 0.28, 0.38], emissiveIntensity: 0.9, roughness: 0.30, metalness: 0.62 },
-  // Gun frame/receiver — dark blue-grey polymer; emissive gives moonlit ambient read
-  blackMetal: { diffuse: [0.25, 0.28, 0.34], emissive: [0.14, 0.18, 0.26], emissiveIntensity: 0.8, roughness: 0.45, metalness: 0.65 },
-  // Rail/handguard surfaces — medium gunmetal, clearly lighter than blackMetal
-  rail: { diffuse: [0.30, 0.33, 0.40], emissive: [0.18, 0.22, 0.32], emissiveIntensity: 0.9, roughness: 0.38, metalness: 0.65 },
-  // Slide top, sights, muzzle crown — brightest gun part, clear moonlit highlight
-  gunmetalLight: { diffuse: [0.48, 0.52, 0.64], emissive: [0.34, 0.42, 0.58], emissiveIntensity: 1.3, roughness: 0.22, metalness: 0.78 },
+  // Barrel/scope — neutral steel; low emissive avoids the old blue plastic read.
+  metal: { diffuse: [0.34, 0.34, 0.32], emissive: [0.075, 0.08, 0.085], emissiveIntensity: 0.7, roughness: 0.28, metalness: 0.78 },
+  blackMetal: { diffuse: [0.055, 0.058, 0.06], emissive: [0.035, 0.04, 0.045], emissiveIntensity: 0.65, roughness: 0.42, metalness: 0.82 },
+  rail: { diffuse: [0.19, 0.19, 0.18], emissive: [0.06, 0.065, 0.068], emissiveIntensity: 0.65, roughness: 0.36, metalness: 0.78 },
+  gunmetalLight: { diffuse: [0.46, 0.45, 0.4], emissive: [0.09, 0.092, 0.085], emissiveIntensity: 0.55, roughness: 0.24, metalness: 0.86 },
+  gunBlackVoid: { diffuse: [0.005, 0.005, 0.004], emissive: [0, 0, 0], roughness: 0.7, metalness: 0.4 },
+  gripRubber: { diffuse: [0.035, 0.04, 0.034], emissive: [0.008, 0.01, 0.008], roughness: 0.92, metalness: 0.05 },
   // Hand/arm materials — warm dark leather + olive drab sleeve
   glove: { diffuse: [0.16, 0.13, 0.10], emissive: [0.07, 0.05, 0.04], emissiveIntensity: 0.9, roughness: 0.88 },
   sleeve: { diffuse: [0.22, 0.24, 0.17], emissive: [0.08, 0.09, 0.06], emissiveIntensity: 0.8, roughness: 0.93 },
@@ -186,6 +195,7 @@ export class PlayCanvasZombieSlice {
       crouch: false,
       jump: false,
       ads: false,
+      fire: false,
       pointerLocked: false,
       dragLooking: false,
       lastPointerX: 0,
@@ -206,9 +216,18 @@ export class PlayCanvasZombieSlice {
     this.entitiesByLandscape = new Map();
     this.entitiesByWindow = new Map();
     this.entitiesByImpact = new Map();
+    this.ordnanceEntitiesById = new Map();
     this.fx = [];
     // ?fxslow=1 — stretches shot-FX lifetimes 10x for screenshot capture; always off in prod
     this.fxSlowMo = new URLSearchParams(globalThis.location?.search ?? "").get("fxslow") === "1";
+    this.performanceTelemetry = {
+      frameCount: 0,
+      frameMsAvg: 0,
+      fpsAvg: 0,
+      slowFrames: 0,
+      worstFrameMs: 0,
+      lastFrameMs: 0,
+    };
     // Pooled shot-FX subsystem — no per-shot heap allocations after warmup
     this.shotFx = { flashes: [], tracers: [], bursts: [] };
     this.sceneRandom = createSeededRandom(20260603);
@@ -218,6 +237,12 @@ export class PlayCanvasZombieSlice {
     this.minimapOpen = true;
     this.lastRenderedPhase = null;
     this.minimapStructures = [];
+    this.viewportMetrics = this.getViewportMetrics();
+    this._viewportResizeRaf = 0;
+    this._viewportResizeConfirmTimer = 0;
+    this._viewportResizeSettledTimer = 0;
+    this._viewportResizeObserver = null;
+    this._lastViewportFrameKey = "";
 
     // GLB zombie flag — GLB is the DEFAULT.  Pass ?glb=0 to opt out to the procedural rig.
     // Until the container finishes loading (or if it fails), zombies use the procedural rig
@@ -374,14 +399,14 @@ export class PlayCanvasZombieSlice {
           <div class="zi-hud-vitals">
             <div class="zi-vital-row">
               <span class="zi-glyph" aria-hidden="true">♥</span>
-              <div class="zi-bar-track zi-bar-health">
+              <div class="zi-bar-track zi-bar-health" role="progressbar" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
                 <i class="zi-bar-fill" data-bar="health"></i>
               </div>
               <b data-field="player">100</b>
             </div>
             <div class="zi-vital-row zi-vital-stamina">
               <span class="zi-glyph" aria-hidden="true">⚡</span>
-              <div class="zi-bar-track zi-bar-stamina">
+              <div class="zi-bar-track zi-bar-stamina" role="progressbar" aria-label="Stamina" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
                 <i class="zi-bar-fill" data-bar="stamina"></i>
               </div>
             </div>
@@ -423,7 +448,8 @@ export class PlayCanvasZombieSlice {
         <div class="pc-kill-floater" aria-hidden="true"></div>
         <div class="pc-streak-badge" aria-hidden="true"></div>
         <div class="pc-grace-overlay" data-overlay="grace" hidden aria-live="assertive">
-          <span data-grace-countdown>5</span>
+          <span class="pc-grace-label">Zombies incoming</span>
+          <span class="pc-grace-count"><b data-grace-countdown>5</b><i>s</i></span>
         </div>
         <div class="pc-summary-overlay" data-overlay="summary" hidden aria-live="polite">
           <div class="pc-summary-content">
@@ -493,7 +519,7 @@ export class PlayCanvasZombieSlice {
           </div>
           <details class="pc-flow-help" data-menu-section="help">
             <summary>Controls &amp; How To Play</summary>
-            <p><strong>Desktop:</strong> WASD move · Shift sprint · Ctrl crouch · Space jump (double-jump mid-air) · Left click / F fire · R reload · G grenade · T flint · E interact · V or right-click ADS · O cycle weapon · Q shop</p>
+            <p><strong>Desktop:</strong> WASD move · Shift sprint · Ctrl crouch · Space jump (double-jump mid-air) · Left click / E fire · R reload · G grenade · T flint · V or right-click ADS · O cycle weapon · Q shop</p>
             <p><strong>Mobile:</strong> Left pad moves, right pad looks. Action pad: Run, Duck, Jump, ADS, Swap, Blast, Flint, Use, Map, Shop, Fire.</p>
           </details>
           <div class="pc-offer-list" data-offer-context="gameover" aria-label="Ad offers"></div>
@@ -542,7 +568,7 @@ export class PlayCanvasZombieSlice {
               <span data-shop-guide-title>Field Shop</span>
               <strong data-shop-guide-body>Upgrade whenever you have coins</strong>
             </div>
-            <button type="button" class="pc-shop-close" data-action="shop-close" aria-label="Close shop">Done</button>
+            <button type="button" class="pc-shop-close" data-action="shop-close" aria-label="Close shop">Close</button>
           </div>
           <div class="pc-shop-grid" data-shop-items></div>
         </div>
@@ -597,7 +623,7 @@ export class PlayCanvasZombieSlice {
              pointer-events: none on the backdrop so [data-flow-action="primary"] stays
              clickable even when the overlay is visible. Only the "Got it" button has
              pointer-events so the smoke's click on primary still works. -->
-        <div class="zi-onboarding" id="zi-onboarding" role="dialog" aria-modal="false" aria-label="How to Survive" hidden>
+        <div class="zi-onboarding" id="zi-onboarding" role="dialog" aria-modal="true" aria-label="How to Survive" hidden>
           <div class="zi-onboarding-card">
             <div class="zi-onboarding-eyebrow">New Survivor</div>
             <h2 class="zi-onboarding-title">How to Survive</h2>
@@ -605,7 +631,7 @@ export class PlayCanvasZombieSlice {
             <ul class="zi-onboarding-list zi-onboarding-desktop">
               <li><span class="zi-onboarding-key">WASD</span><span class="zi-onboarding-desc">Move</span></li>
               <li><span class="zi-onboarding-key">Mouse</span><span class="zi-onboarding-desc">Look</span></li>
-              <li><span class="zi-onboarding-key">Click / F</span><span class="zi-onboarding-desc">Fire</span></li>
+              <li><span class="zi-onboarding-key">Click / E</span><span class="zi-onboarding-desc">Fire</span></li>
               <li><span class="zi-onboarding-key">G</span><span class="zi-onboarding-desc">Grenade</span></li>
               <li><span class="zi-onboarding-key">Q</span><span class="zi-onboarding-desc">Shop</span></li>
             </ul>
@@ -656,6 +682,7 @@ export class PlayCanvasZombieSlice {
       coins: this.root.querySelector('[data-field="coins"]'),
       kills: this.root.querySelector('[data-field="kills"]'),
       live: this.root.querySelector('[data-field="live"]'),
+      stamina: this.root.querySelector('[data-field="stamina"]'),
     };
     this.bars = {
       village: this.root.querySelector('[data-bar="village"]'),
@@ -680,6 +707,16 @@ export class PlayCanvasZombieSlice {
       village: this.root.querySelector('[data-summary-village]'),
     };
     this.reloadBarWrapper = this.root.querySelector('[data-field="reload-bar"]');
+    this.reloadField = this.reloadBarWrapper?.querySelector('[data-field="reload"]') ?? null;
+    // Cached action buttons — avoids per-frame querySelector in updateHud
+    this.actionButtons = {
+      start:   this.root.querySelector('[data-action="start"]'),
+      shop:    this.root.querySelector('[data-action="shop"]'),
+      ordnance: this.root.querySelector('[data-action="ordnance"]'),
+      music:   this.root.querySelector('[data-action="music"]'),
+      sfx:     this.root.querySelector('[data-action="sfx"]'),
+      haptics: this.root.querySelector('[data-action="haptics"]'),
+    };
     this.shopPanel = this.root.querySelector('[data-panel="shop"]');
     this.shopGuideTitle = this.root.querySelector("[data-shop-guide-title]");
     this.shopGuideBody = this.root.querySelector("[data-shop-guide-body]");
@@ -720,6 +757,11 @@ export class PlayCanvasZombieSlice {
       // Suppress the campaign modal behind the onboarding card so its text
       // doesn't bleed through (renderFlowPanel checks this flag).
       this._onboardingVisible = true;
+      // Trap focus inside the onboarding card; Escape also dismisses.
+      const card = this.onboardingOverlay.querySelector('.zi-onboarding-card');
+      this._trapFocus(card ?? this.onboardingOverlay, {
+        onEscape: () => this._dismissOnboarding(),
+      });
       // Auto-dismiss on ANY first pointerdown (capture phase, before click fires).
       // This lets the smoke's click on [data-flow-action="primary"] still work:
       // pointerdown removes the overlay → click reaches the button underneath.
@@ -732,7 +774,8 @@ export class PlayCanvasZombieSlice {
   }
 
   detectQualityProfile() {
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.innerWidth < 768 && "ontouchstart" in window);
+    const viewportWidth = Math.round(window.visualViewport?.width ?? window.innerWidth);
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (viewportWidth < 768 && "ontouchstart" in window);
     const savedPreset = this.state?.qualityPreset;
     if (savedPreset && qualityProfiles[savedPreset]) {
       return { key: savedPreset, profile: qualityProfiles[savedPreset] };
@@ -750,19 +793,21 @@ export class PlayCanvasZombieSlice {
     this.qualityProfileKey = key;
     this.qualityProfile = profile;
 
+    const renderParams = new URLSearchParams(globalThis.location?.search ?? "");
+    const preserveDrawingBuffer = renderParams.get("preserveDrawingBuffer") === "1" || navigator.webdriver === true;
+
     this.app = new pc.Application(this.canvas, {
       mouse: new pc.Mouse(this.canvas),
       keyboard: new pc.Keyboard(window),
       graphicsDeviceOptions: {
         antialias: true,
         powerPreference: "high-performance",
-        preserveDrawingBuffer: true,
+        preserveDrawingBuffer,
       },
     });
-    this.app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
+    this.app.setCanvasFillMode(pc.FILLMODE_NONE);
     this.app.setCanvasResolution(pc.RESOLUTION_AUTO);
-    const renderScaleDpr = (profile.renderScale ?? 1) * Math.min(window.devicePixelRatio || 1, 2);
-    this.app.graphicsDevice.maxPixelRatio = renderScaleDpr;
+    this.app.graphicsDevice.maxPixelRatio = this.getRenderPixelRatio(this.viewportMetrics.width, this.viewportMetrics.height);
     this.app.scene.exposure = 1.48;
     this.app.scene.ambientLight = new pc.Color(0.12, 0.17, 0.26);
     // Task 1: Distance fog — linear, night-sky colour, houses at 30-50m soften into dark
@@ -771,6 +816,7 @@ export class PlayCanvasZombieSlice {
     this.app.scene.fog.color = new pc.Color(0.04, 0.10, 0.22);
     this.app.scene.fog.start = 42;
     this.app.scene.fog.end = 95;
+    this.syncViewportFrame();
     this.app.start();
     // Hide the boot overlay on the first rendered frame — the canvas is live at this point.
     // GLB models may still be streaming (they use procedural fallback until ready), but the
@@ -785,7 +831,128 @@ export class PlayCanvasZombieSlice {
       }
       this.update(dt);
     });
-    window.addEventListener("resize", () => this.app.resizeCanvas());
+    this.installViewportResizeHandlers();
+  }
+
+  getViewportMetrics() {
+    const viewport = window.visualViewport;
+    const rawWidth = viewport?.width ?? window.innerWidth;
+    const rawHeight = viewport?.height ?? window.innerHeight;
+    const width = Math.max(1, Math.round(rawWidth));
+    const height = Math.max(1, Math.round(rawHeight));
+    const left = Math.max(0, Math.round(viewport?.offsetLeft ?? 0));
+    const top = Math.max(0, Math.round(viewport?.offsetTop ?? 0));
+    const layoutWidth = Math.max(width, Math.round(window.innerWidth || width));
+    const layoutHeight = Math.max(height, Math.round(window.innerHeight || height));
+    const right = Math.max(0, layoutWidth - left - width);
+    const bottom = Math.max(0, layoutHeight - top - height);
+
+    return { width, height, left, top, right, bottom };
+  }
+
+  syncViewportFrame() {
+    this.viewportMetrics = this.getViewportMetrics();
+    const { width, height, left, top, right, bottom } = this.viewportMetrics;
+    const frameKey = `${width}x${height}:${left},${top},${right},${bottom}:dpr${window.devicePixelRatio || 1}`;
+
+    if (frameKey === this._lastViewportFrameKey) {
+      return;
+    }
+    this._lastViewportFrameKey = frameKey;
+
+    const rootStyle = document.documentElement.style;
+
+    rootStyle.setProperty("--game-left", `${left}px`);
+    rootStyle.setProperty("--game-top", `${top}px`);
+    rootStyle.setProperty("--game-right", `${right}px`);
+    rootStyle.setProperty("--game-bottom", `${bottom}px`);
+    rootStyle.setProperty("--game-width", `${width}px`);
+    rootStyle.setProperty("--game-height", `${height}px`);
+
+    if (this.root) {
+      this.root.style.left = `${left}px`;
+      this.root.style.top = `${top}px`;
+      this.root.style.width = `${width}px`;
+      this.root.style.height = `${height}px`;
+    }
+
+    if (this.canvas) {
+      this.canvas.style.width = `${width}px`;
+      this.canvas.style.height = `${height}px`;
+    }
+
+    if (this.app) {
+      this.app.graphicsDevice.maxPixelRatio = this.getRenderPixelRatio(width, height);
+      this.app.resizeCanvas(width, height);
+      this.app.renderNextFrame = true;
+    }
+  }
+
+  getRenderPixelRatio(width, height) {
+    const deviceRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const profileScale = this.qualityProfile?.renderScale ?? 1;
+    const requestedRatio = deviceRatio * profileScale;
+    const pixelBudget = this.qualityProfileKey === "desktop_high"
+      ? DESKTOP_BACKBUFFER_PIXEL_BUDGET
+      : MOBILE_BACKBUFFER_PIXEL_BUDGET;
+    const cssPixelArea = Math.max(1, width * height);
+    const adaptiveCap = Math.sqrt(pixelBudget / cssPixelArea);
+    const minimumRatio = deviceRatio <= 1.05 ? 1 : MIN_RENDER_PIXEL_RATIO;
+
+    return Math.max(minimumRatio, Math.min(requestedRatio, adaptiveCap));
+  }
+
+  scheduleViewportFrameSync() {
+    document.body.classList.add("viewport-resizing");
+    if (!this._viewportResizeRaf) {
+      this._viewportResizeRaf = window.requestAnimationFrame(() => {
+        this._viewportResizeRaf = 0;
+        this.syncViewportFrame();
+      });
+    }
+
+    window.clearTimeout(this._viewportResizeConfirmTimer);
+    this._viewportResizeConfirmTimer = window.setTimeout(() => {
+      this.syncViewportFrame();
+    }, VIEWPORT_RESIZE_CONFIRM_MS);
+
+    window.clearTimeout(this._viewportResizeSettledTimer);
+    this._viewportResizeSettledTimer = window.setTimeout(() => {
+      document.body.classList.remove("viewport-resizing");
+    }, VIEWPORT_RESIZE_SETTLE_MS);
+  }
+
+  installViewportResizeHandlers() {
+    const sync = () => this.scheduleViewportFrameSync();
+
+    window.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+    window.addEventListener("fullscreenchange", sync);
+    window.addEventListener("webkitfullscreenchange", sync);
+    window.visualViewport?.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("scroll", sync);
+
+    if (typeof ResizeObserver !== "undefined") {
+      this._viewportResizeObserver = new ResizeObserver(sync);
+      this._viewportResizeObserver.observe(document.documentElement);
+      if (this.root) {
+        this._viewportResizeObserver.observe(this.root);
+      }
+    }
+  }
+
+  getGameFrameRect() {
+    const rect = this.canvas?.getBoundingClientRect();
+    if (rect?.width && rect?.height) {
+      return rect;
+    }
+    const metrics = this.viewportMetrics ?? this.getViewportMetrics();
+    return {
+      left: metrics.left,
+      top: metrics.top,
+      width: metrics.width,
+      height: metrics.height,
+    };
   }
 
   createMaterials() {
@@ -926,6 +1093,12 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`lane-stone-${z}`, "box", [Math.sin(z) * 2.9, 0.02, z], [1.25, 0.05, 0.36], "stone").setEulerAngles(0, z * 7, 0);
       this.addPrimitive(`mud-shine-${z}`, "box", [Math.cos(z * 0.4) * 1.9, 0.025, z + 1.3], [1.7, 0.035, 0.22], z % 11 === 0 ? "mudHighlight" : "wetRoad").setEulerAngles(0, z * 9, 0);
     }
+    for (let z = -52; z <= 24; z += 3.8) {
+      const seam = this.addPrimitive(`lane-rut-${z}`, "box", [-2.8 + Math.sin(z * 0.6) * 0.18, 0.032, z], [0.08, 0.035, 2.6], "wetRoad");
+      seam.setEulerAngles(0, 1.8 + Math.sin(z) * 1.5, 0);
+      const seamR = this.addPrimitive(`lane-rut-r-${z}`, "box", [2.7 + Math.cos(z * 0.4) * 0.2, 0.032, z + 0.7], [0.07, 0.035, 2.3], "wetRoad");
+      seamR.setEulerAngles(0, -1.4 + Math.cos(z) * 1.5, 0);
+    }
   }
 
   addVillage() {
@@ -1019,12 +1192,18 @@ export class PlayCanvasZombieSlice {
   }
 
   addBellTower(x, z) {
-    this.addPrimitive("bell-tower-base", "box", [x, 2.4, z], [3.3, 4.8, 2.8], "houseWall");
-    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 2.5, z - 1.42], [0.18, 4.7, 0.18], "timber");
-    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 2.5, z - 1.42], [0.18, 4.7, 0.18], "timber");
+    // Wall rises to ~6.0 so the roof eaves (≈6.05) cap it directly — previously
+    // the wall stopped at 4.8 while the roof sat at 6.6, leaving the roof
+    // floating above a ~1.2m sky gap.
+    this.addPrimitive("bell-tower-base", "box", [x, 3.0, z], [3.3, 6.0, 2.8], "houseWall");
+    this.addPrimitive("bell-tower-plaster-stain", "box", [x - 0.65, 2.0, z - 1.43], [0.9, 1.6, 0.05], "plasterShadow");
+    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
+    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
     this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z - 1.43], [0.72, 1.15, 0.08], "windowGlow"));
-    this.addPrimitive("bell-arch", "box", [x, 5.08, z - 1.35], [2.1, 1.1, 0.22], "timber");
-    this.addPrimitive("bell", "sphere", [x, 5.1, z - 1.55], [0.55, 0.55, 0.55], "metal");
+    this.addWindowFrame("bell-window-frame", x, 3.2, z - 1.48, 0.9, 1.34);
+    // Belfry arch + bell read against the upper wall, just under the roofline.
+    this.addPrimitive("bell-arch", "box", [x, 5.35, z - 1.45], [2.1, 1.1, 0.22], "timber");
+    this.addPrimitive("bell", "sphere", [x, 5.0, z - 1.62], [0.55, 0.55, 0.55], "metal");
     this.addPitchedRoof("bell-roof", x, z, 4.2, 3.7, 6.6, "roofDark");
     this.addPrimitive("bell-cross-vertical", "box", [x, 8.55, z - 0.1], [0.12, 1.0, 0.12], "metal");
     this.addPrimitive("bell-cross-horizontal", "box", [x, 8.74, z - 0.1], [0.65, 0.1, 0.1], "metal");
@@ -1034,19 +1213,38 @@ export class PlayCanvasZombieSlice {
     const side = Math.sign(x) || 1;
     this.minimapStructures.push({ x, z, sx, sz, kind: "building" });
     this.addPrimitive(`${name}-body`, "box", [x, sy / 2, z], [sx, sy, sz], "houseWall");
+    this.addPrimitive(`${name}-foundation`, "box", [x, 0.22, z + sz / 2 + 0.035], [sx * 0.96, 0.42, 0.16], "stoneDark");
+    this.addPrimitive(`${name}-plaster-patch-a`, "box", [x - side * sx * 0.08, sy * 0.42, z + sz / 2 + 0.062], [sx * 0.28, sy * 0.34, 0.045], "plasterShadow");
+    this.addPrimitive(`${name}-plaster-patch-b`, "box", [x + side * sx * 0.26, sy * 0.28, z + sz / 2 + 0.064], [sx * 0.18, sy * 0.22, 0.045], "plasterShadow");
     this.addPitchedRoof(`${name}-roof`, x, z, sx * 1.14, sz * 1.1, sy + 0.66, index > 3 ? "roofDark" : "roof");
     this.addPrimitive(`${name}-timber-mid`, "box", [x, sy * 0.58, z + sz / 2 + 0.05], [sx * 0.88, 0.16, 0.12], "timber");
+    this.addPrimitive(`${name}-timber-upper`, "box", [x, sy * 0.86, z + sz / 2 + 0.055], [sx * 0.82, 0.13, 0.12], "timber");
     this.addPrimitive(`${name}-timber-left`, "box", [x - sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber");
     this.addPrimitive(`${name}-timber-right`, "box", [x + sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber");
+    this.addPrimitive(`${name}-brace-left`, "box", [x - sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber").setEulerAngles(0, 0, 22);
+    this.addPrimitive(`${name}-brace-right`, "box", [x + sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber").setEulerAngles(0, 0, -22);
     this.addPrimitive(`${name}-door`, "box", [x + side * sx * 0.18, 0.72, z + sz / 2 + 0.08], [0.76, 1.25, 0.09], "timber");
+    this.addPrimitive(`${name}-door-panel`, "box", [x + side * sx * 0.18, 0.78, z + sz / 2 + 0.135], [0.52, 0.86, 0.045], "weatheredWood");
+    this.addPrimitive(`${name}-door-step`, "box", [x + side * sx * 0.18, 0.11, z + sz / 2 + 0.45], [1.05, 0.18, 0.5], "stone");
     this.registerWindowEntity(`${name}-window-a`, this.addPrimitive(`${name}-window-a`, "box", [x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.09], [0.72, 0.82, 0.08], "windowGlow"));
     this.registerWindowEntity(`${name}-window-b`, this.addPrimitive(`${name}-window-b`, "box", [x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.09], [0.48, 0.62, 0.08], "windowGlow"));
+    this.addWindowFrame(`${name}-window-a-frame`, x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.135, 0.88, 0.98);
+    this.addWindowFrame(`${name}-window-b-frame`, x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.135, 0.62, 0.78);
     this.addLantern(x - side * sx * 0.5, 1.55, z + sz / 2 + 0.28);
     if (index >= 4) {
       this.addPrimitive(`${name}-wagon`, "box", [x - side * 2.1, 0.55, z + sz / 2 + 1.3], [2.0, 0.6, 0.9], "wood");
       this.addPrimitive(`${name}-wheel-a`, "cylinder", [x - side * 2.9, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber").setEulerAngles(90, 0, 0);
       this.addPrimitive(`${name}-wheel-b`, "cylinder", [x - side * 1.35, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber").setEulerAngles(90, 0, 0);
     }
+  }
+
+  addWindowFrame(name, x, y, z, width, height) {
+    this.addPrimitive(`${name}-top`, "box", [x, y + height * 0.5, z], [width, 0.08, 0.08], "timber");
+    this.addPrimitive(`${name}-bottom`, "box", [x, y - height * 0.5, z], [width, 0.08, 0.08], "timber");
+    this.addPrimitive(`${name}-left`, "box", [x - width * 0.5, y, z], [0.08, height, 0.08], "timber");
+    this.addPrimitive(`${name}-right`, "box", [x + width * 0.5, y, z], [0.08, height, 0.08], "timber");
+    this.addPrimitive(`${name}-cross-v`, "box", [x, y, z + 0.015], [0.045, height * 0.72, 0.06], "weatheredWood");
+    this.addPrimitive(`${name}-cross-h`, "box", [x, y, z + 0.015], [width * 0.68, 0.045, 0.06], "weatheredWood");
   }
 
   addPitchedRoof(name, x, z, width, depth, y, materialKey) {
@@ -1057,18 +1255,26 @@ export class PlayCanvasZombieSlice {
     left.setEulerAngles(0, 0, 25);
     const right = this.addPrimitive(`${name}-right`, "box", [x + width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey);
     right.setEulerAngles(0, 0, -25);
-    this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "timber");
+    this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "roofEdge");
+    for (let i = -2; i <= 2; i += 1) {
+      const zOff = i * depth * 0.18;
+      const leftBatten = this.addPrimitive(`${name}-batten-l-${i}`, "box", [x - width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge");
+      leftBatten.setEulerAngles(0, 0, 25);
+      const rightBatten = this.addPrimitive(`${name}-batten-r-${i}`, "box", [x + width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge");
+      rightBatten.setEulerAngles(0, 0, -25);
+    }
   }
 
   addPine(name, x, z, scale, rotY = 0) {
     const root = new pc.Entity(name);
+    root.setLocalPosition(x, 0, z);
     this.app.root.addChild(root);
     // Task 3: thicker trunk + 4 tiers (was 3) + per-tree rotY variety
-    this.addPrimitive(`${name}-trunk`, "cylinder", [x, 1.1 * scale, z], [0.28 * scale, 2.2 * scale, 0.28 * scale], "timber", root);
+    this.addPrimitive(`${name}-trunk`, "cylinder", [0, 1.1 * scale, 0], [0.24 * scale, 2.05 * scale, 0.24 * scale], "timber", root);
     for (let tier = 0; tier < 4; tier += 1) {
       const y = (1.65 + tier * 0.72) * scale;
       const size = (1.65 - tier * 0.28) * scale;
-      this.addPrimitive(`${name}-tier-${tier}`, "cone", [x, y, z], [size, 1.6 * scale, size], "pine", root);
+      this.addPrimitive(`${name}-tier-${tier}`, "cone", [0, y, 0], [size, 1.6 * scale, size], "pine", root);
     }
     root.setEulerAngles(0, rotY, 0);
     return root;
@@ -1081,28 +1287,27 @@ export class PlayCanvasZombieSlice {
     for (let i = 0; i < 32; i += 1) {
       const side = i % 2 === 0 ? -1 : 1;
       const z = 18 - i * 2.65;
-      const x = side * (11.5 + Math.sin(i * 1.7) * 4.4);
+      const x = side * (36 + Math.sin(i * 1.7) * 6);
       const landscapeId = `landscape-${i}`;
-      // Cull trees in the camera's near zone around spawn (player at ~x0,z12 facing -Z).
-      // Skip any tree at z∈[4,18] AND |x|<14 — that's the immediate right/left edge
-      // of the spawn view where a big trunk clips the camera frustum.
-      if (z >= 4 && z <= 18 && Math.abs(x) < 14) {
+      // Cull every foreground tree around spawn. Even side trees just outside the
+      // lane can project as huge black columns in the first-person camera.
+      if (z > -54) {
         continue;
       }
       if (i % 3 === 0) {
         // Task 3: pines — extra tier + per-tree rotation
         const rotY = rand() * 360;
-        this.entitiesByLandscape.set(landscapeId, this.addPine(`pine-${i}`, x, z, 1.3 + rand() * 0.8, rotY));
+        this.entitiesByLandscape.set(landscapeId, this.addPine(`pine-${i}`, x, z, 0.9 + rand() * 0.36, rotY));
       } else {
         // Task 3: deciduous — cluster of 3-4 overlapping spheres + thicker trunk
         const root = new pc.Entity(`tree-${i}`);
         this.app.root.addChild(root);
-        const trunkScale = 0.36 + rand() * 0.1;
-        const trunkH = 2.0 + rand() * 0.6;
+        const trunkScale = 0.22 + rand() * 0.06;
+        const trunkH = 1.45 + rand() * 0.35;
         const trunk = this.addPrimitive(`tree-trunk-${i}`, "cylinder", [x, trunkH * 0.5, z], [trunkScale, trunkH, trunkScale], "wood", root);
         trunk.setEulerAngles(Math.sin(i) * 4, 0, Math.cos(i) * 4);
         const crownY = trunkH + 0.3;
-        const baseR = 1.4 + rand() * 0.5;
+        const baseR = 0.92 + rand() * 0.26;
         const mats = ["pine", "grassDark", "pine", "grassDark"];
         // main crown sphere
         this.addPrimitive(`tree-crown-${i}-a`, "sphere", [x, crownY, z], [baseR, baseR * 0.88, baseR], mats[i % 2], root);
@@ -1130,6 +1335,8 @@ export class PlayCanvasZombieSlice {
       const sz = 2.5 + rand() * 1.5;
       const y = 0.3 + rand() * 0.4;
       const mist = this.addPrimitive(`mist-${i}`, "sphere", [x, y, z], [sx, sy, sz], "groundMist");
+      mist.render.castShadows = false;
+      mist.render.receiveShadows = false;
       mist.setEulerAngles(0, rand() * 360, 0);
     }
 
@@ -1164,6 +1371,8 @@ export class PlayCanvasZombieSlice {
     for (let z = -46; z <= 18; z += 8) {
       this.addPrimitive(`fence-left-${z}`, "box", [-7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
       this.addPrimitive(`fence-right-${z}`, "box", [7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
+      this.addPrimitive(`fence-cap-left-${z}`, "box", [-7.2, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
+      this.addPrimitive(`fence-cap-right-${z}`, "box", [7.2, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
       if (z < 18) {
         for (const [rail, ry] of [["top", 1.04], ["mid", 0.58]]) {
           this.addPrimitive(`fence-${rail}-left-${z}`, "box", [-7.2, ry, z + 4], [0.16, 0.2, 8.1], "wood");
@@ -1198,8 +1407,8 @@ export class PlayCanvasZombieSlice {
     const viewmodelLight = new pc.Entity("viewmodel-fill-light");
     viewmodelLight.addComponent("light", {
       type: "omni",
-      color: new pc.Color(0.72, 0.84, 1.0),
-      intensity: 4.5,
+      color: new pc.Color(0.86, 0.9, 0.94),
+      intensity: 1.45,
       range: 2.2,
       castShadows: false,
     });
@@ -1213,7 +1422,7 @@ export class PlayCanvasZombieSlice {
     viewmodelRim.addComponent("light", {
       type: "omni",
       color: new pc.Color(1.0, 0.72, 0.38),
-      intensity: 1.8,
+      intensity: 0.68,
       range: 1.8,
       castShadows: false,
     });
@@ -1251,7 +1460,7 @@ export class PlayCanvasZombieSlice {
     // Root offset: X=0.28 places the gun well in the bottom-right without being cut off.
     // Internal parts are shifted slightly left (X reduced) so the rightmost piece (forearm-r)
     // stays within screen bounds at 375px mobile width.
-    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.28, -0.44, -0.76] });
+    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.36, -0.43, -1.08], rootEuler: [-2, -18, 0] });
     // Tag the slide entity so the per-weapon animation can rack it back on fire.
     const slide = this.addPrimitive("sidearm-slide", "box", [0, 0.08, -0.2], [0.22, 0.16, 0.64], "blackMetal", root);
     root._actionPart = slide;
@@ -1260,16 +1469,26 @@ export class PlayCanvasZombieSlice {
     root._actionRestZ = -0.2;   // local Z at rest
     root._actionType = "slide"; // drives backward travel on kick peak
     this.addPrimitive("sidearm-slide-top", "box", [0, 0.165, -0.2], [0.22, 0.02, 0.64], "gunmetalLight", root);
+    this.addPrimitive("sidearm-ejection-port", "box", [0.085, 0.17, -0.18], [0.065, 0.026, 0.18], "gunBlackVoid", root);
+    for (let i = 0; i < 4; i += 1) {
+      this.addPrimitive(`sidearm-rear-serration-${i}`, "box", [0.114, 0.1, 0.02 + i * 0.04], [0.018, 0.13, 0.012], "gunmetalLight", root).setLocalEulerAngles(0, 0, -14);
+    }
     this.addPrimitive("sidearm-front-sight", "box", [0, 0.175, -0.48], [0.04, 0.05, 0.03], "gunmetalLight", root);
     this.addPrimitive("sidearm-rear-sight", "box", [0, 0.175, 0.06], [0.1, 0.05, 0.04], "gunmetalLight", root);
     this.addPrimitive("sidearm-muzzle-crown", "cylinder", [0.01, 0.07, -0.75], [0.042, 0.04, 0.042], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("sidearm-bore", "cylinder", [0.01, 0.07, -0.775], [0.024, 0.022, 0.024], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("sidearm-frame", "box", [0.01, -0.03, -0.02], [0.2, 0.12, 0.42], "rail", root);
+    this.addPrimitive("sidearm-trigger-guard", "box", [0.012, -0.13, -0.08], [0.16, 0.035, 0.18], "blackMetal", root).setLocalEulerAngles(-8, 0, 0);
+    this.addPrimitive("sidearm-trigger", "box", [0.012, -0.16, -0.06], [0.035, 0.12, 0.035], "gunBlackVoid", root).setLocalEulerAngles(-14, 0, 0);
     // Grip/hand shifted slightly left (-0.02 on X) to reduce off-screen extension
-    this.addPrimitive("sidearm-grip", "box", [0.03, -0.22, 0.14], [0.18, 0.36, 0.16], "blackMetal", root).setLocalEulerAngles(-13, 0, 0);
+    this.addPrimitive("sidearm-grip", "box", [0.03, -0.22, 0.14], [0.18, 0.36, 0.16], "gripRubber", root).setLocalEulerAngles(-13, 0, 0);
+    for (let i = 0; i < 4; i += 1) {
+      this.addPrimitive(`sidearm-grip-rib-${i}`, "box", [0.032, -0.31 + i * 0.06, 0.055], [0.19, 0.012, 0.018], "gunBlackVoid", root).setLocalEulerAngles(-13, 0, 0);
+    }
     this.addPrimitive("sidearm-barrel", "cylinder", [0.01, 0.07, -0.58], [0.035, 0.32, 0.035], "metal", root).setLocalEulerAngles(90, 0, 0);
     // Right hand + forearm — forearm-r X reduced from 0.18 to 0.10 to keep it on screen
-    this.addPrimitive("sidearm-hand-r", "box", [0.03, -0.22, 0.14], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-13, 0, 4);
-    this.addPrimitive("sidearm-forearm-r", "box", [0.10, -0.36, 0.30], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(36, -12, 0);
+    this.addPrimitive("sidearm-hand-r", "box", [0.03, -0.24, 0.14], [0.14, 0.12, 0.18], "glove", root).setLocalEulerAngles(-13, 0, 4);
+    this.addPrimitive("sidearm-forearm-r", "box", [0.11, -0.43, 0.34], [0.12, 0.1, 0.42], "sleeve", root).setLocalEulerAngles(38, -12, 0);
   }
 
   createCompactModel() {
@@ -1295,14 +1514,24 @@ export class PlayCanvasZombieSlice {
     this.addPrimitive("rifle-handguard", "box", [0, 0.015, -0.55], [0.22, 0.16, 0.72], "rail", root);
     this.addPrimitive("rifle-stock", "box", [0.04, -0.025, 0.48], [0.34, 0.18, 0.28], "blackMetal", root);
     this.addPrimitive("rifle-grip", "box", [0.02, -0.22, 0.2], [0.14, 0.36, 0.16], "blackMetal", root).setLocalEulerAngles(-12, 0, 0);
+    this.addPrimitive("rifle-trigger-guard", "box", [0.01, -0.13, 0.08], [0.17, 0.035, 0.19], "blackMetal", root).setLocalEulerAngles(-8, 0, 0);
+    this.addPrimitive("rifle-trigger", "box", [0.01, -0.17, 0.09], [0.035, 0.12, 0.035], "gunBlackVoid", root).setLocalEulerAngles(-14, 0, 0);
+    this.addPrimitive("rifle-magwell", "box", [0.02, -0.13, -0.14], [0.2, 0.16, 0.16], "rail", root).setLocalEulerAngles(-4, 0, 0);
+    this.addPrimitive("rifle-magazine", "box", [0.03, -0.33, -0.18], [0.18, 0.42, 0.18], "blackMetal", root).setLocalEulerAngles(-9, 0, 0);
+    this.addPrimitive("rifle-ejection-port", "box", [0.125, 0.055, -0.05], [0.035, 0.08, 0.2], "gunBlackVoid", root);
     this.addPrimitive("rifle-top-rail", "box", [0, 0.13, -0.18], [0.31, 0.035, 1.05], "rail", root);
     for (let i = 0; i < 7; i += 1) {
       this.addPrimitive(`rifle-rail-notch-${i}`, "box", [0, 0.17, 0.24 - i * 0.13], [0.34, 0.035, 0.045], "blackMetal", root);
+    }
+    for (let i = 0; i < 5; i += 1) {
+      this.addPrimitive(`rifle-handguard-slot-l-${i}`, "box", [-0.115, 0.02, -0.78 + i * 0.11], [0.018, 0.08, 0.052], "gunBlackVoid", root);
+      this.addPrimitive(`rifle-handguard-slot-r-${i}`, "box", [0.115, 0.02, -0.78 + i * 0.11], [0.018, 0.08, 0.052], "gunBlackVoid", root);
     }
     this.addPrimitive("rifle-front-sight", "box", [0, 0.31, -0.82], [0.08, 0.23, 0.06], "gunmetalLight", root);
     this.addPrimitive("rifle-rear-sight", "box", [0, 0.25, 0.16], [0.12, 0.16, 0.06], "gunmetalLight", root);
     this.addPrimitive("rifle-barrel", "cylinder", [0, 0.04, -0.96], [0.045, 0.78, 0.045], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("rifle-muzzle-crown", "cylinder", [0, 0.04, -1.38], [0.054, 0.05, 0.054], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("rifle-bore", "cylinder", [0, 0.04, -1.41], [0.03, 0.024, 0.03], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
     // Right hand on pistol grip + forearm; left support hand on handguard
     this.addPrimitive("rifle-hand-r", "box", [0.02, -0.22, 0.2], [0.16, 0.14, 0.2], "glove", root).setLocalEulerAngles(-12, 0, 4);
     this.addPrimitive("rifle-forearm-r", "box", [0.2, -0.38, 0.36], [0.14, 0.13, 0.5], "sleeve", root).setLocalEulerAngles(38, -15, 0);
@@ -1313,19 +1542,26 @@ export class PlayCanvasZombieSlice {
   createShotgunModel() {
     const root = this.createWeaponGroup("shotgun", { muzzle: [0, 0.02, -1.42], rootPosition: [0.5, -0.5, -0.98] });
     this.addPrimitive("shotgun-receiver", "box", [0.01, 0, -0.04], [0.3, 0.2, 0.62], "blackMetal", root);
+    this.addPrimitive("shotgun-ejection-port", "box", [0.15, 0.065, -0.04], [0.035, 0.08, 0.22], "gunBlackVoid", root);
     this.addPrimitive("shotgun-rib", "box", [0, 0.12, -0.62], [0.06, 0.02, 1.22], "gunmetalLight", root);
     // Tag the pump fore-end so the animation can slam it rearward on each shot.
     const pump = this.addPrimitive("shotgun-pump", "box", [0, -0.005, -0.62], [0.3, 0.18, 0.48], "wood", root);
+    for (let i = 0; i < 5; i += 1) {
+      this.addPrimitive(`shotgun-pump-groove-${i}`, "box", [0, 0.092, -0.81 + i * 0.095], [0.32, 0.018, 0.024], "weatheredWood", root);
+    }
     root._actionPart = pump;
     root._actionRestX = 0;
     root._actionRestY = -0.005;
     root._actionRestZ = -0.62;
     root._actionType = "pump";
     this.addPrimitive("shotgun-stock", "box", [0.04, -0.02, 0.43], [0.4, 0.2, 0.36], "wood", root);
+    this.addPrimitive("shotgun-recoil-pad", "box", [0.06, -0.025, 0.63], [0.38, 0.18, 0.055], "gripRubber", root);
     this.addPrimitive("shotgun-barrel-a", "cylinder", [-0.04, 0.06, -0.96], [0.04, 0.84, 0.04], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-barrel-b", "cylinder", [0.04, 0.06, -0.96], [0.04, 0.84, 0.04], "blackMetal", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-muzzle-a", "cylinder", [-0.04, 0.06, -1.4], [0.048, 0.04, 0.048], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-muzzle-b", "cylinder", [0.04, 0.06, -1.4], [0.048, 0.04, 0.048], "gunmetalLight", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("shotgun-bore-a", "cylinder", [-0.04, 0.06, -1.425], [0.031, 0.022, 0.031], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
+    this.addPrimitive("shotgun-bore-b", "cylinder", [0.04, 0.06, -1.425], [0.031, 0.022, 0.031], "gunBlackVoid", root).setLocalEulerAngles(90, 0, 0);
     this.addPrimitive("shotgun-bead-sight", "sphere", [0, 0.13, -1.36], [0.03, 0.03, 0.03], "gunmetalLight", root);
     // Right hand on pump grip + forearm; left support hand pumping the fore-end
     this.addPrimitive("shotgun-hand-r", "box", [0.04, -0.12, 0.18], [0.16, 0.14, 0.22], "glove", root).setLocalEulerAngles(-8, 0, 4);
@@ -1709,32 +1945,7 @@ export class PlayCanvasZombieSlice {
       this.summaryOfferList.addEventListener("click", handleOfferClick);
     }
 
-    this.shopItemsRoot.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-shop-type]");
-      if (!button) {
-        return;
-      }
-      if (button.dataset.shopType === "weapon") {
-        buyOrEquipWeapon(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "armor") {
-        buyOrEquipArmor(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "grenade") {
-        buyGrenadePack(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "c4") {
-        buyC4Pack(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "nuke") {
-        buyNukePack(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "gear") {
-        buyGearItem(this.state, button.dataset.shopId);
-      } else if (button.dataset.shopType === "village") {
-        buyVillageUpgrade(this.state);
-      } else if (button.dataset.shopType === "medkit") {
-        buyMedKit(this.state);
-      }
-      this._sfxShopBuy();
-      this.updateHud();
-      this.renderShop();
-    });
+    this.attachShopInput();
 
     window.addEventListener("keydown", (event) => this.setKey(event, true));
     window.addEventListener("keyup", (event) => this.setKey(event, false));
@@ -1743,6 +1954,11 @@ export class PlayCanvasZombieSlice {
     window.addEventListener("mousemove", (event) => this.handleLookMove(event));
     window.addEventListener("pointerup", () => {
       this.input.dragLooking = false;
+      this.input.fire = false;
+    });
+    window.addEventListener("pointercancel", () => {
+      this.input.dragLooking = false;
+      this.input.fire = false;
     });
     // Losing focus (alt-tab, click another window) or backgrounding the tab
     // (mobile app-switch) means held-key `keyup` events never arrive, which used
@@ -1784,15 +2000,23 @@ export class PlayCanvasZombieSlice {
       if (event.pointerType !== "mouse") {
         return;
       }
+      if (isActivePlayPhase(this.state.phase) && !this._isUiOverlayOpen()) {
+        this.unlockAudio();
+        this.requestPointerLock();
+        this.input.fire = true;
+        this.fire();
+      }
       this.input.dragLooking = true;
       this.input.lastPointerX = event.clientX;
       this.input.lastPointerY = event.clientY;
-      this.canvas.setPointerCapture?.(event.pointerId);
+      this.safeSetPointerCapture(this.canvas, event.pointerId);
     });
     this.canvas.addEventListener("pointerup", (event) => {
       if (event.button === 2) {
         this.input.ads = false;
         setPlayerAds(this.state, false);
+      } else if (event.button === 0) {
+        this.input.fire = false;
       }
     });
     this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -1801,16 +2025,149 @@ export class PlayCanvasZombieSlice {
       if (this.state.phase === "ready") {
         this.startOrContinueCampaign();
       }
-      // Only grab the pointer / fire while we're in active combat. During
-      // intermission (and other menu phases) the flow panel + shop are up, so a
-      // background click must not re-lock the pointer or fire — that would hide
-      // the cursor and re-engage mouse-look behind the modal.
-      if (!isActivePlayPhase(this.state.phase)) {
+      // Only grab the pointer / fire while we're in active combat AND no
+      // interactive overlay is open. The shop can be opened mid-combat (phase
+      // stays "running"); a background click behind it must not re-lock the
+      // pointer or fire — that recaptures the cursor so shop items can no
+      // longer be clicked. (This is the "can't click shop weapons" bug.)
+      if (!isActivePlayPhase(this.state.phase) || this._isUiOverlayOpen()) {
         return;
       }
       this.requestPointerLock();
-      this.fire();
     });
+  }
+
+  attachShopInput() {
+    const TAP_SLOP_PX = 16;
+    let pendingTap = null;
+    let lastPointerActionAt = Number.NEGATIVE_INFINITY;
+
+    const getShopActionEl = (target) => target.closest?.("[data-shop-type][data-shop-id]");
+
+    this.shopItemsRoot.addEventListener("pointerdown", (event) => {
+      const item = getShopActionEl(event.target);
+      if (!item || item.dataset.shopDisabled === "true") {
+        pendingTap = null;
+        return;
+      }
+      pendingTap = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        shopType: item.dataset.shopType,
+        shopId: item.dataset.shopId,
+      };
+      this.safeSetPointerCapture(item, event.pointerId);
+    });
+    this.shopItemsRoot.addEventListener("pointerup", (event) => {
+      if (!pendingTap || pendingTap.pointerId !== event.pointerId) {
+        return;
+      }
+      const item = getShopActionEl(event.target);
+      const moved = Math.hypot(event.clientX - pendingTap.startX, event.clientY - pendingTap.startY);
+      const sameItem = item
+        && item.dataset.shopType === pendingTap.shopType
+        && item.dataset.shopId === pendingTap.shopId;
+      const action = pendingTap;
+      pendingTap = null;
+      if (!sameItem || moved > TAP_SLOP_PX || item.dataset.shopDisabled === "true") {
+        return;
+      }
+      event.preventDefault();
+      lastPointerActionAt = performance.now();
+      this.activateShopItem(action.shopType, action.shopId);
+    });
+    this.shopItemsRoot.addEventListener("pointercancel", () => {
+      pendingTap = null;
+    });
+    this.shopItemsRoot.addEventListener("lostpointercapture", () => {
+      pendingTap = null;
+    });
+
+    this.shopItemsRoot.addEventListener("click", (event) => {
+      const item = getShopActionEl(event.target);
+      if (!item) {
+        return;
+      }
+      event.preventDefault();
+      if (performance.now() - lastPointerActionAt < 450) {
+        return;
+      }
+      if (item.dataset.shopDisabled === "true") {
+        this.explainShopItemUnavailable(item.dataset.shopType, item.dataset.shopId);
+        return;
+      }
+      this.activateShopItem(item.dataset.shopType, item.dataset.shopId);
+    });
+
+    this.shopItemsRoot.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const item = getShopActionEl(event.target);
+      if (!item) {
+        return;
+      }
+      event.preventDefault();
+      if (item.dataset.shopDisabled === "true") {
+        this.explainShopItemUnavailable(item.dataset.shopType, item.dataset.shopId);
+        return;
+      }
+      this.activateShopItem(item.dataset.shopType, item.dataset.shopId);
+    });
+  }
+
+  explainShopItemUnavailable(shopType, shopId) {
+    const item = getShopItems(this.state).find((entry) => entry.type === shopType && entry.id === shopId);
+    if (!item) {
+      this.state.lastMessage = "That shop item is unavailable.";
+    } else if (item.equipped || item.status === "Equipped") {
+      this.state.lastMessage = `${item.label} is already equipped.`;
+    } else if (item.owned || item.status === "Owned") {
+      this.state.lastMessage = `${item.label} is already owned.`;
+    } else if (item.atMax || item.status === "Maxed") {
+      this.state.lastMessage = `${item.label} is already maxed.`;
+    } else if (item.atFullHealth || item.status === "Full Health") {
+      this.state.lastMessage = "Health is already full.";
+    } else if (!item.unlocked) {
+      this.state.lastMessage = `${item.label} unlocks at wave ${item.unlockWave}.`;
+    } else if (!item.affordable && Number.isFinite(item.cost)) {
+      this.state.lastMessage = `Need ${item.cost} coins for ${item.label}. You have ${this.state.coins}.`;
+    } else {
+      this.state.lastMessage = `${item.label} is unavailable right now.`;
+    }
+    this._sfxUiClick();
+    this.updateHud();
+  }
+
+  activateShopItem(shopType, shopId) {
+    let result = { ok: false };
+    if (shopType === "weapon") {
+      result = buyOrEquipWeapon(this.state, shopId);
+    } else if (shopType === "armor") {
+      result = buyOrEquipArmor(this.state, shopId);
+    } else if (shopType === "grenade") {
+      result = buyGrenadePack(this.state, shopId);
+    } else if (shopType === "c4") {
+      result = buyC4Pack(this.state, shopId);
+    } else if (shopType === "nuke") {
+      result = buyNukePack(this.state, shopId);
+    } else if (shopType === "gear") {
+      result = buyGearItem(this.state, shopId);
+    } else if (shopType === "village") {
+      result = buyVillageUpgrade(this.state);
+    } else if (shopType === "medkit") {
+      result = buyMedKit(this.state);
+    }
+
+    if (result?.ok) {
+      this._sfxShopBuy();
+    } else {
+      this._sfxUiClick();
+    }
+    this.updateHud();
+    this.renderShop();
+    return result;
   }
 
   // Zero every movement/look input. Called on focus/visibility loss so a key or
@@ -1826,6 +2183,7 @@ export class PlayCanvasZombieSlice {
     this.input.crouch = false;
     this.input.jump = false;
     this.input.ads = false;
+    this.input.fire = false;
     this.input.dragLooking = false;
     this.input.lookTouch = null;
     this.input.lookVelX = 0;
@@ -1835,6 +2193,15 @@ export class PlayCanvasZombieSlice {
       this._joystickPointerId = null;
       this._joystickBase?.classList.remove("is-active");
       if (this._joystickKnob) this._joystickKnob.style.transform = "translate(-50%, -50%)";
+    }
+  }
+
+  safeSetPointerCapture(target, pointerId) {
+    try {
+      target?.setPointerCapture?.(pointerId);
+    } catch {
+      // Some browser/test pointer streams are already released by the time the
+      // handler runs. Capture is an input enhancement, not required for firing.
     }
   }
 
@@ -1894,19 +2261,21 @@ export class PlayCanvasZombieSlice {
         } else if (action === "ads") {
           this.input.ads = active;
           setPlayerAds(this.state, active);
-        } else if (action === "fire" && active) {
-          this.unlockAudio();
-          if (this.state.phase === "ready") {
-            startSlice(this.state);
-            this.playWaveStartAudio();
+        } else if (action === "fire") {
+          this.input.fire = active;
+          if (active) {
+            this.unlockAudio();
+            if (this.state.phase === "ready") {
+              this.startOrContinueCampaign();
+            }
+            this.fire();
           }
-          this.fire();
         }
         button.classList.toggle("is-active", active);
       };
       button.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        button.setPointerCapture?.(event.pointerId);
+        this.safeSetPointerCapture(button, event.pointerId);
         setActive(true);
       });
       button.addEventListener("pointerup", (event) => {
@@ -1924,6 +2293,7 @@ export class PlayCanvasZombieSlice {
   // floating joystick base at the touch point. The knob vector maps to the
   // discrete forward/back/left/right input booleans. Multi-touch safe.
   _attachVirtualJoystick() {
+    if (this._joystickBase) return; // already attached — guard against duplicate calls
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     if (!isTouch) return;
 
@@ -1966,8 +2336,9 @@ export class PlayCanvasZombieSlice {
     // Zone: bottom-left 45% width, lower 55% height (excluding button elements)
     const inJoystickZone = (event) => {
       if (event.target.closest?.("button, a")) return false;
-      const relX = event.clientX / window.innerWidth;
-      const relY = event.clientY / window.innerHeight;
+      const frameRect = this.getGameFrameRect();
+      const relX = (event.clientX - frameRect.left) / frameRect.width;
+      const relY = (event.clientY - frameRect.top) / frameRect.height;
       return relX < 0.45 && relY > 0.45;
     };
 
@@ -2051,7 +2422,7 @@ export class PlayCanvasZombieSlice {
       const relX = (event.clientX - canvasRect.left) / canvasRect.width;
       if (relX < LOOK_ZONE_SPLIT) return;
 
-      this.canvas.setPointerCapture?.(event.pointerId);
+      this.safeSetPointerCapture(this.canvas, event.pointerId);
       this.input.lookTouch = {
         id: event.pointerId,
         startX: event.clientX,
@@ -2075,8 +2446,9 @@ export class PlayCanvasZombieSlice {
       lt.curY = event.clientY;
       // Normalise delta to a ±1 range by viewport scale so sensitivity is
       // consistent across screen sizes.
-      const vpW = window.innerWidth || 360;
-      const vpH = window.innerHeight || 640;
+      const frameRect = this.getGameFrameRect();
+      const vpW = frameRect.width || 360;
+      const vpH = frameRect.height || 640;
       const ndx = dx / (vpW * 0.08);   // ÷8% of viewport width ≈ full deflection at 80px
       const ndy = dy / (vpH * 0.08);
       // Apply response curve
@@ -2149,6 +2521,8 @@ export class PlayCanvasZombieSlice {
   }
 
   requestPointerLock() {
+    // Never recapture the cursor while an interactive overlay needs it.
+    if (this._isUiOverlayOpen()) return;
     const result = this.canvas.requestPointerLock?.();
     if (result && typeof result.catch === "function") {
       result.catch(() => {
@@ -2162,7 +2536,7 @@ export class PlayCanvasZombieSlice {
     if (active) {
       this.unlockAudio();
     }
-    if (active && (event.code === "Enter" || event.code === "NumpadEnter")) {
+    if (active && (event.code === "Enter" || event.code === "NumpadEnter" || event.code === "Space")) {
       if (this.state.phase === "ready" || this.state.phase === "intermission") {
         event.preventDefault();
         this.startOrContinueCampaign({ pointerLock: true });
@@ -2195,14 +2569,22 @@ export class PlayCanvasZombieSlice {
     if (event.code === "KeyC" && active) this.cycleActiveOrdnance();
     if (event.code === "KeyG" && active) this.useActiveOrdnance();
     if (event.code === "KeyT" && active) this.useFlint();
-    if (event.code === "KeyE" && active) this.interact();
+    if (event.code === "KeyE") {
+      this.input.fire = active && !this._isUiOverlayOpen();
+      if (active && !this._isUiOverlayOpen()) {
+        event.preventDefault();
+        this.fire();
+      }
+      return;
+    }
     if (event.code === "KeyM" && active) this.toggleMiniMap();
+    if (event.code === "Escape" && active && this.morePopover && !this.morePopover.hidden) { this.closeMorePopover(); return; }
     if (event.code === "Escape" && active && this.shopOpen) this.closeShop();
     if (event.code === "KeyF" && active) this.toggleFullscreen();
   }
 
   toggleShop() {
-    if (this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
+    if (this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
     } else {
       this.shopOpen = !this.shopOpen;
@@ -2219,6 +2601,17 @@ export class PlayCanvasZombieSlice {
     if (typeof document !== "undefined" && document.pointerLockElement === this.canvas) {
       document.exitPointerLock?.();
     }
+  }
+
+  // True when a DOM overlay needs a free cursor (shop or settings sheet).
+  // Used to suppress pointer-lock re-grab + fire on stray canvas clicks that
+  // land behind the overlay.
+  _isUiOverlayOpen() {
+    return Boolean(this.shopOpen || this._isSettingsOpen() || (this.morePopover && !this.morePopover.hidden));
+  }
+
+  _isSettingsOpen() {
+    return Boolean(this.settingsSheet && !this.settingsSheet.hidden);
   }
 
   toggleMiniMap() {
@@ -2275,11 +2668,67 @@ export class PlayCanvasZombieSlice {
     try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
   }
 
+  // ── Focus-trap helpers ────────────────────────────────────────────────────
+  // _trapFocus(containerEl) — moves focus to the first focusable child and
+  // intercepts Tab/Shift-Tab so focus cycles within `containerEl`. Also closes
+  // the trap on Escape by calling `onEscape()`. Returns a teardown function.
+  _trapFocus(containerEl, { onEscape } = {}) {
+    const FOCUSABLE = 'button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])';
+    const getFocusable = () => Array.from(containerEl.querySelectorAll(FOCUSABLE));
+    const first = getFocusable()[0];
+    if (first) first.focus();
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && onEscape) { onEscape(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) { e.preventDefault(); return; }
+      const idx = focusable.indexOf(document.activeElement);
+      if (e.shiftKey) {
+        // Shift-Tab: go to last if before first
+        if (idx <= 0) { e.preventDefault(); focusable[focusable.length - 1].focus(); }
+      } else {
+        // Tab: wrap to first if at last
+        if (idx === focusable.length - 1) { e.preventDefault(); focusable[0].focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    if (!this._focusTraps) this._focusTraps = [];
+    const teardown = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      const idx = this._focusTraps ? this._focusTraps.indexOf(teardown) : -1;
+      if (idx !== -1) this._focusTraps.splice(idx, 1);
+    };
+    this._focusTraps.push(teardown);
+    return teardown;
+  }
+
+  _releaseFocusTrap() {
+    if (this._focusTraps && this._focusTraps.length > 0) {
+      const teardown = this._focusTraps[this._focusTraps.length - 1];
+      teardown();
+    }
+  }
+
   toggleHudSettings() {
     if (!this.settingsSheet) return;
     const isOpen = !this.settingsSheet.hidden;
     this.settingsSheet.hidden = isOpen;
-    if (!isOpen) this._releasePointerLockForUi();
+    if (!isOpen) {
+      // Opening: trap focus inside the card, Escape closes
+      this._releasePointerLockForUi();
+      const card = this.settingsSheet.querySelector('.zi-settings-card');
+      this._trapFocus(card ?? this.settingsSheet, {
+        onEscape: () => this.toggleHudSettings(),
+      });
+      // Remember the button that opened the sheet so we can restore focus on close
+      this._settingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    } else {
+      // Closing: release trap and return focus to the ⚙ button
+      this._releaseFocusTrap();
+      const btn = this._settingsReturnFocus ?? this.root.querySelector('[data-action="hud-settings"]');
+      btn?.focus();
+      this._settingsReturnFocus = null;
+    }
     this._sfxUiClick();
   }
 
@@ -2323,6 +2772,7 @@ export class PlayCanvasZombieSlice {
 
   cycleWeapon() {
     cycleOwnedWeapon(this.state);
+    this._sfxUiClick();
     this.updateHud();
     if (this.shopOpen) {
       this.renderShop();
@@ -2331,10 +2781,9 @@ export class PlayCanvasZombieSlice {
 
   selectWeaponByKey(code) {
     const slot = WEAPON_SLOT_BINDINGS.find((binding) => binding.code === code);
-    if (!slot) {
-      return;
-    }
+    if (!slot || slot.id === this.state.equippedWeaponId) return;
     equipOwnedWeapon(this.state, slot.id);
+    this._sfxUiClick();
     this.updateHud();
     if (this.shopOpen) {
       this.renderShop();
@@ -2353,7 +2802,8 @@ export class PlayCanvasZombieSlice {
       } else {
         await this.root.requestFullscreen?.();
       }
-      this.app.resizeCanvas();
+      this.syncViewportFrame();
+      this.scheduleViewportFrameSync();
     } catch {
       this.state.lastMessage = "Fullscreen is unavailable in this browser context.";
       this.updateHud();
@@ -2386,10 +2836,13 @@ export class PlayCanvasZombieSlice {
         this.audio.playWeapon(this.state.equippedWeaponId, this.getAudioPositionAhead(2.4));
       }
       if (result.impact) {
-        // Bullet impact on structure — concrete/stone sample
-        if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
+        if (result.materialId === "soil") {
+          // Soft terrain miss — low dirt thud, no hard concrete crack
+          this.audio.playImpact("soil", this.getAudioPositionAhead(7));
+        } else if (!this.audio.ctx || !this.samples.playSample("impact-concrete", this.audio.ctx, this.audio.ctx.destination, {
           gainScale: 0.5, pitchVariance: 2, gainVariance: 0.1,
         })) {
+          // Bullet impact on structure — concrete/stone sample
           this.audio.playImpact(result.materialId ?? "concrete", this.getAudioPositionAhead(7));
         }
       } else if (result.hit) {
@@ -2449,12 +2902,19 @@ export class PlayCanvasZombieSlice {
   useActiveOrdnance() {
     const result = useOrdnance(this.state);
     if (result.ok) {
-      this.audio.playExplosion(this.getAudioPositionAhead(10), result.ordnanceId);
-      this.spawnBlastFx(result.ordnanceId);
-      // Large blast shake + haptic
-      const blastTrauma = result.ordnanceId === "nuke" ? 0.9 : result.ordnanceId === "c4" ? 0.7 : 0.55;
-      this._addShakeTrauma(blastTrauma);
-      this._vibrate([0, 20, 50, 60]);
+      if (result.lobbed) {
+        // Grenade thrown — soft whoosh now; the blast FX fires when it lands
+        // (driven by updateOrdnanceProjectiles draining detonation events).
+        this.audio.playTone?.({ freq: 320, duration: 0.12, gain: 0.025, position: this.getAudioPositionAhead(1.5), type: "triangle" });
+        this._vibrate(12);
+      } else {
+        this.audio.playExplosion(this.getAudioPositionAhead(10), result.ordnanceId);
+        this.spawnBlastFx(result.ordnanceId);
+        // Large blast shake + haptic
+        const blastTrauma = result.ordnanceId === "nuke" ? 0.9 : result.ordnanceId === "c4" ? 0.7 : 0.55;
+        this._addShakeTrauma(blastTrauma);
+        this._vibrate([0, 20, 50, 60]);
+      }
     }
     this.updateHud();
   }
@@ -2523,15 +2983,31 @@ export class PlayCanvasZombieSlice {
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Loading ad...";
+    const source = this.state.phase === "lost" ? "gameover" : "summary";
+    const wave = this.state.waveSummary?.wave ?? this.state.waveNumber ?? null;
+    this._recordRewardedAdEvent("offer_clicked", { offerId, claimKey, source, wave });
     let completed = false;
+    let provider = "unknown";
     try {
       const result = await showRewardedAd({ globalScope: window });
       completed = Boolean(result?.completed);
+      provider = result?.provider ?? "none";
     } catch {
       completed = false;
+      provider = "error";
     }
+    this._recordRewardedAdEvent(completed ? "ad_completed" : "ad_failed", { offerId, claimKey, source, wave, provider });
     if (completed) {
       const result = applyPlayCanvasRewardedOffer(this.state, offerId, claimKey);
+      this._recordRewardedAdEvent(result.applied ? "reward_granted" : "reward_rejected", {
+        offerId,
+        claimKey,
+        source,
+        wave,
+        provider,
+        message: result.message,
+        reward: result.reward ?? null,
+      });
       if (result.applied) {
         btn.textContent = "Claimed";
         btn.classList.add("is-claimed");
@@ -2553,6 +3029,14 @@ export class PlayCanvasZombieSlice {
       btn.disabled = false;
       btn.textContent = originalText;
     }
+  }
+
+  _recordRewardedAdEvent(type, details = {}) {
+    const event = recordPlayCanvasRewardedAdEvent(this.state, type, details);
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+      window.dispatchEvent(new window.CustomEvent("zombie_invasion_rewarded_ad", { detail: event }));
+    }
+    return event;
   }
 
   _buildOfferHtml(offer) {
@@ -2603,6 +3087,8 @@ export class PlayCanvasZombieSlice {
       this.onboardingOverlay.hidden = true;
     }
     this._onboardingVisible = false;
+    // Release the focus trap that was set when the onboarding was shown.
+    this._releaseFocusTrap();
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('zi_onboarded', '1');
     }
@@ -2680,6 +3166,8 @@ export class PlayCanvasZombieSlice {
       this.app.root.addChild(tracer);
       tracer._sfxTtl = 0;
       tracer._sfxMaxTtl = 0;
+      tracer._sfxBallisticDrop = 0;
+      tracer._sfxBallisticActualDrop = 0;
       this.shotFx.tracers.push(tracer);
     }
 
@@ -2991,6 +3479,11 @@ export class PlayCanvasZombieSlice {
         return Math.hypot(zombie.x - this.state.player.x, zombie.z - this.state.player.z);
       }
     }
+    // The sim resolves where a clean miss meets terrain — use that so tracer and
+    // dirt puff land where the round actually went.
+    if (typeof result.impactDistance === "number") {
+      return result.impactDistance;
+    }
     // Structure hit or miss — use a fixed distance representative of max effective range
     return hit ? 8 : 22;
   }
@@ -3008,9 +3501,13 @@ export class PlayCanvasZombieSlice {
     const traceLen = isPellet ? Math.min(impactDist, 14) : Math.min(impactDist, 40);
     if (traceLen < 0.5) return;
 
-    // Midpoint of tracer segment
+    const ballisticDrop = computeBallisticTracerDrop(result.ballistic, traceLen);
+    const actualDrop = Number(result.ballistic?.dropMeters ?? 0);
+
+    // Midpoint of tracer segment. Ballistic shots get a subtle visual sag so
+    // the PlayCanvas route reads less like a perfectly flat hitscan beam.
     const midX = muzzleWorld.x + forward.x * traceLen * 0.5;
-    const midY = muzzleWorld.y + forward.y * traceLen * 0.5;
+    const midY = muzzleWorld.y + forward.y * traceLen * 0.5 - ballisticDrop * 0.5;
     const midZ = muzzleWorld.z + forward.z * traceLen * 0.5;
 
     // Find a free tracer slot
@@ -3032,6 +3529,8 @@ export class PlayCanvasZombieSlice {
     slot._sfxMaxTtl = ttl;
     slot._sfxTracerLen = traceLen;
     slot._sfxTracerThick = thickness;
+    slot._sfxBallisticDrop = ballisticDrop;
+    slot._sfxBallisticActualDrop = Number.isFinite(actualDrop) ? actualDrop : 0;
     slot.enabled = true;
   }
 
@@ -3097,9 +3596,11 @@ export class PlayCanvasZombieSlice {
     // Find a free burst slot
     const slot = this.shotFx.bursts.reduce((best, cur) => (cur._sfxTtl < best._sfxTtl ? cur : best));
 
-    // Impact world position
+    // Impact world position. A clean terrain miss kicks up dirt on the ground,
+    // so pin it to ground level rather than tracing the ray into the sky.
+    const isGroundMiss = !result.hit && isSoil;
     const ix = origin.x + forward.x * distance;
-    const iy = Math.max(0.05, origin.y + forward.y * distance);
+    const iy = isGroundMiss ? 0.06 : Math.max(0.05, origin.y + forward.y * distance);
     const iz = origin.z + forward.z * distance;
     slot.setPosition(ix, iy, iz);
     slot.enabled = true;
@@ -3139,13 +3640,21 @@ export class PlayCanvasZombieSlice {
     // Legacy stub — new system uses _spawnImpactBurst; kept for compatibility
   }
 
-  spawnBlastFx(ordnanceId) {
-    // Blast centre = a bit ahead of the player, on the ground.
-    const forward = this.camera.forward.clone();
-    const origin = this.camera.getPosition().clone();
-    const dist = ordnanceId === "nuke" ? 13 : ordnanceId === "c4" ? 9 : 9;
-    const cx = origin.x + forward.x * dist;
-    const cz = origin.z + forward.z * dist;
+  spawnBlastFx(ordnanceId, center = null) {
+    // Blast centre: explicit landing point for lobbed grenades, else a bit
+    // ahead of the player on the ground (placed C4 / nuke strike).
+    let cx;
+    let cz;
+    if (center) {
+      cx = center.x;
+      cz = center.z;
+    } else {
+      const forward = this.camera.forward.clone();
+      const origin = this.camera.getPosition().clone();
+      const dist = ordnanceId === "nuke" ? 13 : ordnanceId === "c4" ? 9 : 9;
+      cx = origin.x + forward.x * dist;
+      cz = origin.z + forward.z * dist;
+    }
     // Per-ordnance blast radius.
     const R = ordnanceId === "nuke" ? 8.5 : ordnanceId === "c4" ? 4.6 : 3.2;
     const seq = Math.round(performance.now());
@@ -3204,6 +3713,62 @@ export class PlayCanvasZombieSlice {
     requestAnimationFrame(fadeLight);
   }
 
+  updateOrdnanceProjectiles(dt) {
+    // 1) Drain detonations → blast FX, audio, and distance-attenuated shake.
+    const detonations = consumePlayCanvasOrdnanceDetonations(this.state);
+    for (const det of detonations) {
+      this.spawnBlastFx(det.ordnanceId, { x: det.x, y: det.y, z: det.z });
+      this.audio.playExplosion({ x: det.x, y: Math.max(0.4, det.y), z: det.z }, det.ordnanceId);
+      const dist = Math.hypot(det.x - this.state.player.x, det.z - this.state.player.z);
+      const atten = Math.max(0.2, 1 - dist / 26);
+      this._addShakeTrauma(0.5 * atten);
+      this._vibrate([0, 16, 36, 48]);
+    }
+
+    // 2) Render live grenades: one tumbling entity + smoke trail per projectile.
+    const projectiles = getPlayCanvasOrdnanceProjectiles(this.state);
+    const liveIds = new Set();
+    for (const p of projectiles) {
+      liveIds.add(p.id);
+      let entity = this.ordnanceEntitiesById.get(p.id);
+      if (!entity) {
+        const size = Math.max(0.18, (p.projectileRadius ?? 0.1) * 3.2);
+        entity = this.addPrimitive(`ordnance-${p.id}`, "sphere", [p.x, p.y, p.z], [size, size, size], "metal");
+        const light = new pc.Entity(`ordnance-light-${p.id}`);
+        light.addComponent("light", { type: "omni", color: new pc.Color(1, 0.7, 0.35), intensity: 1.3, range: 3.0, castShadows: false });
+        entity.addChild(light);
+        entity._trailCdSec = 0;
+        this.ordnanceEntitiesById.set(p.id, entity);
+      }
+      entity.setLocalPosition(p.x, p.y, p.z);
+      const rot = entity.getEulerAngles();
+      entity.setEulerAngles(rot.x + 420 * dt, rot.y + 260 * dt, 0); // tumble in flight
+      entity._trailCdSec -= dt;
+      if (entity._trailCdSec <= 0) {
+        entity._trailCdSec = 0.035;
+        const puff = this.addPrimitive(`ordnance-trail-${p.id}-${Math.round(performance.now())}`, "sphere", [p.x, p.y, p.z], [0.12, 0.12, 0.12], "blastSmoke");
+        puff._sliceTtl = 0.34; puff._sliceMaxTtl = 0.34; puff._sliceExpand = true;
+        puff._sliceStartScale = [0.12, 0.12, 0.12]; puff._sliceBaseScale = [0.03, 0.03, 0.03];
+        puff._sliceFadeFrom = 0.5;
+        this.fx.push(puff);
+      }
+    }
+    // Destroy entities whose grenade has detonated/left play.
+    for (const [id, entity] of this.ordnanceEntitiesById) {
+      if (!liveIds.has(id)) {
+        entity.destroy();
+        this.ordnanceEntitiesById.delete(id);
+      }
+    }
+  }
+
+  clearOrdnanceEntities() {
+    for (const entity of this.ordnanceEntitiesById.values()) {
+      entity.destroy();
+    }
+    this.ordnanceEntitiesById.clear();
+  }
+
   reset() {
     this.state = resetSlice();
     this.audio.setMusicEnabled(this.state.musicEnabled);
@@ -3211,6 +3776,7 @@ export class PlayCanvasZombieSlice {
     this.clearZombieEntities();
     this.clearFireEntities();
     this.clearImpactEntities();
+    this.clearOrdnanceEntities();
     this.yaw = 0;
     this.pitch = -6;
     this.shopOpen = false;
@@ -3230,6 +3796,7 @@ export class PlayCanvasZombieSlice {
     this.clearZombieEntities();
     this.clearFireEntities();
     this.clearImpactEntities();
+    this.clearOrdnanceEntities();
     this.yaw = 0;
     this.pitch = -6;
     this.shopOpen = false;
@@ -3291,8 +3858,14 @@ export class PlayCanvasZombieSlice {
   updateAudioState(dt = 0, { force = false } = {}) {
     this.audioDamagePulseSec = Math.max(0, this.audioDamagePulseSec - dt);
     this.audioPlayerDamagePulseSec = Math.max(0, this.audioPlayerDamagePulseSec - dt);
-    this.audio.setMusicEnabled(this.state.musicEnabled);
-    this.audio.setSfxEnabled(this.state.sfxEnabled);
+    if (this.state.musicEnabled !== this._lastMusicEnabled) {
+      this.audio.setMusicEnabled(this.state.musicEnabled);
+      this._lastMusicEnabled = this.state.musicEnabled;
+    }
+    if (this.state.sfxEnabled !== this._lastSfxEnabled) {
+      this.audio.setSfxEnabled(this.state.sfxEnabled);
+      this._lastSfxEnabled = this.state.sfxEnabled;
+    }
     this.audio.setListenerPosition({ x: this.state.player.x, y: 1.65, z: this.state.player.z });
 
     const audio = getPlayCanvasAudioSnapshot(this.state, {
@@ -3337,7 +3910,10 @@ export class PlayCanvasZombieSlice {
   }
 
   update(dt) {
-    this._lastUpdateDt = dt;
+    this.recordPerformanceTelemetry(dt);
+    const gameplayPausedByUi = this._isUiOverlayOpen();
+    const frameDt = gameplayPausedByUi ? 0 : dt;
+    this._lastUpdateDt = frameDt;
     // Drive CameraFrame post-processing (bloom, tone mapping compose) each frame.
     // cf.update() must be called before the PlayCanvas render tick processes the passes.
     this.cameraFrame?.update();
@@ -3346,9 +3922,10 @@ export class PlayCanvasZombieSlice {
     this.state.player.pitch = this.pitch;
     // Apply right-zone touch look velocity — only when there's an active look touch
     // and the pointer isn't locked (pointer-lock path uses handleLookMove).
-    if (this.input.lookTouch !== null && !this.input.pointerLocked) {
-      const vpW = window.innerWidth || 360;
-      const vpH = window.innerHeight || 640;
+    if (!gameplayPausedByUi && this.input.lookTouch !== null && !this.input.pointerLocked) {
+      const frameRect = this.getGameFrameRect();
+      const vpW = frameRect.width || 360;
+      const vpH = frameRect.height || 640;
       // lookVelX/Y are normalised ±1 after response curve; scale to pixels/frame
       // equivalent so applyLookDelta receives the same units it always does (px delta).
       const fakePixDx = this.input.lookVelX * vpW * 0.08;
@@ -3359,7 +3936,15 @@ export class PlayCanvasZombieSlice {
     }
     const wasReloading = this._wasReloading;
     const goalCountBefore = Array.isArray(this.state.claimedGoalIds) ? this.state.claimedGoalIds.length : 0;
-    stepSlice(this.state, this.input, Math.min(dt, 0.05));
+    // Clamp dt to a sane positive range: never advance the sim backwards (a
+    // negative/NaN frame delta would inflate countdown timers like the wave
+    // grace) and never take a huge step after a tab stall.
+    if (!gameplayPausedByUi) {
+      if (this.input.fire && getPlayCanvasWeaponSnapshot(this.state).fireMode === "automatic") {
+        this.fire();
+      }
+      stepSlice(this.state, this.input, Math.max(0, Math.min(frameDt, 0.05)) || 0);
+    }
     this.input.jump = false;
     // When combat ends (e.g. a wave clears into intermission), release the
     // pointer lock so the cursor reappears for the regroup panel / shop instead
@@ -3386,7 +3971,7 @@ export class PlayCanvasZombieSlice {
     // Throttle the audible/physical bite feedback so being swarmed by many
     // zombies doesn't machine-gun groans + screen shake. The visual flash
     // stays per-hit (it's brief and reads as "I'm getting hurt").
-    this._playerHurtFxCdSec = Math.max(0, (this._playerHurtFxCdSec ?? 0) - dt);
+    this._playerHurtFxCdSec = Math.max(0, (this._playerHurtFxCdSec ?? 0) - frameDt);
     if (this.state.playerHp < previousPlayerHp - 0.1) {
       this.playerDamageFlashSec = 0.45;
       if (this._playerHurtFxCdSec <= 0) {
@@ -3399,16 +3984,16 @@ export class PlayCanvasZombieSlice {
     if (this.state.villageHp < previousVillageHp - 0.1) {
       this.villageDamageFlashSec = 0.45;
     }
-    this.playerDamageFlashSec = Math.max(0, (this.playerDamageFlashSec ?? 0) - dt);
-    this.villageDamageFlashSec = Math.max(0, (this.villageDamageFlashSec ?? 0) - dt);
-    this.recoilPitchOffset = Math.max(0, (this.recoilPitchOffset ?? 0) - dt * 6);
-    this.weaponKickSec = Math.max(0, (this.weaponKickSec ?? 0) - dt);
+    this.playerDamageFlashSec = Math.max(0, (this.playerDamageFlashSec ?? 0) - frameDt);
+    this.villageDamageFlashSec = Math.max(0, (this.villageDamageFlashSec ?? 0) - frameDt);
+    this.recoilPitchOffset = Math.max(0, (this.recoilPitchOffset ?? 0) - frameDt * 6);
+    this.weaponKickSec = Math.max(0, (this.weaponKickSec ?? 0) - frameDt);
     // Juice: decay shake, update vignette
-    this._decayShake(dt);
+    this._decayShake(frameDt);
     this._updateVignette(this.state.playerHp);
     // Cue 8: low-health heartbeat
     if (this.state.playerHp < 25 && this.state.phase === "running") {
-      this._sfxHeartbeatTick(dt);
+      this._sfxHeartbeatTick(frameDt);
     } else {
       this._heartbeatPhaseSec = 0;
     }
@@ -3425,7 +4010,7 @@ export class PlayCanvasZombieSlice {
       this._stopNightBed();
     }
     // Zombie ambient groans — emit from a random live nearby zombie ~every 4s
-    this._zombieGroanCooldownSec = Math.max(0, (this._zombieGroanCooldownSec ?? 0) - dt);
+    this._zombieGroanCooldownSec = Math.max(0, (this._zombieGroanCooldownSec ?? 0) - frameDt);
     if (this.state.sfxEnabled !== false && this.state.phase === "running" && this._zombieGroanCooldownSec <= 0 && this.audio.ctx) {
       const liveZombies = this.state.zombies.filter((z) => !z.dead);
       if (liveZombies.length > 0) {
@@ -3440,7 +4025,7 @@ export class PlayCanvasZombieSlice {
         }
       }
     }
-    this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - dt);
+    this.summaryDisplaySec = Math.max(0, (this.summaryDisplaySec ?? 0) - frameDt);
     if (this.state.phase === "intermission" && this.lastSummaryWave !== this.state.waveNumber) {
       this.lastSummaryWave = this.state.waveNumber;
       this.summaryDisplaySec = 4.0;
@@ -3489,17 +4074,36 @@ export class PlayCanvasZombieSlice {
       this.villageFlashOverlay.style.opacity = String(this.villageDamageFlashSec * 2.2);
     }
     this.updateCamera();
-    this.updateAudioState(dt);
+    this.updateAudioState(frameDt);
     this.updateWeaponVisuals();
-    this.updateZombies(dt);
-    this.updateVillagers(dt);
+    this.updateZombies(frameDt);
+    this.updateVillagers(frameDt);
+    this.updateOrdnanceProjectiles(frameDt);
     this.updateLandscapeMutationVisuals();
     this.updateWindowImpactVisuals();
-    this.updateVillageDistress(dt);
+    this.updateVillageDistress(frameDt);
     this.updateGearVisuals();
     this.drawMiniMap();
-    this.updateFx(dt);
+    this.updateFx(frameDt);
     this.updateHud();
+  }
+
+  recordPerformanceTelemetry(dt) {
+    const frameMs = Math.max(0, Math.min(1000, Number(dt) * 1000 || 0));
+    if (frameMs <= 0) return;
+    const perf = this.performanceTelemetry;
+    perf.frameCount += 1;
+    perf.lastFrameMs = frameMs;
+    perf.worstFrameMs = Math.max(perf.worstFrameMs, frameMs);
+    if (frameMs > 50) {
+      perf.slowFrames += 1;
+    }
+    if (perf.frameMsAvg <= 0) {
+      perf.frameMsAvg = frameMs;
+    } else {
+      perf.frameMsAvg += (frameMs - perf.frameMsAvg) * 0.08;
+    }
+    perf.fpsAvg = perf.frameMsAvg > 0 ? 1000 / perf.frameMsAvg : 0;
   }
 
   updateCamera() {
@@ -3621,14 +4225,17 @@ export class PlayCanvasZombieSlice {
             glbShadow.setLocalPosition(0, 0.03, 0);
           }
           // Sync bloom coronas to GLB eye positions (set by animateZombieGlbEntity above).
-          const eyeLEnt = entity.findByName("glb-eye-l");
-          const eyeREnt = entity.findByName("glb-eye-r");
-          if (entity._bloomCoronaL && eyeLEnt) {
-            entity._bloomCoronaL.setLocalPosition(eyeLEnt.getLocalPosition());
+          // Cache eye entities on first lookup — findByName walks the full tree.
+          if (entity._eyeL === undefined) {
+            entity._eyeL = entity.findByName("glb-eye-l") || null;
+            entity._eyeR = entity.findByName("glb-eye-r") || null;
+          }
+          if (entity._bloomCoronaL && entity._eyeL) {
+            entity._bloomCoronaL.setLocalPosition(entity._eyeL.getLocalPosition());
             entity._bloomCoronaL.enabled = true;
           }
-          if (entity._bloomCoronaR && eyeREnt) {
-            entity._bloomCoronaR.setLocalPosition(eyeREnt.getLocalPosition());
+          if (entity._bloomCoronaR && entity._eyeR) {
+            entity._bloomCoronaR.setLocalPosition(entity._eyeR.getLocalPosition());
             entity._bloomCoronaR.enabled = true;
           }
         }
@@ -3701,7 +4308,7 @@ export class PlayCanvasZombieSlice {
       const ring = new pc.Entity(`telegraph-${zombie.id}`);
       const mat = new pc.StandardMaterial();
       mat.emissive = new pc.Color(0.88, 0.54, 0.0);
-      mat.emissiveIntensity = 3.0;
+      mat.emissiveIntensity = 4.5;
       mat.diffuse = new pc.Color(0, 0, 0);
       mat.useLighting = false;
       mat.blendType = pc.BLEND_ADDITIVE;
@@ -3729,11 +4336,11 @@ export class PlayCanvasZombieSlice {
       // Move to zombie ground position
       ring.setLocalPosition(zombie.x, 0.02, zombie.z);
 
-      // Color by type
+      // Color by type (in-place set avoids new pc.Color() allocation per frame)
       if (telegType === "slam") {
-        mat.emissive = new pc.Color(0.9, 0.08, 0.08);
+        mat.emissive.set(1.0, 0.31, 0.64);
       } else {
-        mat.emissive = new pc.Color(0.88, 0.54, 0.0);
+        mat.emissive.set(0.88, 0.54, 0.0);
       }
 
       // Pulse scale: shrinks from 1.0 → 0.4 as telegraph winds up, then pops
@@ -4219,10 +4826,15 @@ export class PlayCanvasZombieSlice {
       });
 
     ctx.clearRect(0, 0, size, size);
-    const bg = ctx.createLinearGradient(0, 0, 0, size);
-    bg.addColorStop(0, "rgba(9,23,27,0.94)");
-    bg.addColorStop(1, "rgba(5,10,16,0.96)");
-    ctx.fillStyle = bg;
+    // Lazy-cache the background gradient — args are constant (size never changes).
+    if (!this._minimapBgGradient || this._minimapBgGradientSize !== size) {
+      const bg = ctx.createLinearGradient(0, 0, 0, size);
+      bg.addColorStop(0, "rgba(9,23,27,0.94)");
+      bg.addColorStop(1, "rgba(5,10,16,0.96)");
+      this._minimapBgGradient = bg;
+      this._minimapBgGradientSize = size;
+    }
+    ctx.fillStyle = this._minimapBgGradient;
     ctx.fillRect(0, 0, size, size);
 
     ctx.strokeStyle = "rgba(216,255,125,0.26)";
@@ -4480,64 +5092,74 @@ export class PlayCanvasZombieSlice {
     }
 
     // ── Legacy fx array (ordnance blasts, fire pulses, shells, smoke, etc.) ────
-    this.fx = this.fx.filter((entity) => {
+    // In-place compaction: write-index pattern avoids allocating a new array each frame.
+    let _fxW = 0;
+    for (let _fxI = 0; _fxI < this.fx.length; _fxI++) {
+      const entity = this.fx[_fxI];
+      let keep;
       if (entity._sliceMuzzleLight) {
-        return entity._sliceTtl > 0;
-      }
-      entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
-
-      // Shell casings: arc through world space with gravity then shrink/fade out.
-      if (entity._sfxIsShell) {
-        if (entity._sliceTtl <= 0) { entity.destroy(); return false; }
-        const vel = entity._sfxVelocity;
-        if (vel) {
-          vel.y -= (entity._sfxGravity ?? 6.5) * dt;
-          const p = entity.getPosition();
-          entity.setPosition(p.x + vel.x * dt, p.y + vel.y * dt, p.z + vel.z * dt);
-          // Tumble on all axes for realism
-          const rot = entity.getEulerAngles();
-          entity.setEulerAngles(rot.x + 480 * dt, rot.y + 320 * dt, rot.z + 200 * dt);
-        }
-        // Fade out in final 25% of life
-        const norm = entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? 0.4);
-        const mat = entity.render?.meshInstances?.[0]?.material;
-        if (mat && norm < 0.25) { mat.opacity = Math.max(0, norm / 0.25); mat.update(); }
-        return true;
-      }
-
-      const baseScale = entity._sliceBaseScale;
-      if (entity._sliceExpand) {
-        // Explosion-style FX: grow from start→base over life (ease-out) + fade.
-        const maxTtl = Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl);
-        const lifeT = Math.min(1, Math.max(0, 1 - entity._sliceTtl / maxTtl));
-        const e = 1 - (1 - lifeT) * (1 - lifeT); // ease-out
-        const s0 = entity._sliceStartScale ?? [0.1, 0.1, 0.1];
-        const s1 = baseScale ?? [1, 1, 1];
-        entity.setLocalScale(
-          s0[0] + (s1[0] - s0[0]) * e,
-          s0[1] + (s1[1] - s0[1]) * e,
-          s0[2] + (s1[2] - s0[2]) * e,
-        );
-        if (entity._sliceVel) {
-          const p = entity.getLocalPosition();
-          entity.setLocalPosition(p.x + entity._sliceVel[0] * dt, p.y + entity._sliceVel[1] * dt, p.z + entity._sliceVel[2] * dt);
-          entity._sliceVel[1] -= 9 * dt; // gravity on ember sparks
-        }
-        const mat = entity.render?.meshInstances?.[0]?.material;
-        if (mat) { mat.opacity = Math.max(0, (entity._sliceFadeFrom ?? 1) * (1 - lifeT)); mat.update(); }
-      } else if (baseScale) {
-        const progress = Math.max(0.01, entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl));
-        entity.setLocalScale(baseScale[0] * progress, baseScale[1] * progress, baseScale[2] * progress);
+        keep = entity._sliceTtl > 0;
       } else {
-        const scale = Math.max(0.01, entity._sliceTtl);
-        entity.setLocalScale(scale, scale, scale);
+        entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
+
+        // Shell casings: arc through world space with gravity then shrink/fade out.
+        if (entity._sfxIsShell) {
+          if (entity._sliceTtl <= 0) { entity.destroy(); keep = false; }
+          else {
+            const vel = entity._sfxVelocity;
+            if (vel) {
+              vel.y -= (entity._sfxGravity ?? 6.5) * dt;
+              const p = entity.getPosition();
+              entity.setPosition(p.x + vel.x * dt, p.y + vel.y * dt, p.z + vel.z * dt);
+              // Tumble on all axes for realism
+              const rot = entity.getEulerAngles();
+              entity.setEulerAngles(rot.x + 480 * dt, rot.y + 320 * dt, rot.z + 200 * dt);
+            }
+            // Fade out in final 25% of life
+            const norm = entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? 0.4);
+            const mat = entity.render?.meshInstances?.[0]?.material;
+            if (mat && norm < 0.25) { mat.opacity = Math.max(0, norm / 0.25); mat.update(); }
+            keep = true;
+          }
+        } else {
+          const baseScale = entity._sliceBaseScale;
+          if (entity._sliceExpand) {
+            // Explosion-style FX: grow from start→base over life (ease-out) + fade.
+            const maxTtl = Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl);
+            const lifeT = Math.min(1, Math.max(0, 1 - entity._sliceTtl / maxTtl));
+            const e = 1 - (1 - lifeT) * (1 - lifeT); // ease-out
+            const s0 = entity._sliceStartScale ?? [0.1, 0.1, 0.1];
+            const s1 = baseScale ?? [1, 1, 1];
+            entity.setLocalScale(
+              s0[0] + (s1[0] - s0[0]) * e,
+              s0[1] + (s1[1] - s0[1]) * e,
+              s0[2] + (s1[2] - s0[2]) * e,
+            );
+            if (entity._sliceVel) {
+              const p = entity.getLocalPosition();
+              entity.setLocalPosition(p.x + entity._sliceVel[0] * dt, p.y + entity._sliceVel[1] * dt, p.z + entity._sliceVel[2] * dt);
+              entity._sliceVel[1] -= 9 * dt; // gravity on ember sparks
+            }
+            const mat = entity.render?.meshInstances?.[0]?.material;
+            if (mat) { mat.opacity = Math.max(0, (entity._sliceFadeFrom ?? 1) * (1 - lifeT)); mat.update(); }
+          } else if (baseScale) {
+            const progress = Math.max(0.01, entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? entity._sliceTtl));
+            entity.setLocalScale(baseScale[0] * progress, baseScale[1] * progress, baseScale[2] * progress);
+          } else {
+            const scale = Math.max(0.01, entity._sliceTtl);
+            entity.setLocalScale(scale, scale, scale);
+          }
+          if (entity._sliceTtl > 0) {
+            keep = true;
+          } else {
+            entity.destroy();
+            keep = false;
+          }
+        }
       }
-      if (entity._sliceTtl > 0) {
-        return true;
-      }
-      entity.destroy();
-      return false;
-    });
+      if (keep) { this.fx[_fxW++] = entity; }
+    }
+    this.fx.length = _fxW;
   }
 
   updateHud() {
@@ -4556,18 +5178,16 @@ export class PlayCanvasZombieSlice {
     } else {
       this.fields.ammo.textContent = "INF";
     }
-    const staminaField = this.root.querySelector('[data-field="stamina"]');
-    if (staminaField) {
-      staminaField.textContent = Math.floor(this.state.stamina ?? 100);
+    if (this.fields.stamina) {
+      this.fields.stamina.textContent = Math.floor(this.state.stamina ?? 100);
     }
     if (this.reloadBarWrapper) {
       const reloading = this.state.pendingReload && weaponDef;
       this.reloadBarWrapper.hidden = !reloading;
       if (reloading) {
-        const reloadField = this.reloadBarWrapper.querySelector('[data-field="reload"]');
-        if (reloadField) {
+        if (this.reloadField) {
           const pct = Math.round((1 - (this.state.reloadTimerSec ?? 0) / Math.max(0.01, weaponDef.reloadSec ?? 1)) * 100);
-          reloadField.textContent = `${pct}%`;
+          this.reloadField.textContent = `${pct}%`;
         }
       }
     }
@@ -4596,37 +5216,36 @@ export class PlayCanvasZombieSlice {
       this.bars.health.style.width = (hRatio * 100) + '%';
       this.bars.health.style.backgroundColor =
         hRatio > 0.35 ? 'var(--zi-hp)' : 'var(--zi-hp-low)';
+      this.bars.health.parentElement?.setAttribute('aria-valuenow', String(Math.round(hRatio * 100)));
     }
     const sRatio = clamp((this.state.stamina ?? 100) / 100, 0, 1);
     if (this.bars.stamina) {
       this.bars.stamina.style.width = (sRatio * 100) + '%';
+      this.bars.stamina.parentElement?.setAttribute('aria-valuenow', String(Math.round(sRatio * 100)));
     }
-    this.root.querySelector('[data-action="start"]').textContent = this.state.phase === "intermission"
+    this.actionButtons.start.textContent = this.state.phase === "intermission"
       ? `Start Wave ${this.state.waveNumber + 1}`
       : this.state.phase === "ready"
         ? "Start Campaign"
         : this.state.phase === "secret_boss"
           ? "Boss Active"
           : "Wave Running";
-    this.root.querySelector('[data-action="start"]').disabled = this.state.phase !== "ready" && this.state.phase !== "intermission";
-    this.root.querySelector('[data-action="shop"]').disabled = this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
-    this.root.querySelector('[data-action="ordnance"]').disabled = !isActivePlayPhase(this.state.phase);
-    const musicButton = this.root.querySelector('[data-action="music"]');
-    const sfxButton = this.root.querySelector('[data-action="sfx"]');
-    if (musicButton) {
-      musicButton.textContent = this.state.musicEnabled !== false ? "Music On" : "Music Off";
-      musicButton.classList.toggle("is-active", this.state.musicEnabled !== false);
+    this.actionButtons.start.disabled = this.state.phase !== "ready" && this.state.phase !== "intermission";
+    if (this.actionButtons.shop) this.actionButtons.shop.disabled = this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won";
+    if (this.actionButtons.ordnance) this.actionButtons.ordnance.disabled = !isActivePlayPhase(this.state.phase);
+    if (this.actionButtons.music) {
+      this.actionButtons.music.textContent = this.state.musicEnabled !== false ? "Music On" : "Music Off";
+      this.actionButtons.music.classList.toggle("is-active", this.state.musicEnabled !== false);
     }
-    if (sfxButton) {
-      sfxButton.textContent = this.state.sfxEnabled !== false ? "SFX On" : "SFX Off";
-      sfxButton.classList.toggle("is-active", this.state.sfxEnabled !== false);
+    if (this.actionButtons.sfx) {
+      this.actionButtons.sfx.textContent = this.state.sfxEnabled !== false ? "SFX On" : "SFX Off";
+      this.actionButtons.sfx.classList.toggle("is-active", this.state.sfxEnabled !== false);
     }
-    const hapticsButton = this.root.querySelector('[data-action="haptics"]');
-    if (hapticsButton) {
-      hapticsButton.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
-      hapticsButton.classList.toggle("is-active", this.hapticsEnabled);
+    if (this.actionButtons.haptics) {
+      this.actionButtons.haptics.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
+      this.actionButtons.haptics.classList.toggle("is-active", this.hapticsEnabled);
     }
-    if (this.state.phase === "ready" || this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
+    if (this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
     }
     // Intermission starts on the Regroup card (shop closed); the player opens the
@@ -4650,7 +5269,7 @@ export class PlayCanvasZombieSlice {
     // the two panels never overlap. Other menu phases always show the card.
     const visible =
       !isActivePlayPhase(this.state.phase) &&
-      !(this.state.phase === "intermission" && this.shopOpen) &&
+      !this.shopOpen &&
       !this._onboardingVisible;
     this.flowPanel.hidden = !visible;
     // The bottom action bar duplicates the modal's Start/Shop/Reset on the
@@ -4759,21 +5378,46 @@ export class PlayCanvasZombieSlice {
     const items = getShopItems(this.state);
     const guidance = getPlayCanvasGuidanceSnapshot(this.state);
     const recommendation = guidance.recommendation;
+    const threat = guidance.nextThreat ? ` Next: ${guidance.nextThreat.label}.` : "";
+    const guideTitle = recommendation?.title ?? "Field Shop";
+    const guideBody = recommendation ? `${recommendation.reason}${threat}` : "Upgrade whenever you have coins";
     if (this.shopGuideTitle) {
-      this.shopGuideTitle.textContent = recommendation?.title ?? "Field Shop";
+      this.shopGuideTitle.textContent = guideTitle;
     }
     if (this.shopGuideBody) {
-      const threat = guidance.nextThreat ? ` Next: ${guidance.nextThreat.label}.` : "";
-      this.shopGuideBody.textContent = recommendation ? `${recommendation.reason}${threat}` : "Upgrade whenever you have coins";
+      this.shopGuideBody.textContent = guideBody;
     }
+
+    const signature = JSON.stringify({
+      guideTitle,
+      guideBody,
+      recommendation: recommendation ? `${recommendation.targetType}:${recommendation.targetId}` : "none",
+      items: items.map((item) => ({
+        type: item.type,
+        id: item.id,
+        label: item.label,
+        detail: item.detail,
+        status: item.status,
+        disabled: Boolean(item.disabled),
+        equipped: Boolean(item.equipped),
+        recommended: isRecommendedShopItem(item, recommendation),
+      })),
+    });
+    if (this._shopRenderSignature === signature && this.shopItemsRoot.children.length > 0) {
+      return;
+    }
+    this._shopRenderSignature = signature;
+
     this.shopItemsRoot.innerHTML = items
       .map((item) => {
         const recommended = isRecommendedShopItem(item, recommendation);
+        const disabled = item.disabled ? "true" : "false";
+        const actionAttrs = `data-shop-type="${escapeHtml(item.type)}" data-shop-id="${escapeHtml(item.id)}" data-shop-disabled="${disabled}"`;
         return `
-          <article class="pc-shop-card ${item.equipped ? "is-equipped" : ""} ${recommended ? "is-recommended" : ""}" ${recommended ? 'data-recommended="true"' : ""}>
+          <article class="pc-shop-card ${item.disabled ? "is-disabled" : "is-actionable"} ${item.equipped ? "is-equipped" : ""} ${recommended ? "is-recommended" : ""}" ${actionAttrs} ${item.disabled ? 'aria-disabled="true" tabindex="0"' : 'role="button" tabindex="0"'} ${recommended ? 'data-recommended="true"' : ""}>
             <strong>${escapeHtml(item.label)}</strong>
             <span>${escapeHtml(item.detail)}</span>
-            <button type="button" data-shop-type="${escapeHtml(item.type)}" data-shop-id="${escapeHtml(item.id)}" ${item.disabled ? "disabled" : ""}>${escapeHtml(item.status)}</button>
+            <button type="button" ${actionAttrs} ${item.disabled ? "disabled" : ""}>${escapeHtml(item.status)}</button>
           </article>
         `;
       })
@@ -5239,6 +5883,8 @@ export class PlayCanvasZombieSlice {
       const impact = getPlayCanvasImpactSnapshot(this.state);
       const weaponState = getPlayCanvasWeaponSnapshot(this.state);
       const guidance = getPlayCanvasGuidanceSnapshot(this.state);
+      const rewarded = getPlayCanvasRewardedAdSnapshot(this.state);
+      const perf = this.performanceTelemetry;
       const audio = getPlayCanvasAudioSnapshot(this.state, {
         shopOpen: this.shopOpen,
         villageDamageRecent: this.audioDamagePulseSec > 0 ? 1 : 0,
@@ -5246,6 +5892,9 @@ export class PlayCanvasZombieSlice {
       });
       const escort = villagers.find((villager) => villager.state === "escorting");
       const perks = this.state.villagerPerkModifiers ?? {};
+      const activeTracers = this.shotFx.tracers.filter((tracer) => tracer.enabled && tracer._sfxTtl > 0);
+      const tracerDropVisual = activeTracers.reduce((max, tracer) => Math.max(max, tracer._sfxBallisticDrop ?? 0), 0);
+      const tracerDropActual = activeTracers.reduce((max, tracer) => Math.max(max, tracer._sfxBallisticActualDrop ?? 0), 0);
       return [
         `mode=playcanvas-game`,
         `style=cinematic-low-poly-survival`,
@@ -5255,6 +5904,9 @@ export class PlayCanvasZombieSlice {
         `saveVersion=${this.state.version ?? 1}`,
         `profileType=${this.state.profileType ?? "playcanvas"}`,
         `wave=${this.state.waveNumber}`,
+        `playerY=${Number(this.state.player?.y ?? 0).toFixed(2)}`,
+        `playerSurface=${this.state.player?.supportSurfaceId ?? "ground"}`,
+        `playerGrounded=${Boolean(this.state.player?.onGround)}`,
         `villageHp=${Math.ceil(this.state.villageHp)}`,
         `maxVillageHp=${this.state.maxVillageHp}`,
         `playerHp=${Math.ceil(this.state.playerHp)}`,
@@ -5270,6 +5922,18 @@ export class PlayCanvasZombieSlice {
         `weaponShotFx=${weaponState.shotFx}`,
         `weaponSilhouette=${weaponState.silhouette}`,
         `weaponSpreadMoa=${weaponState.spreadMoa}`,
+        `rewardedTelemetry=${rewarded.telemetryCount}`,
+        `rewardedLastEvent=${rewarded.lastEventType ?? "none"}`,
+        `rewardedLastOffer=${rewarded.lastOfferId ?? "none"}`,
+        `rewardedLastProvider=${rewarded.lastProvider ?? "none"}`,
+        `rewardedReviveUsed=${rewarded.reviveUsed}`,
+        `rewardedClaimedOffers=${rewarded.claimedOfferKeys.length}`,
+        `perfFpsAvg=${Number(perf.fpsAvg || 0).toFixed(1)}`,
+        `perfFrameMsAvg=${Number(perf.frameMsAvg || 0).toFixed(1)}`,
+        `perfSlowFrames=${perf.slowFrames}`,
+        `perfWorstFrameMs=${Number(perf.worstFrameMs || 0).toFixed(1)}`,
+        `qualityProfile=${this.qualityProfileKey}`,
+        `renderScale=${Number(this.qualityProfile?.renderScale ?? 1).toFixed(2)}`,
         `musicEnabled=${audio.musicEnabled}`,
         `sfxEnabled=${audio.sfxEnabled}`,
         `musicMode=${audio.mode}`,
@@ -5286,6 +5950,8 @@ export class PlayCanvasZombieSlice {
         `tutorialEnemyIntro=${guidance.enemyIntro ? guidance.enemyIntro.type : "none"}`,
         `tutorialMotivation=${guidance.motivation ?? "none"}`,
         `combatEvent=${this.state.lastCombatEvent ? JSON.stringify(this.state.lastCombatEvent) : "none"}`,
+        `tracerDropVisual=${tracerDropVisual.toFixed(3)}`,
+        `tracerDropActual=${tracerDropActual.toFixed(3)}`,
         `bossWaveActive=${boss.bossWaveActive}`,
         `secretBossActive=${boss.secretBossActive}`,
         `secretBossSpawned=${boss.secretBossSpawned}`,
@@ -5327,6 +5993,8 @@ export class PlayCanvasZombieSlice {
         `bestWave=${this.state.bestWave}`,
         `flowPanel=${this.flowPanel.hidden ? "hidden" : this.state.phase}`,
         `shopOpen=${this.shopOpen}`,
+        `settingsOpen=${this._isSettingsOpen()}`,
+        `gameplayPaused=${this._isUiOverlayOpen()}`,
         `coins=${this.state.coins}`,
         `kills=${this.state.kills}`,
         `lifetimeKills=${this.state.lifetimeStats?.kills ?? 0}`,

@@ -21,6 +21,8 @@ import {
   getPlayCanvasMiniMapSnapshot,
   getPlayCanvasWeaponSnapshot,
   getPlayCanvasVillagerSnapshot,
+  getPlayCanvasOrdnanceProjectiles,
+  consumePlayCanvasOrdnanceDetonations,
   getShopItems,
   interactWithPlayCanvasWorld,
   reloadSliceWeapon,
@@ -33,13 +35,17 @@ import {
   useOrdnance,
   useFlintAndSteel,
   applyPlayCanvasRewardedOffer,
+  getPlayCanvasRewardedAdSnapshot,
   getPlayCanvasSummaryOffers,
   getPlayCanvasGameOverOffers,
+  recordPlayCanvasRewardedAdEvent,
   evaluateGoals,
   getGoalsSnapshot,
+  revivePlayer,
 } from "../src/playcanvas/sliceSimulation";
 import weaponsConfig from "../src/fps/config/weapons_fps.json";
 import buildingsConfig from "../src/fps/config/buildings_fps.json";
+import enemiesConfig from "../src/fps/config/enemies_fps.json";
 
 describe("PlayCanvas campaign simulation", () => {
   beforeEach(() => {
@@ -84,6 +90,41 @@ describe("PlayCanvas campaign simulation", () => {
     }
   });
 
+  it("lets the player land on village rooftops, jump from them, and fall off the edge", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    state.player.x = -9.5;
+    state.player.z = -22;
+    state.player.y = 5.1;
+    state.player.yVelocity = -2;
+    state.player.onGround = false;
+
+    for (let i = 0; i < 20; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+
+    expect(state.player.onGround).toBe(true);
+    expect(state.player.supportSurfaceId).toBe("house-0-roof");
+    expect(state.player.y).toBeGreaterThan(3.5);
+
+    stepSlice(state, { ...idleInput(), jump: true }, 0.05);
+
+    expect(state.player.onGround).toBe(false);
+    expect(state.player.yVelocity).toBeGreaterThan(0);
+    expect(state.player.supportSurfaceId).toBeNull();
+
+    state.player.x = 0;
+    state.player.z = 12;
+    state.player.yVelocity = -2;
+    for (let i = 0; i < 80; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+
+    expect(state.player.onGround).toBe(true);
+    expect(state.player.supportSurfaceId).toBe("ground");
+    expect(state.player.y).toBe(0);
+  });
+
   it("fires along the player forward vector and records a hit", () => {
     const state = startSlice(createSliceState());
     state.waveGraceSec = 0;
@@ -95,8 +136,148 @@ describe("PlayCanvas campaign simulation", () => {
     const result = fireSliceWeapon(state);
 
     expect(result.hit).toBe(true);
-    expect(state.ammo).toBe(14); // 15-shot magazine decremented by 1
+    expect(state.ammo).toBe(15);
+    expect(state.pendingReload).toBe(false);
     expect(state.zombies[0].hp).toBeLessThan(state.zombies[0].maxHp);
+  });
+
+  it("requires the pistol's aim line to pass through a zombie's body (no wide cone auto-aim)", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    // Fire +Z (yaw = PI), away from the village structures, over open ground.
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.player.onGround = true;
+    // 20m down-range, 2.5m off the aim line — well outside the body radius.
+    state.zombies = [{ ...nearbyZombie(), x: 2.5, z: 28, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(false);
+    expect(result.reason).toBe("miss");
+    // The off-line zombie takes no damage…
+    expect(state.zombies[0].hp).toBe(100);
+  });
+
+  it("lands the pistol when the reticle is actually on the zombie's body", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.player.onGround = true;
+    // Same range, only 0.2m off-center — inside the body + forgiveness window.
+    state.zombies = [{ ...nearbyZombie(), x: 0.2, z: 28, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(true);
+    expect(state.zombies[0].hp).toBeLessThan(100);
+  });
+
+  it("records PlayCanvas ballistic flight metadata for weapon hits", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.player.onGround = true;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 28, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(true);
+    expect(result.ballistic).toMatchObject({
+      distanceMeters: 20,
+      muzzleVelocityMps: 360,
+      travelTimeSec: expect.closeTo(20 / 360, 3),
+      dropMeters: expect.closeTo(0.015, 3),
+      drag: 0.28,
+      massGrams: 8,
+    });
+    expect(state.lastCombatEvent.ballistic).toEqual(result.ballistic);
+  });
+
+  it("makes PlayCanvas headshots hit much harder than body shots", () => {
+    const makeAimState = (pitch) => {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 0;
+      state.player.x = 0;
+      state.player.z = 8;
+      state.player.yaw = Math.PI;
+      state.player.pitch = pitch;
+      state.player.onGround = true;
+      state.zombies = [{ ...nearbyZombie(), x: 0, z: 18, hp: 200, maxHp: 200 }];
+      return state;
+    };
+
+    const bodyShot = makeAimState(0);
+    const headshot = makeAimState(-12);
+
+    const bodyResult = fireSliceWeapon(bodyShot);
+    const headshotResult = fireSliceWeapon(headshot);
+
+    expect(bodyResult.hit).toBe(true);
+    expect(headshotResult.hit).toBe(true);
+    expect(headshotResult.headshot).toBe(true);
+    expect(headshotResult.damage).toBeGreaterThanOrEqual(bodyResult.damage * 3);
+    expect(headshot.zombies[0].hp).toBeLessThan(bodyShot.zombies[0].hp);
+    expect(headshot.lastMessage).toContain("HEADSHOT");
+  });
+
+  it("kicks up terrain on a clean miss so the shot reads down-range", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z, away from the village
+    state.player.onGround = true;
+    state.player.pitch = -12; // looking down — round meets the ground
+    state.zombies = [];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(false);
+    expect(result.reason).toBe("miss");
+    expect(result.impact).toBe(true);
+    expect(result.materialId).toBe("soil");
+    expect(result.impactDistance).toBeGreaterThan(0);
+    expect(result.ballistic).toMatchObject({
+      muzzleVelocityMps: 360,
+      travelTimeSec: expect.any(Number),
+      dropMeters: expect.any(Number),
+    });
+    expect(result.ballistic.dropMeters).toBeGreaterThan(0);
+    expect(state.lastCombatEvent).toMatchObject({
+      hit: false,
+      reason: "miss",
+      impact: true,
+      materialId: "soil",
+      impactDistance: result.impactDistance,
+      ballistic: result.ballistic,
+    });
+  });
+
+  it("keeps the shotgun forgiving — off-axis zombies in the spread still get hit", () => {
+    const state = startSlice(createSliceState({ coins: 5000 }));
+    state.phase = "intermission";
+    state.waveNumber = 5;
+    expect(buyOrEquipWeapon(state, "shotgun")).toEqual({ ok: true });
+    state.phase = "running";
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z, away from the village
+    state.player.onGround = true;
+    // 8m down-range, 1.5m off the line — a precise weapon would miss, the
+    // shotgun's wide cone still catches it.
+    state.zombies = [{ ...nearbyZombie(), x: 1.5, z: 16, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(true);
+    expect(state.zombies[0].hp).toBeLessThan(100);
   });
 
   it("clears a normal campaign wave into intermission", () => {
@@ -127,21 +308,28 @@ describe("PlayCanvas campaign simulation", () => {
     expect(villageLost.lastMessage).toContain("bell tower");
   });
 
-  it("supports magazine-based reload for PlayCanvas campaign weapons", () => {
+  it("keeps PlayCanvas campaign guns firing with infinite ammo and no reload block", () => {
     const state = startSlice(createSliceState());
-    state.ammo = 2;
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 28, hp: 999, maxHp: 999 }];
+    state.ammo = 1;
 
     reloadSliceWeapon(state);
-    expect(state.pendingReload).toBe(true);
-    expect(state.reloadTimerSec).toBeGreaterThan(0);
+    expect(state.pendingReload).toBe(false);
+    expect(state.reloadTimerSec).toBe(0);
+    expect(state.ammo).toBe(15);
+    expect(state.lastMessage).toContain("infinite ammo");
 
-    // Step through the reload (pistol reloadSec = 1.3, step 30 * 0.05 = 1.5s)
-    for (let i = 0; i < 30; i += 1) {
+    for (let i = 0; i < 24; i += 1) {
+      const result = fireSliceWeapon(state);
+      expect(result.reason).not.toBe("empty");
+      expect(state.pendingReload).toBe(false);
+      expect(state.ammo).toBe(15);
       stepSlice(state, idleInput(), 0.05);
     }
-
-    expect(state.pendingReload).toBe(false);
-    expect(state.ammo).toBe(15); // full magazine after reload
   });
 
   it("exposes PlayCanvas first-session guidance for ready, running, and intermission states", () => {
@@ -458,15 +646,19 @@ describe("PlayCanvas campaign simulation", () => {
 
   it("exposes distinct PlayCanvas weapon visual identities for major legacy weapon families", () => {
     const sidearm = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["pistol"], equippedWeaponId: "pistol" }));
+    const machinePistol = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["machine_pistol"], equippedWeaponId: "machine_pistol" }));
+    const lmg = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["lmg"], equippedWeaponId: "lmg" }));
     const shotgun = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["shotgun"], equippedWeaponId: "shotgun" }));
     const launcher = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["rpg"], equippedWeaponId: "rpg" }));
     const flame = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["flamethrower"], equippedWeaponId: "flamethrower" }));
     const melee = getPlayCanvasWeaponSnapshot(createSliceState({ ownedWeapons: ["pipe"], equippedWeaponId: "pipe" }));
 
-    expect(sidearm).toMatchObject({ id: "pistol", family: "sidearm", viewModel: "sidearm", reticle: "sidearm" });
+    expect(sidearm).toMatchObject({ id: "pistol", family: "sidearm", fireMode: "semi", viewModel: "sidearm", reticle: "sidearm" });
+    expect(machinePistol).toMatchObject({ id: "machine_pistol", family: "automatic", fireMode: "automatic", viewModel: "compact", reticle: "automatic" });
+    expect(lmg).toMatchObject({ id: "lmg", family: "heavy", fireMode: "automatic", viewModel: "heavy", reticle: "heavy" });
     expect(shotgun).toMatchObject({ id: "shotgun", family: "scatter", viewModel: "shotgun", reticle: "spread", shotFx: "pellet-burst" });
     expect(launcher).toMatchObject({ id: "rpg", family: "explosive", viewModel: "launcher", reticle: "blast", shotFx: "blast-orb" });
-    expect(flame).toMatchObject({ id: "flamethrower", family: "flame", viewModel: "flamethrower", reticle: "flame", shotFx: "flame-plume" });
+    expect(flame).toMatchObject({ id: "flamethrower", family: "flame", fireMode: "automatic", viewModel: "flamethrower", reticle: "flame", shotFx: "flame-plume" });
     expect(melee).toMatchObject({ id: "pipe", family: "melee", viewModel: "pipe", reticle: "melee", shotFx: "arc" });
     expect(new Set([sidearm.viewModel, shotgun.viewModel, launcher.viewModel, flame.viewModel, melee.viewModel]).size).toBe(5);
   });
@@ -492,7 +684,8 @@ describe("PlayCanvas campaign simulation", () => {
     expect(result.killCount).toBe(2);
     expect(state.kills).toBe(2);
     expect(state.coins).toBeGreaterThan(0);
-    expect(state.lastCombatEvent).toMatchObject({ weaponId: "rpg", blast: true, hitCount: 2 });
+    expect(result.ballistic).toMatchObject({ muzzleVelocityMps: 110, distanceMeters: 10 });
+    expect(state.lastCombatEvent).toMatchObject({ weaponId: "rpg", blast: true, hitCount: 2, ballistic: result.ballistic });
   });
 
   it("breaks village windows and records material impact reactions without friendly-fire damage", () => {
@@ -523,7 +716,8 @@ describe("PlayCanvas campaign simulation", () => {
     expect(impact.potentialVillageDamage).toBeGreaterThan(0);
     expect(impact.appliedVillageDamage).toBe(0);
     expect(state.villageHp).toBe(villageHpBefore);
-    expect(state.lastCombatEvent).toMatchObject({ reason: "impact", impact: true, materialId: "glass" });
+    expect(result.ballistic).toMatchObject({ muzzleVelocityMps: 360, distanceMeters: 8 });
+    expect(state.lastCombatEvent).toMatchObject({ reason: "impact", impact: true, materialId: "glass", ballistic: result.ballistic });
   });
 
   it("expires PlayCanvas impact events after their visual lifetime", () => {
@@ -744,6 +938,67 @@ describe("PlayCanvas campaign simulation", () => {
     expect(state.zombies.some((zombie) => zombie.dead)).toBe(true);
   });
 
+  it("lobs a grenade as an in-flight projectile that detonates on landing", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.activeOrdnanceId = "frag";
+    state.grenadeInventory.frag = 3;
+    // Aim down-range over open ground; target sits where the lob will land.
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z
+    state.player.pitch = 0;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 30, hp: 200, maxHp: 200 }];
+
+    const throwResult = useOrdnance(state);
+    expect(throwResult).toMatchObject({ ok: true, lobbed: true, ordnanceId: "frag" });
+    expect(state.grenadeInventory.frag).toBe(2); // consumed one
+    // The grenade is now airborne — no immediate damage.
+    expect(getPlayCanvasOrdnanceProjectiles(state)).toHaveLength(1);
+    expect(state.zombies[0].hp).toBe(200);
+
+    // Fly it out: step until it detonates (lands or hits the zombie).
+    let detonations = [];
+    for (let i = 0; i < 120 && detonations.length === 0; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+      detonations = detonations.concat(consumePlayCanvasOrdnanceDetonations(state));
+    }
+
+    expect(detonations.length).toBeGreaterThan(0);
+    expect(getPlayCanvasOrdnanceProjectiles(state)).toHaveLength(0);
+    // Detonation point is down-range from the throw origin, near ground level.
+    expect(detonations[0].z).toBeGreaterThan(12);
+    expect(detonations[0].y).toBeLessThan(2);
+    // It actually damaged the nearby zombie when it went off.
+    expect(state.zombies[0].hp).toBeLessThan(200);
+  });
+
+  it("throws airborne grenades from the player's current height before detonating on contact", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.activeOrdnanceId = "frag";
+    state.grenadeInventory.frag = 3;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.y = 4;
+    state.player.yaw = Math.PI; // throw +Z
+    state.player.pitch = 0;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 9.42, hp: 200, maxHp: 200 }];
+
+    const throwResult = useOrdnance(state);
+    expect(throwResult).toMatchObject({ ok: true, lobbed: true, ordnanceId: "frag" });
+    let projectiles = getPlayCanvasOrdnanceProjectiles(state);
+    expect(projectiles).toHaveLength(1);
+    expect(projectiles[0].y).toBeGreaterThan(5.4);
+
+    stepSlice(state, idleInput(), 0.05);
+    expect(consumePlayCanvasOrdnanceDetonations(state)).toHaveLength(0);
+    projectiles = getPlayCanvasOrdnanceProjectiles(state);
+    expect(projectiles).toHaveLength(1);
+    expect(projectiles[0].y).toBeGreaterThan(5);
+    expect(state.zombies[0].hp).toBe(200);
+  });
+
   it("reserves configured mega zombie slots in escalation waves", () => {
     const state = startSlice(createSliceState());
     state.waveIndex = 4;
@@ -758,6 +1013,25 @@ describe("PlayCanvas campaign simulation", () => {
     stepSlice(state, idleInput(), 0.05);
 
     expect(state.zombies.filter((zombie) => zombie.type === "mega_zombie")).toHaveLength(3);
+  });
+
+  it("spawns exactly one mini boss on wave 3", () => {
+    const state = startSlice(createSliceState());
+    state.waveIndex = 2;
+    state.waveNumber = 3;
+    state.spawnedThisWave = 0;
+    state.megaSpawnedThisWave = 0;
+    state.bossSpawnedThisWave = false;
+    state.zombies = [];
+    state.spawnTimerSec = -999;
+    state.waveGraceSec = 0;
+
+    stepSlice(state, idleInput(), 0.05);
+
+    expect(state.zombies.filter((zombie) => zombie.type === "mini_boss")).toHaveLength(1);
+    expect(state.zombies.filter((zombie) => zombie.type === "mega_zombie")).toHaveLength(0);
+    expect(state.spawnedThisWave).toBe(12);
+    expect(state.bossSpawnedThisWave).toBe(true);
   });
 
   it("spawns the configured PlayCanvas boss on boss waves", () => {
@@ -960,7 +1234,7 @@ describe("PlayCanvas campaign simulation", () => {
   it("DOUBLE_WAVE_COINS adds wave coins once; re-claim is blocked by claimKey", () => {
     const state = createSliceState({ coins: 50 });
     state.phase = "intermission";
-    state.waveSummary = { wave: 2, kills: 5, coins: 30 };
+    state.waveSummary = { wave: 2, kills: 5, coins: 30, coinsEarned: 30 };
     state.claimedOfferKeys = [];
 
     const claimKey = "summary:2:double_wave_coins";
@@ -1036,7 +1310,7 @@ describe("PlayCanvas campaign simulation", () => {
   it("getPlayCanvasSummaryOffers filters by claimed status and hides double-coins if waveCoins=0", () => {
     const state = createSliceState();
     state.phase = "intermission";
-    state.waveSummary = { wave: 4, kills: 8, coins: 0 }; // 0 coins this wave
+    state.waveSummary = { wave: 4, kills: 8, coins: 0, coinsEarned: 0 }; // 0 coins this wave
     state.playerHp = 80; // not full
     state.claimedOfferKeys = [];
 
@@ -1067,6 +1341,108 @@ describe("PlayCanvas campaign simulation", () => {
     state.reviveUsed = true;
     const offers2 = getPlayCanvasGameOverOffers(state);
     expect(offers2.find((o) => o.id === "revive")).toBeUndefined();
+  });
+
+  it("records PlayCanvas rewarded-ad telemetry and caps the run buffer at 80 events", () => {
+    const state = createSliceState();
+    state.phase = "intermission";
+    state.waveSummary = { wave: 2, kills: 4, coins: 40, coinsEarned: 40 };
+
+    for (let i = 0; i < 82; i += 1) {
+      recordPlayCanvasRewardedAdEvent(
+        state,
+        `event_${i}`,
+        { offerId: "bonus_grenades", claimKey: "summary:2:bonus_grenades", provider: "test" },
+        { now: () => 1000 + i },
+      );
+    }
+
+    const snapshot = getPlayCanvasRewardedAdSnapshot(state);
+    expect(snapshot.telemetryCount).toBe(80);
+    expect(snapshot.lastEventType).toBe("event_81");
+    expect(snapshot.lastOfferId).toBe("bonus_grenades");
+    expect(snapshot.lastProvider).toBe("test");
+    expect(state.rewardedRunState.telemetry[0].type).toBe("event_2");
+  });
+
+  it("mirrors rewarded run-state claim keys and revive status into the PlayCanvas snapshot", () => {
+    const state = createSliceState();
+    state.phase = "lost";
+    state.playerHp = 0;
+
+    const result = applyPlayCanvasRewardedOffer(state, "revive", "run:revive");
+    recordPlayCanvasRewardedAdEvent(
+      state,
+      result.applied ? "reward_granted" : "reward_rejected",
+      { offerId: "revive", claimKey: "run:revive", provider: "test", reward: result.reward ?? null },
+      { now: () => 1234 },
+    );
+
+    const snapshot = getPlayCanvasRewardedAdSnapshot(state);
+    expect(snapshot.reviveUsed).toBe(true);
+    expect(snapshot.lastEventType).toBe("reward_granted");
+    expect(snapshot.lastEvent?.reward).toEqual({ hp: 60 });
+    expect(snapshot.claimedOfferKeys).toEqual([]);
+
+    state.claimedOfferKeys.push("summary:3:bonus_grenades");
+    expect(getPlayCanvasRewardedAdSnapshot(state).claimedOfferKeys).toContain("summary:3:bonus_grenades");
+  });
+
+  // ── Bug-fix regression tests ────────────────────────────────────────────────
+
+  it("DOUBLE_WAVE_COINS only adds wave earnings, not the full bank (economy exploit fix)", () => {
+    // Start a wave so coinsAtWaveStart is recorded, then earn some coins during wave.
+    const state = startSlice(createSliceState());
+    // Force a known bank balance at wave start (beginWave already captured coinsAtWaveStart).
+    // Override coinsAtWaveStart to match current coins, then add earnings on top.
+    state.coinsAtWaveStart = state.coins; // e.g. 0
+    state.coins = state.coins + 80;       // earned 80 during the wave
+
+    // Manually complete wave to build waveSummary with coinsEarned.
+    state.phase = "intermission";
+    state.waveSummary = {
+      wave: state.waveNumber,
+      kills: 3,
+      coins: state.coins,
+      coinsEarned: Math.max(0, state.coins - state.coinsAtWaveStart),
+    };
+    state.claimedOfferKeys = [];
+
+    const coinsBefore = state.coins; // 80 (or whatever initial + 80)
+    const earned = state.waveSummary.coinsEarned; // 80
+    const claimKey = `summary:${state.waveNumber}:double_wave_coins`;
+    const result = applyPlayCanvasRewardedOffer(state, "double_wave_coins", claimKey);
+
+    expect(result.applied).toBe(true);
+    expect(state.coins).toBe(coinsBefore + earned); // only wave earnings doubled, not full bank
+  });
+
+  it("rescueVillager awards coins exactly once even if triggered twice for the same villager", () => {
+    const state = startSlice(createSliceState());
+    // Find a villager in state and set it up for escort rescue via interactWithPlayCanvasWorld.
+    const villager = state.villagers[0];
+    const dropoff = { x: 0, z: -12 }; // approximate dropoff (Town Hall exteriorSpawn)
+
+    // First rescue: position villager at dropoff and set escort active.
+    villager.state = "escorting";
+    villager.x = dropoff.x;
+    villager.z = dropoff.z;
+    state.activeEscortVillagerId = villager.id;
+    state.activeBuildingId = null;
+
+    const coinsBefore = state.coins;
+    interactWithPlayCanvasWorld(state); // triggers rescueVillager → alreadyRescued=false → coins awarded
+
+    const coinsAfterFirst = state.coins;
+    expect(coinsAfterFirst).toBe(coinsBefore + 40); // VILLAGER_RESCUE_COIN_REWARD = 40
+
+    // Second rescue attempt for same villager: re-set escort state so rescueVillager is called again.
+    villager.state = "escorting";
+    state.activeEscortVillagerId = villager.id;
+
+    interactWithPlayCanvasWorld(state); // alreadyRescued=true → no extra coins
+
+    expect(state.coins).toBe(coinsAfterFirst); // coins unchanged on duplicate rescue
   });
 
   // ── Persistent Goals (Deliverable B) ───────────────────────────────────────
@@ -1155,6 +1531,201 @@ describe("PlayCanvas campaign simulation", () => {
     expect(reloaded.claimedOfferKeys).toEqual(["summary:3:bonus_grenades"]);
 
     localStorage.clear();
+  });
+});
+
+describe("zombie fence collision", () => {
+  beforeEach(() => localStorage.clear());
+
+  // Player parked outside the lane (past the right fence at x≈7.2); one zombie
+  // inside the lane, aggroed onto the player so it drives toward the fence.
+  function chaseState(overrides) {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.spawnedThisWave = 9999; // suppress the wave spawner during the test
+    state.player.x = 15;
+    state.player.z = 0;
+    state.zombies = [
+      {
+        ...nearbyZombie(),
+        x: 5,
+        z: 0,
+        y: 0,
+        speedMps: 4,
+        aggroPlayerSec: 60,
+        jumpCooldownSec: 0,
+        telegraphSec: 0,
+        pounceSec: 0,
+        ...overrides,
+      },
+    ];
+    return state;
+  }
+
+  function runChase(state, steps = 90) {
+    for (let i = 0; i < steps; i += 1) stepSlice(state, idleInput(), 0.05);
+    return state.zombies[0];
+  }
+
+  it("blocks a plain ground zombie at a side fence", () => {
+    const z = runChase(chaseState({ type: "walker", movementMode: "ground", canClimb: false }));
+    // Stopped on the lane side of the fence (inner edge ≈ 7.04), never through.
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("blocks climber-flagged ground zombies at a side fence", () => {
+    const z = runChase(chaseState({ type: "skitter", movementMode: "ground", canClimb: true }));
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("blocks leapers at a side fence instead of letting them hop through wall geometry", () => {
+    const z = runChase(
+      chaseState({ type: "leaper", movementMode: "leaper", canClimb: false, jumpSpeed: 6, jumpIntervalSec: 1.2 }),
+    );
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("lets a flyer fly over a fence", () => {
+    const z = runChase(chaseState({ type: "flyer", movementMode: "flyer", canClimb: false, hoverHeight: 1.45 }));
+    expect(z.x).toBeGreaterThan(7.4);
+  });
+
+  it("does not lift climbers into an up-and-over arc through the fence plane", () => {
+    const state = chaseState({ type: "skitter", movementMode: "ground", canClimb: true });
+    let sawLift = false;
+    for (let i = 0; i < 90; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+      if ((state.zombies[0].y ?? 0) > 0.4) sawLift = true;
+    }
+    expect(sawLift).toBe(false);
+    expect(state.zombies[0].x).toBeLessThan(7);
+  });
+
+  it("blocks boss-class zombies at a side fence", () => {
+    const z = runChase(chaseState({ type: "mega_zombie", movementMode: "ground", canClimb: false, speedMps: 4 }), 110);
+    expect(z.x).toBeLessThan(7);
+  });
+
+  it("tags the intended climbers in the enemy config", () => {
+    const byId = Object.fromEntries(enemiesConfig.map((e) => [e.id, e]));
+    for (const id of ["skitter", "runner", "brute", "armored"]) {
+      expect(byId[id]?.canClimb).toBe(true);
+    }
+    // A plain walker stays blocked by fences.
+    expect(byId.walker?.canClimb ?? false).toBe(false);
+  });
+
+  it("uses configured zigzag strength for target-relative ground strafing", () => {
+    const byId = Object.fromEntries(enemiesConfig.map((e) => [e.id, e]));
+    expect(byId.runner?.zigzagStrength).toBe(0.24);
+    expect(byId.skitter?.zigzagStrength).toBe(0.5);
+
+    const runOneStep = (overrides) => {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 0;
+      state.spawnedThisWave = 9999;
+      state.player.x = 0;
+      state.player.z = 0;
+      state.zombies = [
+        {
+          ...nearbyZombie(),
+          id: `${overrides.type}-1`,
+          x: 0,
+          z: -8,
+          speedMps: 1,
+          aggroPlayerSec: 60,
+          ...overrides,
+        },
+      ];
+      stepSlice(state, idleInput(), 0.05);
+      return state.zombies[0];
+    };
+
+    const walker = runOneStep({ type: "walker", movementMode: "ground", zigzagStrength: byId.walker?.zigzagStrength ?? 0 });
+    const runner = runOneStep({ type: "runner", movementMode: "ground", zigzagStrength: byId.runner.zigzagStrength });
+    const skitter = runOneStep({ type: "skitter", movementMode: "ground", zigzagStrength: byId.skitter.zigzagStrength });
+
+    expect(Math.abs(walker.x)).toBeLessThan(0.001);
+    expect(Math.abs(runner.x)).toBeGreaterThan(Math.abs(walker.x));
+    expect(Math.abs(skitter.x)).toBeGreaterThan(Math.abs(runner.x));
+  });
+
+  it("spawns ground zombies inside the fenced lane corridor", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    for (let i = 0; i < 25; i += 1) stepSlice(state, idleInput(), 0.1);
+    expect(state.zombies.length).toBeGreaterThan(0);
+    for (const z of state.zombies) {
+      expect(Math.abs(z.x)).toBeLessThan(7.04);
+    }
+  });
+});
+
+describe("revive + invulnerability", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("revive sets phase to 'running' and sim advances afterward", () => {
+    const state = startSlice(createSliceState());
+    state.phase = "lost";
+    state.playerHp = 0;
+    state.reviveUsed = false;
+    state.secretBossActive = false;
+
+    const result = revivePlayer(state);
+    expect(result.ok).toBe(true);
+    expect(state.phase).toBe("running");
+
+    // Sim must advance (stepSlice must not bail early)
+    const elapsedBefore = state.elapsedSec;
+    stepSlice(state, idleInput(), 0.05);
+    expect(state.phase).toBe("running");
+    expect(state.elapsedSec).toBeGreaterThan(elapsedBefore);
+  });
+
+  it("invulnerability frames protect the player from bites during the window", () => {
+    const state = startSlice(createSliceState());
+    state.phase = "lost";
+    state.playerHp = 0;
+    state.reviveUsed = false;
+    state.secretBossActive = false;
+
+    revivePlayer(state, { hp: 60, invulnerableSec: 3 });
+    expect(state.invulnerableSec).toBe(3);
+
+    // Place a zombie in bite range
+    state.zombies = [{ ...nearbyZombie(), x: state.player.x, z: state.player.z + 0.8, biteCooldownSec: 0 }];
+    state.waveGraceSec = 0;
+
+    const hpAfterRevive = state.playerHp;
+
+    // Step several ticks within the invulnerability window (0.3s << 3s)
+    for (let i = 0; i < 6; i++) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+    // HP must be unchanged despite zombie in bite range
+    expect(state.playerHp).toBe(hpAfterRevive);
+
+    // Now advance past the window (3s total) and confirm damage can land
+    // We've used 0.3s so far; step until invulnerableSec reaches 0, then one more bite interval
+    for (let i = 0; i < 80; i++) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+    // After ~4s total, invulnerability is gone and zombie has had time to bite
+    expect(state.playerHp).toBeLessThan(hpAfterRevive);
+  });
+
+  it("isWaveCleared (via stepSlice) does not throw with an out-of-range waveIndex", () => {
+    const state = startSlice(createSliceState());
+    state.phase = "running";
+    state.waveIndex = 9999; // far out of range
+    state.spawnedThisWave = 0;
+    state.zombies = [];
+    state.waveGraceSec = 0;
+
+    // Must not throw
+    expect(() => stepSlice(state, idleInput(), 0.05)).not.toThrow();
+    // Phase should not have advanced to intermission (wave doesn't exist)
+    expect(state.phase).not.toBe("intermission");
   });
 });
 

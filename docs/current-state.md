@@ -1,6 +1,6 @@
 # Current State
 
-**As of 2026-06-13** | Vitest: 169 pass (36 files) | Smoke: green
+**As of 2026-07-07** | Vitest: 201 pass (37 files) | Build: green | Smoke: green
 
 ---
 
@@ -30,8 +30,9 @@ system modules under `src/fps/systems/`.
   - Boss (mini_boss / mega_zombie / secret_boss by id): 0.7 s red charge-slam telegraph,
     1.8× speed charge, one-shot bonus hit capped at `min(9, attackDps×0.4)` on land
     within 2 m, 3.5 s cooldown; `slamHitFired` prevents double-trigger
-  - Ground / crawler / walker / runner / zigzag: prior behavior unchanged
-- Weapons: all 14 from `weapons_fps.json`; mag reload, ADS spread, headshot (2.2× at pitch <−8°)
+  - Ground / crawler / walker / runner / skitter: config-driven movement, including
+    per-type `zigzagStrength` for runner/skitter strafing
+- Weapons: all 14 from `weapons_fps.json`; infinite-ammo firing, ADS spread, headshot (3.25× at pitch <−8°)
 - Ordnance: frag/thermo/breacher/EMP grenades, C4, nuke (all types from `economy_fps.json`)
 - Armor: cloth/kevlar/ceramic tiers; damage reduction applied per hit
 - Gear: flashlight (visual), flint & steel (fire patches with TTL, DPS, merge, cap=3)
@@ -54,6 +55,11 @@ system modules under `src/fps/systems/`.
     in `sliceSimulation.js`; claim keys in `state.claimedOfferKeys` (persisted, sanitized for
     old saves)
   - Ad shim flow (loading → grant → claimed) with cancel-safe re-enable; amber `--zi` styling
+  - Runtime ad telemetry in `state.rewardedRunState.telemetry` using the shared
+    `createRewardedRunState` shape; records `offer_clicked`, `ad_completed`, `ad_failed`,
+    `reward_granted`, and `reward_rejected`, capped at 80 events per run
+  - Browser dispatch parity: PlayCanvas emits `zombie_invasion_rewarded_ad` `CustomEvent`
+    with the recorded event detail; automation text exposes telemetry count/last-event fields
 - **Persistent goals / challenges** (6 GOAL_DEFS exported from `sliceSimulation.js`):
   - Wave Survivor (bestWave ≥ 5, +50 coins), Veteran Defender (bestWave ≥ 10, +100 coins),
     Exterminator (lifetime kills ≥ 500, +75 coins), Iron Endurance (wavesCleared ≥ 10, +60 coins),
@@ -88,9 +94,12 @@ system modules under `src/fps/systems/`.
 - 9 first-person weapon viewmodels: sidearm, compact, rifle, shotgun, precision, heavy,
   launcher, flamethrower, pipe — each with gloved hands/forearms and camera fill light
 - Shot FX pool: star muzzle flash (8 slots), muzzle light pulse, emissive tracers (8 slots),
-  material-tinted impact bursts (3 slots × 6 particles); zero per-shot allocations after warmup
+  material-tinted impact bursts (3 slots × 6 particles); ballistic shots apply subtle tracer
+  sag from `lastCombatEvent.ballistic.dropMeters`; zero per-shot allocations after warmup
 - Damage flash overlays: player (red radial), village (orange top)
 - Minimap: canvas 2D with zombie/villager/door/fire/building layers (top-right, 3-dot legend)
+- Runtime performance telemetry: rolling FPS, frame time, slow-frame count, worst frame time,
+  quality profile, and render scale exposed through `render_game_to_text`
 - Shop: in-raid side panel (all item types)
 
 ### UI/UX — Design Token System and HUD
@@ -157,11 +166,11 @@ All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was no
 Night ambient bed (`_startNightBed` / `_stopNightBed`): evolving slow pad on music channel;
 runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
-### Verified Baseline (2026-06-13)
+### Verified Baseline (2026-07-07)
 
 | Check | Result |
 |---|---|
-| `npx vitest run` | 36 files, 169 tests, all pass |
+| `npm test` | 37 files, 201 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
@@ -170,51 +179,46 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 | Weapon fire FX pool | Confirmed via `?fxslow=1` harness |
 | Leaper pounce + amber ring | Confirmed via live-GPU: `zombie.y ≈ 0.76` caught mid-arc, shadow grounded |
 | Flyer hover | Confirmed via live-GPU: entity floats at `hoverHeight` |
-| Rewarded-ad multi-offers | Confirmed: 11 new tests covering offer apply-once, medkit heal, grenades, goals, save round-trip |
+| Rewarded-ad multi-offers + telemetry | Confirmed: 13 focused tests covering offer apply-once, medkit heal, grenades, goals, save round-trip, run-state telemetry cap, and snapshot mirroring |
 | Virtual left joystick | Confirmed in source; `.pc-joystick-base` / `.pc-joystick-knob` wired |
 | Right-zone canvas look | Confirmed: dead-zone 0.24, exponent 1.75, gain 0.62 matching legacy right-stick |
 | Hitmarker / streak / floater DOM | Confirmed: element presence + worker inline capture |
 | Low-HP vignette | Confirmed: renders without obscuring view |
 | Settings sheet haptics toggle | Confirmed via live-GPU: toggle visible and functional |
+| PlayCanvas performance telemetry | Confirmed via smoke: `perfFpsAvg`, `perfFrameMsAvg`, `perfSlowFrames`, `perfWorstFrameMs`, `qualityProfile`, and `renderScale` exposed in `render_game_to_text` |
+| Ballistic tracer visual sag | Confirmed via smoke: `tracerDropVisual` reports positive sag after a ballistic shot |
 
 ---
 
 ## Parity Status — Honest Assessment
 
-A full requirement-by-requirement audit was completed on 2026-06-12 and updated on
-2026-06-13. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
+A full requirement-by-requirement audit was completed on 2026-06-12 and updated through
+2026-07-07. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
 
 | Status | Count |
 |---|---|
-| FULL | 50 |
-| PARTIAL | 4 |
-| MISSING | 1 |
+| FULL | 54 |
+| PARTIAL | 1 |
+| MISSING | 0 |
 | N/A-BY-DESIGN | 5 |
 | **Total features audited** | **60** |
 
-*(One feature (zigzag-strength) was re-confirmed PARTIAL; enemy-variety and multi-offer
-features previously PARTIAL/MISSING were promoted to FULL.)*
+*(Boot loading, village damage feedback, crawler presentation, and per-type zigzag
+strength are now verified FULL in the PlayCanvas route.)*
 
 **Full parity is not yet achieved.** The PlayCanvas route is feature-rich and
-playable end-to-end, but has residual gaps versus the legacy Three.js FPS route.
+playable end-to-end, but has one residual partial gap versus the legacy Three.js FPS route.
 
 ### Remaining MISSING Feature
 
-- **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
-  `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
-  loss for ad effectiveness; no player-visible impact.
+- None currently identified.
 
-### Remaining PARTIAL Features (ranked by player impact)
+### Remaining PARTIAL Feature
 
-1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
-   (fire/smoke visual indicators as village HP drops) not used in PlayCanvas. Village HP
-   meter updates correctly; no visual state change.
-2. **Boot loading indicator** (item 42): Legacy shows a loading bar. PlayCanvas starts with
-   the scene already rendered; GLB loads async in background with no user-visible indicator.
-3. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
-   0.45 rather than per-type `zigzagStrength` scalar from config.
-4. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
-   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan.
+1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+   drop, drag, and penetration. PlayCanvas now records ballistic flight/drop metadata in
+   combat events using the legacy drop formula and renders tracer sag from that data, but still
+   resolves weapon hits instantly with distance-falloff hitscan.
 
 See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with per-feature delta
 notes and legacy source citations.
@@ -231,8 +235,9 @@ These items are absent from the PlayCanvas route by explicit design decision
 - **Three.js render pipeline** — no bloom, DOF, or SSAO post-processing. PlayCanvas uses ACES
   tone mapping natively. Bloom is available behind `?bloom=1` via `pc.CameraFrame` but disabled
   by default (eye/muzzle corona spheres deliver the halo look in the normal pipeline).
-- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag replaced
-  by hitscan with distance falloff.
+- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag are
+  represented in PlayCanvas combat telemetry, but gameplay still uses hitscan with distance
+  falloff instead of authoritative projectile travel.
 
 ---
 

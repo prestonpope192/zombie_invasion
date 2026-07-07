@@ -92,6 +92,59 @@ try {
   });
   await page.waitForTimeout(250);
   const nonBlackPixels = await countNonBlackPixels(page, preBlastScreenshot);
+  await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    window.__rewardedAdEvents = [];
+    window.addEventListener("zombie_invasion_rewarded_ad", (event) => {
+      window.__rewardedAdEvents.push(event.detail);
+    });
+    window.history.replaceState(null, "", "/?mockRewardedAds=1");
+    if (game) {
+      game.state.phase = "intermission";
+      game.state.waveSummary = { wave: 1, kills: game.state.kills, coins: game.state.coins, coinsEarned: 20, weapon: "Pistol" };
+      game.state.playerHp = 50;
+      game.state.claimedOfferKeys = [];
+      game.updateHud();
+    }
+  });
+  const rewardedButtonClicked = await page.evaluate(() => {
+    const button = document.querySelector('[data-offer-id="double_wave_coins"]');
+    button?.click();
+    return Boolean(button);
+  });
+  await page.waitForFunction(
+    () => window.__rewardedAdEvents?.some((event) => event.type === "reward_granted"),
+    { polling: 100, timeout: 3000 }
+  );
+  const rewardedFlow = await page.evaluate(() => ({
+    events: window.__rewardedAdEvents ?? [],
+    text: window.render_playcanvas_game_to_text?.() ?? "",
+  }));
+  await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    if (game) {
+      game.state.phase = "running";
+      game.state.waveSummary = null;
+      game.state.playerHp = 100;
+      game.state.coins = 0;
+      game.state.claimedOfferKeys = [];
+      if (game.state.rewardedRunState) {
+        game.state.rewardedRunState.claimedOfferKeys = [];
+        game.state.rewardedRunState.telemetry = [];
+      }
+      game.updateHud();
+    }
+  });
+  await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    if (game) {
+      game.fxSlowMo = true;
+      game.state.phase = "running";
+      game.state.shotCooldownSec = 0;
+      game.fire();
+      game.updateHud();
+    }
+  });
   await page.setViewportSize({ width: 390, height: 760 });
   await page.waitForTimeout(100);
   // PRIMARY controls: visible in the right action cluster at phone viewport.
@@ -212,6 +265,21 @@ try {
   assert(state.text.includes("weaponViewModel=sidearm"), "PlayCanvas weapon identity did not report sidearm viewmodel baseline");
   assert(state.text.includes("weaponReticle=sidearm"), "PlayCanvas weapon identity did not report sidearm reticle baseline");
   assert(state.text.includes("weaponShotFx=spark"), "PlayCanvas weapon identity did not report sidearm shot FX baseline");
+  assert(state.text.includes('"ballistic"'), "PlayCanvas combat event did not expose ballistic telemetry");
+  const tracerDrop = Number(state.text.match(/tracerDropVisual=(\d+\.\d{3})/)?.[1] ?? 0);
+  assert(tracerDrop > 0, `PlayCanvas tracer did not expose positive ballistic visual sag (got: ${tracerDrop})`);
+  assert(state.text.includes("rewardedTelemetry=0"), "PlayCanvas rewarded-ad telemetry baseline was not reported");
+  assert(state.text.includes("rewardedLastEvent=none"), "PlayCanvas rewarded-ad last-event baseline was not reported");
+  assert(state.text.includes("rewardedLastOffer=none"), "PlayCanvas rewarded-ad last-offer baseline was not reported");
+  assert(state.text.includes("rewardedLastProvider=none"), "PlayCanvas rewarded-ad last-provider baseline was not reported");
+  assert(state.text.includes("rewardedReviveUsed=false"), "PlayCanvas rewarded-ad revive status baseline was not reported");
+  assert(state.text.includes("rewardedClaimedOffers=0"), "PlayCanvas rewarded-ad claimed-offer baseline was not reported");
+  assert(/perfFpsAvg=\d+\.\d/.test(state.text), "PlayCanvas performance telemetry did not report average FPS");
+  assert(/perfFrameMsAvg=\d+\.\d/.test(state.text), "PlayCanvas performance telemetry did not report average frame time");
+  assert(/perfSlowFrames=\d+/.test(state.text), "PlayCanvas performance telemetry did not report slow-frame count");
+  assert(/perfWorstFrameMs=\d+\.\d/.test(state.text), "PlayCanvas performance telemetry did not report worst frame time");
+  assert(/qualityProfile=(desktop_high|mobile_high|mobile_low)/.test(state.text), "PlayCanvas performance telemetry did not report quality profile");
+  assert(/renderScale=\d+\.\d{2}/.test(state.text), "PlayCanvas performance telemetry did not report render scale");
   assert(state.text.includes("musicEnabled=true"), "PlayCanvas audio state did not report enabled music baseline");
   assert(state.text.includes("sfxEnabled=true"), "PlayCanvas audio state did not report enabled SFX baseline");
   assert(state.text.includes("musicMode=raid"), "PlayCanvas audio state did not report raid music mode while running");
@@ -231,6 +299,14 @@ try {
   assert(ordnanceText.includes("ordnanceCount=4"), "G hotkey did not consume one starting frag grenade");
   assert(advanced, "advanceTime(ms) hook missing");
   assert(nonBlackPixels > 1000, `screenshot appears blank or black: ${nonBlackPixels} lit pixels`);
+  assert(rewardedButtonClicked, "PlayCanvas rewarded offer button was not rendered for smoke interaction");
+  assert(rewardedFlow.events.map((event) => event.type).join(",") === "offer_clicked,ad_completed,reward_granted", "PlayCanvas rewarded ad did not emit the expected browser event sequence");
+  assert(rewardedFlow.events.every((event) => event.mode === "playcanvas"), "PlayCanvas rewarded ad events did not include mode=playcanvas");
+  assert(rewardedFlow.events.some((event) => event.provider === "mock"), "PlayCanvas rewarded ad completion did not report mock provider");
+  assert(rewardedFlow.text.includes("rewardedTelemetry=3"), "PlayCanvas rewarded telemetry count did not update after mock ad claim");
+  assert(rewardedFlow.text.includes("rewardedLastEvent=reward_granted"), "PlayCanvas rewarded telemetry did not report reward_granted as the last event");
+  assert(rewardedFlow.text.includes("rewardedLastOffer=double_wave_coins"), "PlayCanvas rewarded telemetry did not report the claimed offer");
+  assert(rewardedFlow.text.includes("rewardedLastProvider=mock"), "PlayCanvas rewarded telemetry did not report the mock provider");
   // Primary controls visible in the right cluster
   assert(mobileControlsVisible, "mobile fire control is not visible at phone viewport");
   assert(mobileShopVisible, "mobile shop control is not visible at phone viewport (primary cluster)");
