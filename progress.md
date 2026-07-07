@@ -1,6 +1,11 @@
 Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
 
 ## Progress log
+- 2026-07-07 — PlayCanvas performance telemetry surface:
+  - Added rolling frame-performance telemetry to the PlayCanvas runtime: average FPS, average frame time, slow-frame count, worst frame time, active quality profile, and render scale.
+  - Exposed the telemetry through `window.render_game_to_text()` / `window.render_playcanvas_game_to_text()` so browser smoke and future visual/performance tuning can detect regressions without manual profiling.
+  - Added PlayCanvas smoke assertions for the new telemetry fields.
+  - Validation: `npm run build` passed with the existing chunk-size warning, `npm run smoke:playcanvas` passed with visual artifact `output/playcanvas-slice-smoke.png`, and `npm test` passed (36 files, 197 tests).
 - 2026-07-07 — PlayCanvas rewarded-ad telemetry parity:
   - Closed the last documented MISSING parity item by adding PlayCanvas rewarded run-state telemetry using the shared `createRewardedRunState` shape, capped at 80 events per run.
   - Wired the PlayCanvas ad offer flow to record `offer_clicked`, `ad_completed`, `ad_failed`, `reward_granted`, and `reward_rejected`, then dispatch `zombie_invasion_rewarded_ad` `CustomEvent` details for analytics listeners.

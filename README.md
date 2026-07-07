@@ -60,6 +60,8 @@ Historical evidence and deeper references:
   - `window.render_playcanvas_game_to_text()`
   - `window.render_game_to_text()` is available on the default PlayCanvas route and `?legacy=1`.
   - `window.advanceTime(ms)`
+  - rolling performance telemetry in render text: FPS, frame time, slow frames, quality profile,
+    and render scale
 - Docker deployment for LAN phone play on port `8080`.
 
 ## Current status

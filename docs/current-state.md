@@ -97,6 +97,8 @@ system modules under `src/fps/systems/`.
   material-tinted impact bursts (3 slots × 6 particles); zero per-shot allocations after warmup
 - Damage flash overlays: player (red radial), village (orange top)
 - Minimap: canvas 2D with zombie/villager/door/fire/building layers (top-right, 3-dot legend)
+- Runtime performance telemetry: rolling FPS, frame time, slow-frame count, worst frame time,
+  quality profile, and render scale exposed through `render_game_to_text`
 - Shop: in-raid side panel (all item types)
 
 ### UI/UX — Design Token System and HUD
@@ -182,6 +184,7 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 | Hitmarker / streak / floater DOM | Confirmed: element presence + worker inline capture |
 | Low-HP vignette | Confirmed: renders without obscuring view |
 | Settings sheet haptics toggle | Confirmed via live-GPU: toggle visible and functional |
+| PlayCanvas performance telemetry | Confirmed via smoke: `perfFpsAvg`, `perfFrameMsAvg`, `perfSlowFrames`, `perfWorstFrameMs`, `qualityProfile`, and `renderScale` exposed in `render_game_to_text` |
 
 ---
 

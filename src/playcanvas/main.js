@@ -219,6 +219,14 @@ export class PlayCanvasZombieSlice {
     this.fx = [];
     // ?fxslow=1 — stretches shot-FX lifetimes 10x for screenshot capture; always off in prod
     this.fxSlowMo = new URLSearchParams(globalThis.location?.search ?? "").get("fxslow") === "1";
+    this.performanceTelemetry = {
+      frameCount: 0,
+      frameMsAvg: 0,
+      fpsAvg: 0,
+      slowFrames: 0,
+      worstFrameMs: 0,
+      lastFrameMs: 0,
+    };
     // Pooled shot-FX subsystem — no per-shot heap allocations after warmup
     this.shotFx = { flashes: [], tracers: [], bursts: [] };
     this.sceneRandom = createSeededRandom(20260603);
@@ -3893,6 +3901,7 @@ export class PlayCanvasZombieSlice {
   }
 
   update(dt) {
+    this.recordPerformanceTelemetry(dt);
     const gameplayPausedByUi = this._isUiOverlayOpen();
     const frameDt = gameplayPausedByUi ? 0 : dt;
     this._lastUpdateDt = frameDt;
@@ -4068,6 +4077,24 @@ export class PlayCanvasZombieSlice {
     this.drawMiniMap();
     this.updateFx(frameDt);
     this.updateHud();
+  }
+
+  recordPerformanceTelemetry(dt) {
+    const frameMs = Math.max(0, Math.min(1000, Number(dt) * 1000 || 0));
+    if (frameMs <= 0) return;
+    const perf = this.performanceTelemetry;
+    perf.frameCount += 1;
+    perf.lastFrameMs = frameMs;
+    perf.worstFrameMs = Math.max(perf.worstFrameMs, frameMs);
+    if (frameMs > 50) {
+      perf.slowFrames += 1;
+    }
+    if (perf.frameMsAvg <= 0) {
+      perf.frameMsAvg = frameMs;
+    } else {
+      perf.frameMsAvg += (frameMs - perf.frameMsAvg) * 0.08;
+    }
+    perf.fpsAvg = perf.frameMsAvg > 0 ? 1000 / perf.frameMsAvg : 0;
   }
 
   updateCamera() {
@@ -5848,6 +5875,7 @@ export class PlayCanvasZombieSlice {
       const weaponState = getPlayCanvasWeaponSnapshot(this.state);
       const guidance = getPlayCanvasGuidanceSnapshot(this.state);
       const rewarded = getPlayCanvasRewardedAdSnapshot(this.state);
+      const perf = this.performanceTelemetry;
       const audio = getPlayCanvasAudioSnapshot(this.state, {
         shopOpen: this.shopOpen,
         villageDamageRecent: this.audioDamagePulseSec > 0 ? 1 : 0,
@@ -5888,6 +5916,12 @@ export class PlayCanvasZombieSlice {
         `rewardedLastProvider=${rewarded.lastProvider ?? "none"}`,
         `rewardedReviveUsed=${rewarded.reviveUsed}`,
         `rewardedClaimedOffers=${rewarded.claimedOfferKeys.length}`,
+        `perfFpsAvg=${Number(perf.fpsAvg || 0).toFixed(1)}`,
+        `perfFrameMsAvg=${Number(perf.frameMsAvg || 0).toFixed(1)}`,
+        `perfSlowFrames=${perf.slowFrames}`,
+        `perfWorstFrameMs=${Number(perf.worstFrameMs || 0).toFixed(1)}`,
+        `qualityProfile=${this.qualityProfileKey}`,
+        `renderScale=${Number(this.qualityProfile?.renderScale ?? 1).toFixed(2)}`,
         `musicEnabled=${audio.musicEnabled}`,
         `sfxEnabled=${audio.sfxEnabled}`,
         `musicMode=${audio.mode}`,

@@ -261,6 +261,12 @@ try {
   assert(state.text.includes("rewardedLastProvider=none"), "PlayCanvas rewarded-ad last-provider baseline was not reported");
   assert(state.text.includes("rewardedReviveUsed=false"), "PlayCanvas rewarded-ad revive status baseline was not reported");
   assert(state.text.includes("rewardedClaimedOffers=0"), "PlayCanvas rewarded-ad claimed-offer baseline was not reported");
+  assert(/perfFpsAvg=\d+\.\d/.test(state.text), "PlayCanvas performance telemetry did not report average FPS");
+  assert(/perfFrameMsAvg=\d+\.\d/.test(state.text), "PlayCanvas performance telemetry did not report average frame time");
+  assert(/perfSlowFrames=\d+/.test(state.text), "PlayCanvas performance telemetry did not report slow-frame count");
+  assert(/perfWorstFrameMs=\d+\.\d/.test(state.text), "PlayCanvas performance telemetry did not report worst frame time");
+  assert(/qualityProfile=(desktop_high|mobile_high|mobile_low)/.test(state.text), "PlayCanvas performance telemetry did not report quality profile");
+  assert(/renderScale=\d+\.\d{2}/.test(state.text), "PlayCanvas performance telemetry did not report render scale");
   assert(state.text.includes("musicEnabled=true"), "PlayCanvas audio state did not report enabled music baseline");
   assert(state.text.includes("sfxEnabled=true"), "PlayCanvas audio state did not report enabled SFX baseline");
   assert(state.text.includes("musicMode=raid"), "PlayCanvas audio state did not report raid music mode while running");
