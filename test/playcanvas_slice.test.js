@@ -35,8 +35,10 @@ import {
   useOrdnance,
   useFlintAndSteel,
   applyPlayCanvasRewardedOffer,
+  getPlayCanvasRewardedAdSnapshot,
   getPlayCanvasSummaryOffers,
   getPlayCanvasGameOverOffers,
+  recordPlayCanvasRewardedAdEvent,
   evaluateGoals,
   getGoalsSnapshot,
   revivePlayer,
@@ -1301,6 +1303,51 @@ describe("PlayCanvas campaign simulation", () => {
     state.reviveUsed = true;
     const offers2 = getPlayCanvasGameOverOffers(state);
     expect(offers2.find((o) => o.id === "revive")).toBeUndefined();
+  });
+
+  it("records PlayCanvas rewarded-ad telemetry and caps the run buffer at 80 events", () => {
+    const state = createSliceState();
+    state.phase = "intermission";
+    state.waveSummary = { wave: 2, kills: 4, coins: 40, coinsEarned: 40 };
+
+    for (let i = 0; i < 82; i += 1) {
+      recordPlayCanvasRewardedAdEvent(
+        state,
+        `event_${i}`,
+        { offerId: "bonus_grenades", claimKey: "summary:2:bonus_grenades", provider: "test" },
+        { now: () => 1000 + i },
+      );
+    }
+
+    const snapshot = getPlayCanvasRewardedAdSnapshot(state);
+    expect(snapshot.telemetryCount).toBe(80);
+    expect(snapshot.lastEventType).toBe("event_81");
+    expect(snapshot.lastOfferId).toBe("bonus_grenades");
+    expect(snapshot.lastProvider).toBe("test");
+    expect(state.rewardedRunState.telemetry[0].type).toBe("event_2");
+  });
+
+  it("mirrors rewarded run-state claim keys and revive status into the PlayCanvas snapshot", () => {
+    const state = createSliceState();
+    state.phase = "lost";
+    state.playerHp = 0;
+
+    const result = applyPlayCanvasRewardedOffer(state, "revive", "run:revive");
+    recordPlayCanvasRewardedAdEvent(
+      state,
+      result.applied ? "reward_granted" : "reward_rejected",
+      { offerId: "revive", claimKey: "run:revive", provider: "test", reward: result.reward ?? null },
+      { now: () => 1234 },
+    );
+
+    const snapshot = getPlayCanvasRewardedAdSnapshot(state);
+    expect(snapshot.reviveUsed).toBe(true);
+    expect(snapshot.lastEventType).toBe("reward_granted");
+    expect(snapshot.lastEvent?.reward).toEqual({ hp: 60 });
+    expect(snapshot.claimedOfferKeys).toEqual([]);
+
+    state.claimedOfferKeys.push("summary:3:bonus_grenades");
+    expect(getPlayCanvasRewardedAdSnapshot(state).claimedOfferKeys).toContain("summary:3:bonus_grenades");
   });
 
   // ── Bug-fix regression tests ────────────────────────────────────────────────

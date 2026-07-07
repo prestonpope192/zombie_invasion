@@ -56,6 +56,8 @@ import {
   getPlayCanvasSummaryOffers,
   getPlayCanvasGameOverOffers,
   applyPlayCanvasRewardedOffer,
+  getPlayCanvasRewardedAdSnapshot,
+  recordPlayCanvasRewardedAdEvent,
   getGoalsSnapshot,
 } from "./sliceSimulation";
 import { showRewardedAd } from "../fps/systems/rewardedAds";
@@ -2972,15 +2974,31 @@ export class PlayCanvasZombieSlice {
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Loading ad...";
+    const source = this.state.phase === "lost" ? "gameover" : "summary";
+    const wave = this.state.waveSummary?.wave ?? this.state.waveNumber ?? null;
+    this._recordRewardedAdEvent("offer_clicked", { offerId, claimKey, source, wave });
     let completed = false;
+    let provider = "unknown";
     try {
       const result = await showRewardedAd({ globalScope: window });
       completed = Boolean(result?.completed);
+      provider = result?.provider ?? "none";
     } catch {
       completed = false;
+      provider = "error";
     }
+    this._recordRewardedAdEvent(completed ? "ad_completed" : "ad_failed", { offerId, claimKey, source, wave, provider });
     if (completed) {
       const result = applyPlayCanvasRewardedOffer(this.state, offerId, claimKey);
+      this._recordRewardedAdEvent(result.applied ? "reward_granted" : "reward_rejected", {
+        offerId,
+        claimKey,
+        source,
+        wave,
+        provider,
+        message: result.message,
+        reward: result.reward ?? null,
+      });
       if (result.applied) {
         btn.textContent = "Claimed";
         btn.classList.add("is-claimed");
@@ -3002,6 +3020,14 @@ export class PlayCanvasZombieSlice {
       btn.disabled = false;
       btn.textContent = originalText;
     }
+  }
+
+  _recordRewardedAdEvent(type, details = {}) {
+    const event = recordPlayCanvasRewardedAdEvent(this.state, type, details);
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+      window.dispatchEvent(new window.CustomEvent("zombie_invasion_rewarded_ad", { detail: event }));
+    }
+    return event;
   }
 
   _buildOfferHtml(offer) {
@@ -5821,6 +5847,7 @@ export class PlayCanvasZombieSlice {
       const impact = getPlayCanvasImpactSnapshot(this.state);
       const weaponState = getPlayCanvasWeaponSnapshot(this.state);
       const guidance = getPlayCanvasGuidanceSnapshot(this.state);
+      const rewarded = getPlayCanvasRewardedAdSnapshot(this.state);
       const audio = getPlayCanvasAudioSnapshot(this.state, {
         shopOpen: this.shopOpen,
         villageDamageRecent: this.audioDamagePulseSec > 0 ? 1 : 0,
@@ -5855,6 +5882,12 @@ export class PlayCanvasZombieSlice {
         `weaponShotFx=${weaponState.shotFx}`,
         `weaponSilhouette=${weaponState.silhouette}`,
         `weaponSpreadMoa=${weaponState.spreadMoa}`,
+        `rewardedTelemetry=${rewarded.telemetryCount}`,
+        `rewardedLastEvent=${rewarded.lastEventType ?? "none"}`,
+        `rewardedLastOffer=${rewarded.lastOfferId ?? "none"}`,
+        `rewardedLastProvider=${rewarded.lastProvider ?? "none"}`,
+        `rewardedReviveUsed=${rewarded.reviveUsed}`,
+        `rewardedClaimedOffers=${rewarded.claimedOfferKeys.length}`,
         `musicEnabled=${audio.musicEnabled}`,
         `sfxEnabled=${audio.sfxEnabled}`,
         `musicMode=${audio.mode}`,

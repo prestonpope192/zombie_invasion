@@ -1,6 +1,12 @@
 Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
 
 ## Progress log
+- 2026-07-07 — PlayCanvas rewarded-ad telemetry parity:
+  - Closed the last documented MISSING parity item by adding PlayCanvas rewarded run-state telemetry using the shared `createRewardedRunState` shape, capped at 80 events per run.
+  - Wired the PlayCanvas ad offer flow to record `offer_clicked`, `ad_completed`, `ad_failed`, `reward_granted`, and `reward_rejected`, then dispatch `zombie_invasion_rewarded_ad` `CustomEvent` details for analytics listeners.
+  - Added automation/debug text fields for rewarded telemetry count, last event, last offer, provider, revive status, and claimed-offer count.
+  - Added regression coverage for telemetry buffer capping and reward snapshot mirroring. Parity docs now report 54 FULL / 1 PARTIAL / 0 MISSING / 5 N/A, with true 3D ballistics still the one partial item.
+  - Validation: `npm test -- test/playcanvas_slice.test.js` passed (75 tests), `npm test` passed (36 files, 197 tests), `npm run build` passed with the existing chunk-size warning, and `npm run smoke:playcanvas` passed with visual artifact `output/playcanvas-slice-smoke.png`.
 - 2026-07-07 — PlayCanvas zigzag parity + docs refresh:
   - Closed the documented runner/skitter zigzag parity gap by carrying `zigzagStrength` from `enemies_fps.json` into spawned PlayCanvas zombie state and applying target-relative lateral strafing in `stepZombies`.
   - Added regression coverage proving walker has no lateral drift, runner uses configured `0.24`, and skitter uses stronger configured `0.5`.

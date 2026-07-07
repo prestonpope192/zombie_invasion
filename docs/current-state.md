@@ -1,6 +1,6 @@
 # Current State
 
-**As of 2026-07-07** | Vitest: 195 pass (36 files) | Build: green | Smoke: green
+**As of 2026-07-07** | Vitest: 197 pass (36 files) | Build: green | Smoke: green
 
 ---
 
@@ -55,6 +55,11 @@ system modules under `src/fps/systems/`.
     in `sliceSimulation.js`; claim keys in `state.claimedOfferKeys` (persisted, sanitized for
     old saves)
   - Ad shim flow (loading → grant → claimed) with cancel-safe re-enable; amber `--zi` styling
+  - Runtime ad telemetry in `state.rewardedRunState.telemetry` using the shared
+    `createRewardedRunState` shape; records `offer_clicked`, `ad_completed`, `ad_failed`,
+    `reward_granted`, and `reward_rejected`, capped at 80 events per run
+  - Browser dispatch parity: PlayCanvas emits `zombie_invasion_rewarded_ad` `CustomEvent`
+    with the recorded event detail; automation text exposes telemetry count/last-event fields
 - **Persistent goals / challenges** (6 GOAL_DEFS exported from `sliceSimulation.js`):
   - Wave Survivor (bestWave ≥ 5, +50 coins), Veteran Defender (bestWave ≥ 10, +100 coins),
     Exterminator (lifetime kills ≥ 500, +75 coins), Iron Endurance (wavesCleared ≥ 10, +60 coins),
@@ -162,7 +167,7 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
 | Check | Result |
 |---|---|
-| `npm test` | 36 files, 195 tests, all pass |
+| `npm test` | 36 files, 197 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
@@ -171,7 +176,7 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 | Weapon fire FX pool | Confirmed via `?fxslow=1` harness |
 | Leaper pounce + amber ring | Confirmed via live-GPU: `zombie.y ≈ 0.76` caught mid-arc, shadow grounded |
 | Flyer hover | Confirmed via live-GPU: entity floats at `hoverHeight` |
-| Rewarded-ad multi-offers | Confirmed: 11 new tests covering offer apply-once, medkit heal, grenades, goals, save round-trip |
+| Rewarded-ad multi-offers + telemetry | Confirmed: 13 focused tests covering offer apply-once, medkit heal, grenades, goals, save round-trip, run-state telemetry cap, and snapshot mirroring |
 | Virtual left joystick | Confirmed in source; `.pc-joystick-base` / `.pc-joystick-knob` wired |
 | Right-zone canvas look | Confirmed: dead-zone 0.24, exponent 1.75, gain 0.62 matching legacy right-stick |
 | Hitmarker / streak / floater DOM | Confirmed: element presence + worker inline capture |
@@ -187,9 +192,9 @@ A full requirement-by-requirement audit was completed on 2026-06-12 and updated 
 
 | Status | Count |
 |---|---|
-| FULL | 53 |
+| FULL | 54 |
 | PARTIAL | 1 |
-| MISSING | 1 |
+| MISSING | 0 |
 | N/A-BY-DESIGN | 5 |
 | **Total features audited** | **60** |
 
@@ -197,13 +202,11 @@ A full requirement-by-requirement audit was completed on 2026-06-12 and updated 
 strength are now verified FULL in the PlayCanvas route.)*
 
 **Full parity is not yet achieved.** The PlayCanvas route is feature-rich and
-playable end-to-end, but has residual gaps versus the legacy Three.js FPS route.
+playable end-to-end, but has one residual partial gap versus the legacy Three.js FPS route.
 
 ### Remaining MISSING Feature
 
-- **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
-  `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
-  loss for ad effectiveness; no player-visible impact.
+- None currently identified.
 
 ### Remaining PARTIAL Feature
 

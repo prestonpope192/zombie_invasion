@@ -21,6 +21,7 @@ import {
 } from "../fps/systems/grenadeLoadout";
 import {
   REWARDED_OFFER_IDS,
+  createRewardedRunState,
   getSummaryOfferClaimKey,
 } from "../fps/systems/rewardedAdOffers";
 import {
@@ -110,6 +111,7 @@ const FINAL_BOSS_LANDSCAPE_FALLBACK_COUNT = 4;
 const FRIENDLY_FIRE_VILLAGE_DAMAGE = false;
 const IMPACT_EVENT_TTL_SEC = 0.72;
 const MAX_ACTIVE_IMPACT_EVENTS = 14;
+const MAX_REWARDED_TELEMETRY_EVENTS = 80;
 
 const ENEMY_DEFS = new Map(enemiesConfig.map((enemy) => [enemy.id, enemy]));
 const BOSS_DEF = {
@@ -341,6 +343,59 @@ export function getGoalsSnapshot(state) {
 }
 
 // ── Rewarded-offer pure helpers (PlayCanvas-native, Deliverable A) ─────────
+
+function normalizeRewardedTelemetry(raw) {
+  const events = Array.isArray(raw) ? raw : [];
+  return events
+    .filter((event) => event && typeof event === "object")
+    .slice(-MAX_REWARDED_TELEMETRY_EVENTS)
+    .map((event) => ({
+      ...event,
+      type: typeof event.type === "string" ? event.type : "unknown",
+      at: Number.isFinite(Number(event.at)) ? Number(event.at) : 0,
+    }));
+}
+
+export function getPlayCanvasRewardedRunState(state) {
+  if (!state.rewardedRunState || typeof state.rewardedRunState !== "object") {
+    state.rewardedRunState = createRewardedRunState();
+  }
+  state.rewardedRunState.claimedOfferKeys = normalizeClaimedOfferKeys(state.claimedOfferKeys);
+  state.rewardedRunState.reviveUsed = Boolean(state.reviveUsed);
+  state.rewardedRunState.telemetry = normalizeRewardedTelemetry(state.rewardedRunState.telemetry);
+  return state.rewardedRunState;
+}
+
+export function recordPlayCanvasRewardedAdEvent(state, type, details = {}, options = {}) {
+  const runState = getPlayCanvasRewardedRunState(state);
+  const now = typeof options.now === "function" ? options.now() : options.now;
+  const event = {
+    mode: "playcanvas",
+    phase: state?.phase ?? "unknown",
+    at: Number.isFinite(Number(now)) ? Number(now) : Date.now(),
+    ...details,
+    type,
+  };
+  runState.telemetry.push(event);
+  if (runState.telemetry.length > MAX_REWARDED_TELEMETRY_EVENTS) {
+    runState.telemetry.splice(0, runState.telemetry.length - MAX_REWARDED_TELEMETRY_EVENTS);
+  }
+  return event;
+}
+
+export function getPlayCanvasRewardedAdSnapshot(state) {
+  const runState = getPlayCanvasRewardedRunState(state);
+  const lastEvent = runState.telemetry[runState.telemetry.length - 1] ?? null;
+  return {
+    claimedOfferKeys: [...runState.claimedOfferKeys],
+    reviveUsed: runState.reviveUsed,
+    telemetryCount: runState.telemetry.length,
+    lastEvent,
+    lastEventType: lastEvent?.type ?? null,
+    lastOfferId: lastEvent?.offerId ?? null,
+    lastProvider: lastEvent?.provider ?? null,
+  };
+}
 
 // Per-state claim helpers (work directly with state.claimedOfferKeys)
 function _isOfferClaimed(state, claimKey) {
@@ -587,6 +642,7 @@ export function createSliceState(save = loadPlayCanvasSave()) {
     waveGraceSec: 0,
     reviveUsed: false,
     claimedOfferKeys,
+    rewardedRunState: { ...createRewardedRunState(), claimedOfferKeys },
     claimedGoalIds,
     player: {
       x: 0,

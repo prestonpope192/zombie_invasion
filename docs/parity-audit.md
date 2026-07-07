@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-06-12 (updated 2026-07-07)
 **Auditor:** Documentation agent (read-only inspection; no code changes)
-**Verification baseline:** `npm test` → 36 files, 195 tests, all pass; `npm run build` pass; `npm run smoke:playcanvas` pass
+**Verification baseline:** `npm test` → 36 files, 197 tests, all pass; `npm run build` pass; `npm run smoke:playcanvas` pass
 **Method:** Static source inspection of `src/fps/` (legacy), `src/playcanvas/` (PlayCanvas),
 and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`,
 `src/fps/systems/`, `src/fps/scenes/`, and `src/fps/config/*.json`.
@@ -70,7 +70,7 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 43 | **Shop scene (between waves)** | `ShopScene3D.js` | Shop panel toggled in `main.js`; `getShopItems` from `sliceSimulation.js` | FULL | Legacy shop is a separate full-screen scene; PlayCanvas shop is an in-raid side panel. Items and economy identical. |
 | 44 | **Rewarded ads — revive-on-death** | `rewardedAds.js`, `FpsGame.reviveFromRewardedAd` | `_triggerReviveAd` in `main.js` (CrazyGames / Poki / mock); `revivePlayer` in `sliceSimulation.js` | FULL | |
 | 45 | **Rewarded ads — multi-offer (summary / game-over)** | `rewardedAdOffers.js`, `SummaryScene3D.js`, `GameOverScene3D.js` | `getPlayCanvasSummaryOffers` / `getPlayCanvasGameOverOffers` / `applyPlayCanvasRewardedOffer` in `sliceSimulation.js`; imports `REWARDED_OFFER_IDS` + `getSummaryOfferClaimKey` from `rewardedAdOffers.js`; claim keys in `state.claimedOfferKeys` (persisted) | FULL | Summary offers DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES per wave. Game-over offers REVIVE (one-per-run) + bonus coins/grenades. Ad shim: loading→grant→claimed with cancel-safe re-enable. Amber styling. 11 new tests cover apply-once, re-claim-blocked, medkit heal, revive, offer filtering, save round-trip. |
-| 46 | **Rewarded ad telemetry / run-state** | `rewardedAdOffers.js` (`createRewardedRunState`, telemetry events) | Not present in PlayCanvas | MISSING | Legacy records per-run telemetry: offer_clicked, ad_completed, reward_granted, etc. PlayCanvas has no equivalent telemetry. |
+| 46 | **Rewarded ad telemetry / run-state** | `rewardedAdOffers.js` (`createRewardedRunState`, telemetry events) | `getPlayCanvasRewardedRunState`, `recordPlayCanvasRewardedAdEvent`, and `getPlayCanvasRewardedAdSnapshot` in `sliceSimulation.js`; `_recordRewardedAdEvent` dispatches `zombie_invasion_rewarded_ad` from `main.js`; automation text reports telemetry count/last event/provider | FULL | PlayCanvas now uses the shared run-state shape, records offer_clicked/ad_completed/ad_failed/reward_granted/reward_rejected, caps telemetry at 80 events, mirrors claim/revive state, and dispatches browser events for analytics listeners. |
 | 47 | **Audio — SFX (weapon, impact, explosion)** | `audio3d.js`, `RaidScene3D.js` | `Audio3D` imported in `main.js`; `playWeapon`, `playImpact`, `playExplosion` called on fire/ordnance | FULL | |
 | 48 | **Audio — adaptive music (musicDirector)** | `musicDirector.js`, `audio3d.js` | `selectMusicCue`, `computeRaidThreatScore` imported in `sliceSimulation.js`; `updateMusicState` called in `updateAudioState` in `main.js` | FULL | |
 | 49 | **Audio — settings (music/SFX on/off)** | `FpsGame.persistAudioSettings` | `setPlayCanvasAudioSettings`, menu checkboxes in `main.js` | FULL | |
@@ -101,11 +101,11 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 
 | Status | Count | Change from 2026-06-12 |
 |--------|-------|------------------------|
-| FULL | 53 | +7 (items 4, 5, 6, 7, 28, 40, 42 → from PARTIAL; item 45 → from MISSING) |
+| FULL | 54 | +9 (items 4, 5, 6, 7, 28, 40, 42 → from PARTIAL; items 45, 46 → from MISSING) |
 | PARTIAL | 1 | −7 |
-| MISSING | 1 | −1 |
+| MISSING | 0 | −2 |
 | N/A-BY-DESIGN | 5 | — |
-| **Total** | **60** | net: 8 flips reduce PARTIAL by 7 and MISSING by 1; audit table is 60 distinct features |
+| **Total** | **60** | net: 9 flips reduce PARTIAL by 7 and MISSING by 2; audit table is 60 distinct features |
 
 **Status flips (2026-06-13 through 2026-07-07):**
 
@@ -119,17 +119,16 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 40 | Game-over scene depth (stats + multi-offers) | PARTIAL | FULL |
 | 42 | Boot scene / loading screen | PARTIAL | FULL |
 | 45 | Rewarded ads — multi-offer (summary / game-over) | MISSING | FULL |
+| 46 | Rewarded ad telemetry / run-state | MISSING | FULL |
 | 52 | Mobile look — right-stick joystick | PARTIAL | FULL |
 
 ---
 
 ## MISSING Features (player-facing)
 
-1. **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
-   `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
-   loss for ad effectiveness; no player-visible impact.
+None currently identified.
 
-*(Rewarded ad multi-offers were MISSING as of 2026-06-12; promoted to FULL on 2026-06-13.)*
+*(Rewarded ad multi-offers were MISSING as of 2026-06-12; promoted to FULL on 2026-06-13. Rewarded ad telemetry/run-state was promoted to FULL on 2026-07-07.)*
 
 ---
 
@@ -149,7 +148,7 @@ loading screen were PARTIAL as of 2026-06-12; all promoted to FULL on 2026-06-13
 `current-state.md` was updated on 2026-07-07 in sync with this audit refresh. The prior
 version correctly stated full parity was not achieved, but several rows were stale after
 subsequent implementation passes. Full parity remains not yet achieved:
-1 MISSING feature and 1 PARTIAL feature remain open.
+1 PARTIAL feature remains open; no MISSING features are currently identified.
 
 ---
 

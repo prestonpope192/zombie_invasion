@@ -45,7 +45,8 @@ Historical evidence and deeper references:
   thud, headshot ding, streak arpeggio, reload start/finish, empty click, coin ching, player
   damage thud, low-HP heartbeat; plus a night ambient bed. All gated by sfxEnabled/musicEnabled.
 - **Rewarded ad multi-offers**: wave-clear summary offers DOUBLE_WAVE_COINS / FREE_MEDKIT /
-  BONUS_GRENADES; game-over offers REVIVE + bonus coins/grenades; claim-tracked per wave.
+  BONUS_GRENADES; game-over offers REVIVE + bonus coins/grenades; claim-tracked per wave with
+  run-state telemetry and `zombie_invasion_rewarded_ad` browser events.
 - **Persistent goals/challenges**: 6 GOAL_DEFS (wave milestones, lifetime kills, waves cleared,
   play time, villager rescues); progress bars in Goals menu section; one-time coin bonuses.
 - Desktop and mobile controls for movement, fire, shop, weapon cycling, and ordnance.
@@ -69,9 +70,9 @@ Historical evidence and deeper references:
 - Legacy route:
   older Three.js FPS runtime behind `?legacy=1` from
   [`src/fps`](/Users/preston/Code/zombie_invasion/src/fps)
-- Test baseline: 195 Vitest tests pass; PlayCanvas smoke exit 0 (as of 2026-07-07)
-- Parity status: 53 of 60 audited features are FULL; 1 PARTIAL; 1 MISSING (ad
-  telemetry). Full parity not yet achieved. See
+- Test baseline: 197 Vitest tests pass; PlayCanvas smoke exit 0 (as of 2026-07-07)
+- Parity status: 54 of 60 audited features are FULL; 1 PARTIAL; 0 MISSING. Full
+  parity not yet achieved because true 3D ballistics remain partial. See
   [`docs/parity-audit.md`](/Users/preston/Code/zombie_invasion/docs/parity-audit.md).
 
 ## Project layout
