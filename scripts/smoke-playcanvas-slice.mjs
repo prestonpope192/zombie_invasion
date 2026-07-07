@@ -135,6 +135,15 @@ try {
       game.updateHud();
     }
   });
+  await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    if (game) {
+      game.state.phase = "running";
+      game.state.shotCooldownSec = 0;
+      game.fire();
+      game.updateHud();
+    }
+  });
   await page.setViewportSize({ width: 390, height: 760 });
   await page.waitForTimeout(100);
   // PRIMARY controls: visible in the right action cluster at phone viewport.
@@ -255,6 +264,7 @@ try {
   assert(state.text.includes("weaponViewModel=sidearm"), "PlayCanvas weapon identity did not report sidearm viewmodel baseline");
   assert(state.text.includes("weaponReticle=sidearm"), "PlayCanvas weapon identity did not report sidearm reticle baseline");
   assert(state.text.includes("weaponShotFx=spark"), "PlayCanvas weapon identity did not report sidearm shot FX baseline");
+  assert(state.text.includes('"ballistic"'), "PlayCanvas combat event did not expose ballistic telemetry");
   assert(state.text.includes("rewardedTelemetry=0"), "PlayCanvas rewarded-ad telemetry baseline was not reported");
   assert(state.text.includes("rewardedLastEvent=none"), "PlayCanvas rewarded-ad last-event baseline was not reported");
   assert(state.text.includes("rewardedLastOffer=none"), "PlayCanvas rewarded-ad last-offer baseline was not reported");

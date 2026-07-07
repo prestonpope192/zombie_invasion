@@ -214,7 +214,9 @@ playable end-to-end, but has one residual partial gap versus the legacy Three.js
 ### Remaining PARTIAL Feature
 
 1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
-   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan.
+   drop, drag, and penetration. PlayCanvas now records ballistic flight/drop metadata in
+   combat events using the legacy drop formula, but still resolves weapon hits instantly
+   with distance-falloff hitscan.
 
 See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with per-feature delta
 notes and legacy source citations.
@@ -231,8 +233,9 @@ These items are absent from the PlayCanvas route by explicit design decision
 - **Three.js render pipeline** — no bloom, DOF, or SSAO post-processing. PlayCanvas uses ACES
   tone mapping natively. Bloom is available behind `?bloom=1` via `pc.CameraFrame` but disabled
   by default (eye/muzzle corona spheres deliver the halo look in the normal pipeline).
-- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag replaced
-  by hitscan with distance falloff.
+- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag are
+  represented in PlayCanvas combat telemetry, but gameplay still uses hitscan with distance
+  falloff instead of authoritative projectile travel.
 
 ---
 

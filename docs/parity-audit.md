@@ -34,7 +34,7 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 7 | **Enemy AI — crawler (ground hug)** | `enemyAi3D.js` `movementMode=crawler` | `sliceSimulation.js`: crawler type stored/spawned; `zombieGlb.js` and `zombieRig.js` apply crawler scale/posture and Crawl animation | FULL | PlayCanvas achieves the player-facing crawler read through GLB/procedural visual scaling and Crawl animation. Movement remains ground-plane by design. |
 | 8 | **Enemy types — full roster** | `enemies_fps.json`: 17 types (crawler, walker, runner, leaper, brute, armored, flyer, skitter, pouncer, revenant, juggernaut, zombie_pig, zombie_horse, zombie_cow, zombie_chicken, mega_zombie, mini_boss) | `sliceSimulation.js` imports `enemies_fps.json`; all types spawn per wave composition | FULL | All 17 types spawn. Stat scaling (HP×waveScale, speedMps, coinReward) applied uniformly. |
 | 9 | **Headshot system** | `headshotRules.js`, `RaidScene3D.js` | `sliceSimulation.js` `fireSliceWeapon`: pitch < −8°, distance < 14, single target → 2.2× multiplier | FULL | PlayCanvas implements inline; same multiplier. |
-| 10 | **Weapon ballistics (projectile travel, drag, drop)** | `weaponBallistics.js` (3D physics projectile) | `sliceSimulation.js` `getWeaponAttackProfile`: per-weapon cone+range+falloff; distance falloff curve | PARTIAL | Legacy uses true 3D projectile with gravity drop and drag. PlayCanvas uses hitscan with distance falloff. Effective DPS and effective range match by design but trajectory and penetration through cover differ. |
+| 10 | **Weapon ballistics (projectile travel, drag, drop)** | `weaponBallistics.js` (3D physics projectile) | `sliceSimulation.js` `getWeaponAttackProfile`: per-weapon cone+range+falloff; distance falloff curve; `lastCombatEvent.ballistic` reports muzzle velocity, travel time, drop, drag, mass, and distance using the legacy drop helper | PARTIAL | Legacy uses true 3D projectile with gravity drop and drag. PlayCanvas now exposes shared ballistic flight/drop metadata for hits, misses, blasts, and structure impacts, but gameplay still uses hitscan with distance falloff. Projectile travel, penetration through cover, and drag-driven impact energy remain non-authoritative. |
 | 11 | **Weapon slots (1–0 hotkeys)** | `weaponSlots.js` | `WEAPON_SLOT_BINDINGS` in `main.js` + `setKey` handler | FULL | Same 14 slot bindings. |
 | 12 | **Weapon cycle (tab/O)** | `RaidScene3D.js` | `cycleOwnedWeapon` in `sliceSimulation.js`; O key in `main.js` | FULL | |
 | 13 | **Weapon equip from shop** | `ShopScene3D.js` | `buyOrEquipWeapon`, `equipOwnedWeapon` in `sliceSimulation.js` | FULL | |
@@ -135,8 +135,9 @@ None currently identified.
 ## PARTIAL Features (player-facing, ranked by impact)
 
 1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
-   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan. Transparent to most
-   players; hardcore players may notice sniper arcs vanish.
+   drop, drag, and penetration. PlayCanvas now records muzzle velocity, travel time, drop,
+   drag, mass, and shot distance in combat telemetry, but still uses distance-falloff hitscan
+   for gameplay. Transparent to most players; hardcore players may notice sniper arcs vanish.
 
 *(Mobile right-stick look, flyer hover, leaper pounce, game-over scene depth, and the boot
 loading screen were PARTIAL as of 2026-06-12; all promoted to FULL on 2026-06-13.)*

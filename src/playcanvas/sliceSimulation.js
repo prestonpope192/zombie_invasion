@@ -14,6 +14,7 @@ import {
   computeRaidThreatScore,
   selectMusicCue,
 } from "../fps/systems/musicDirector";
+import { ballisticDropAtDistance } from "../fps/systems/weaponBallistics";
 import {
   DEFAULT_GRENADE_TYPE_ID,
   GRENADE_TYPE_DEFS,
@@ -1597,6 +1598,7 @@ export function fireSliceWeapon(state) {
   if (!primaryTarget) {
     const structureImpact = resolvePlayCanvasStructureShot(state, weapon, profile, { forwardX, forwardZ });
     if (structureImpact) {
+      const ballistic = getPlayCanvasBallisticTelemetry(weapon, structureImpact.impactDistance);
       state.lastMessage = structureImpact.windowShattered
         ? `${weapon.label} shattered village glass.`
         : `${weapon.label} struck ${structureImpact.materialId} siding.`;
@@ -1610,8 +1612,10 @@ export function fireSliceWeapon(state) {
         windowShattered: Boolean(structureImpact.windowShattered),
         potentialVillageDamage: structureImpact.potentialVillageDamage,
         appliedVillageDamage: structureImpact.appliedVillageDamage,
+        impactDistance: structureImpact.impactDistance,
+        ...(ballistic ? { ballistic } : {}),
       };
-      return { hit: false, reason: "impact", impact: true, ...structureImpact };
+      return { hit: false, reason: "impact", impact: true, ...structureImpact, ...(ballistic ? { ballistic } : {}) };
     }
     if (weapon.category === "melee") {
       state.lastMessage = "Pipe swing missed. Close the gap before attacking.";
@@ -1621,6 +1625,7 @@ export function fireSliceWeapon(state) {
     // Nothing in the way — the round kicks up terrain down-range so the player
     // can read where the shot actually went.
     const ground = resolvePlayCanvasGroundMiss(state, profile);
+    const ballistic = getPlayCanvasBallisticTelemetry(weapon, ground.impactDistance);
     state.lastMessage = "Shot missed — round kicked up dirt.";
     state.lastCombatEvent = {
       weaponId: weapon.id,
@@ -1628,6 +1633,8 @@ export function fireSliceWeapon(state) {
       reason: "miss",
       impact: true,
       materialId: ground.materialId,
+      impactDistance: ground.impactDistance,
+      ...(ballistic ? { ballistic } : {}),
     };
     return {
       hit: false,
@@ -1635,19 +1642,22 @@ export function fireSliceWeapon(state) {
       impact: true,
       materialId: ground.materialId,
       impactDistance: ground.impactDistance,
+      ...(ballistic ? { ballistic } : {}),
     };
   }
 
+  const primaryBallistic = getPlayCanvasBallisticTelemetry(weapon, primaryTarget.distance);
   if (profile.blastRadius > 0) {
     const result = applyBlastDamage(state, primaryTarget.zombie, weapon.damage * profile.damageScale, profile.blastRadius);
     state.lastMessage = `${weapon.label} detonated: ${result.hitCount} hit, ${result.killCount} down.`;
-    state.lastCombatEvent = { weaponId: weapon.id, hit: true, blast: true, ...result };
+    state.lastCombatEvent = { weaponId: weapon.id, hit: true, blast: true, ...result, ...(primaryBallistic ? { ballistic: primaryBallistic } : {}) };
     return {
       hit: true,
       zombieId: primaryTarget.zombie.id,
       damage: result.primaryDamage,
       hitCount: result.hitCount,
       killCount: result.killCount,
+      ...(primaryBallistic ? { ballistic: primaryBallistic } : {}),
     };
   }
 
@@ -1695,9 +1705,18 @@ export function fireSliceWeapon(state) {
     killCount,
     damage: totalDamage,
     primaryZombieId: primaryTarget.zombie.id,
+    ...(primaryBallistic ? { ballistic: primaryBallistic } : {}),
   };
 
-  return { hit: true, zombieId: primaryTarget.zombie.id, damage: totalDamage, hitCount: targets.length, killCount, headshot: wasHeadshot };
+  return {
+    hit: true,
+    zombieId: primaryTarget.zombie.id,
+    damage: totalDamage,
+    hitCount: targets.length,
+    killCount,
+    headshot: wasHeadshot,
+    ...(primaryBallistic ? { ballistic: primaryBallistic } : {}),
+  };
 }
 
 export function reloadSliceWeapon(state) {
@@ -3204,6 +3223,24 @@ function resolvePlayCanvasGroundMiss(state, profile) {
   return { impactDistance, materialId: "soil" };
 }
 
+function getPlayCanvasBallisticTelemetry(weapon, distanceMeters) {
+  const muzzleVelocityMps = Number(weapon?.muzzleVelocityMps ?? 0);
+  if (!Number.isFinite(muzzleVelocityMps) || muzzleVelocityMps <= 0 || weapon?.category === "melee") {
+    return null;
+  }
+  const rawDistance = Number(distanceMeters ?? 0);
+  const distance = Number.isFinite(rawDistance) ? Math.max(0, rawDistance) : 0;
+  const travelTimeSec = distance / Math.max(0.001, muzzleVelocityMps);
+  return {
+    distanceMeters: Number(distance.toFixed(2)),
+    muzzleVelocityMps,
+    travelTimeSec: Number(travelTimeSec.toFixed(3)),
+    dropMeters: Number(ballisticDropAtDistance(distance, muzzleVelocityMps).toFixed(3)),
+    drag: Number(weapon.drag ?? 0),
+    massGrams: Number(weapon.massGrams ?? 0),
+  };
+}
+
 function resolvePlayCanvasStructureShot(state, weapon, profile, forward) {
   const target = getBestStructureShotTarget(state, profile, forward);
   if (!target) {
@@ -3217,7 +3254,7 @@ function resolvePlayCanvasStructureShot(state, weapon, profile, forward) {
     state.brokenWindowIds = [...brokenWindows];
   }
   const materialId = windowShattered ? "glass" : target.materialId;
-  return recordPlayCanvasStructureImpact(state, {
+  const impact = recordPlayCanvasStructureImpact(state, {
     target,
     materialId,
     windowId: isWindow ? target.id : null,
@@ -3226,6 +3263,8 @@ function resolvePlayCanvasStructureShot(state, weapon, profile, forward) {
     weaponCategory: weapon.category,
     weaponId: weapon.id,
   });
+  impact.impactDistance = Number(Math.hypot(target.x - state.player.x, target.z - state.player.z).toFixed(2));
+  return impact;
 }
 
 function resolvePlayCanvasBlastImpact(state, def, center) {

@@ -176,6 +176,29 @@ describe("PlayCanvas campaign simulation", () => {
     expect(state.zombies[0].hp).toBeLessThan(100);
   });
 
+  it("records PlayCanvas ballistic flight metadata for weapon hits", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI;
+    state.player.onGround = true;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 28, hp: 100, maxHp: 100 }];
+
+    const result = fireSliceWeapon(state);
+
+    expect(result.hit).toBe(true);
+    expect(result.ballistic).toMatchObject({
+      distanceMeters: 20,
+      muzzleVelocityMps: 360,
+      travelTimeSec: expect.closeTo(20 / 360, 3),
+      dropMeters: expect.closeTo(0.015, 3),
+      drag: 0.28,
+      massGrams: 8,
+    });
+    expect(state.lastCombatEvent.ballistic).toEqual(result.ballistic);
+  });
+
   it("makes PlayCanvas headshots hit much harder than body shots", () => {
     const makeAimState = (pitch) => {
       const state = startSlice(createSliceState());
@@ -220,7 +243,20 @@ describe("PlayCanvas campaign simulation", () => {
     expect(result.impact).toBe(true);
     expect(result.materialId).toBe("soil");
     expect(result.impactDistance).toBeGreaterThan(0);
-    expect(state.lastCombatEvent).toMatchObject({ hit: false, reason: "miss", impact: true, materialId: "soil" });
+    expect(result.ballistic).toMatchObject({
+      muzzleVelocityMps: 360,
+      travelTimeSec: expect.any(Number),
+      dropMeters: expect.any(Number),
+    });
+    expect(result.ballistic.dropMeters).toBeGreaterThan(0);
+    expect(state.lastCombatEvent).toMatchObject({
+      hit: false,
+      reason: "miss",
+      impact: true,
+      materialId: "soil",
+      impactDistance: result.impactDistance,
+      ballistic: result.ballistic,
+    });
   });
 
   it("keeps the shotgun forgiving — off-axis zombies in the spread still get hit", () => {
@@ -648,7 +684,8 @@ describe("PlayCanvas campaign simulation", () => {
     expect(result.killCount).toBe(2);
     expect(state.kills).toBe(2);
     expect(state.coins).toBeGreaterThan(0);
-    expect(state.lastCombatEvent).toMatchObject({ weaponId: "rpg", blast: true, hitCount: 2 });
+    expect(result.ballistic).toMatchObject({ muzzleVelocityMps: 110, distanceMeters: 10 });
+    expect(state.lastCombatEvent).toMatchObject({ weaponId: "rpg", blast: true, hitCount: 2, ballistic: result.ballistic });
   });
 
   it("breaks village windows and records material impact reactions without friendly-fire damage", () => {
@@ -679,7 +716,8 @@ describe("PlayCanvas campaign simulation", () => {
     expect(impact.potentialVillageDamage).toBeGreaterThan(0);
     expect(impact.appliedVillageDamage).toBe(0);
     expect(state.villageHp).toBe(villageHpBefore);
-    expect(state.lastCombatEvent).toMatchObject({ reason: "impact", impact: true, materialId: "glass" });
+    expect(result.ballistic).toMatchObject({ muzzleVelocityMps: 360, distanceMeters: 8 });
+    expect(state.lastCombatEvent).toMatchObject({ reason: "impact", impact: true, materialId: "glass", ballistic: result.ballistic });
   });
 
   it("expires PlayCanvas impact events after their visual lifetime", () => {

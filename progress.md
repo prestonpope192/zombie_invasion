@@ -1,6 +1,10 @@
 Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
 
 ## Progress log
+- 2026-07-07 — PlayCanvas ballistic telemetry slice:
+  - Added PlayCanvas weapon-shot ballistic metadata for hits, clean misses, launcher blasts, and village structure impacts without changing hit resolution, damage, cooldowns, or targeting behavior.
+  - Reused the legacy `ballisticDropAtDistance` helper so `lastCombatEvent.ballistic` and weapon fire results report distance, muzzle velocity, travel time, drop, drag, and projectile mass.
+  - Updated browser smoke coverage to prove the combat-event text hook exposes ballistic telemetry, while parity docs still mark true projectile travel/penetration as PARTIAL.
 - 2026-07-07 — PlayCanvas performance telemetry surface:
   - Added rolling frame-performance telemetry to the PlayCanvas runtime: average FPS, average frame time, slow-frame count, worst frame time, active quality profile, and render scale.
   - Exposed the telemetry through `window.render_game_to_text()` / `window.render_playcanvas_game_to_text()` so browser smoke and future visual/performance tuning can detect regressions without manual profiling.
