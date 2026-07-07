@@ -1,6 +1,10 @@
 Original prompt: build this game and deploy it to a docker container and spin it up so i can play it on my phone, ensure mobile compatibility in addition to desktop play, following the provided Zombie Invasion specification.
 
 ## Progress log
+- 2026-07-07 — PlayCanvas ballistic tracer feel:
+  - Turned the new ballistic telemetry into visible game feel by applying subtle visual sag to PlayCanvas tracer FX from `lastCombatEvent.ballistic.dropMeters`, without changing hit detection, damage, or balance.
+  - Added `computeBallisticTracerDrop` as a small tested shot-FX rule and exposed `tracerDropVisual` / `tracerDropActual` through the PlayCanvas automation text hook.
+  - Validation: `npm test -- test/shot_fx_rules.test.js test/playcanvas_slice.test.js` passed (79 tests), `npm run smoke:playcanvas` passed with `tracerDropVisual=0.096`, `npm run build` passed with the existing chunk-size warning, and `npm run test:full` passed (37 files, 201 tests + build + smoke).
 - 2026-07-07 — PlayCanvas ballistic telemetry slice:
   - Added PlayCanvas weapon-shot ballistic metadata for hits, clean misses, launcher blasts, and village structure impacts without changing hit resolution, damage, cooldowns, or targeting behavior.
   - Reused the legacy `ballisticDropAtDistance` helper so `lastCombatEvent.ballistic` and weapon fire results report distance, muzzle velocity, travel time, drop, drag, and projectile mass.

@@ -1,6 +1,6 @@
 # Current State
 
-**As of 2026-07-07** | Vitest: 197 pass (36 files) | Build: green | Smoke: green
+**As of 2026-07-07** | Vitest: 201 pass (37 files) | Build: green | Smoke: green
 
 ---
 
@@ -94,7 +94,8 @@ system modules under `src/fps/systems/`.
 - 9 first-person weapon viewmodels: sidearm, compact, rifle, shotgun, precision, heavy,
   launcher, flamethrower, pipe — each with gloved hands/forearms and camera fill light
 - Shot FX pool: star muzzle flash (8 slots), muzzle light pulse, emissive tracers (8 slots),
-  material-tinted impact bursts (3 slots × 6 particles); zero per-shot allocations after warmup
+  material-tinted impact bursts (3 slots × 6 particles); ballistic shots apply subtle tracer
+  sag from `lastCombatEvent.ballistic.dropMeters`; zero per-shot allocations after warmup
 - Damage flash overlays: player (red radial), village (orange top)
 - Minimap: canvas 2D with zombie/villager/door/fire/building layers (top-right, 3-dot legend)
 - Runtime performance telemetry: rolling FPS, frame time, slow-frame count, worst frame time,
@@ -169,7 +170,7 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
 | Check | Result |
 |---|---|
-| `npm test` | 36 files, 197 tests, all pass |
+| `npm test` | 37 files, 201 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
@@ -185,6 +186,7 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 | Low-HP vignette | Confirmed: renders without obscuring view |
 | Settings sheet haptics toggle | Confirmed via live-GPU: toggle visible and functional |
 | PlayCanvas performance telemetry | Confirmed via smoke: `perfFpsAvg`, `perfFrameMsAvg`, `perfSlowFrames`, `perfWorstFrameMs`, `qualityProfile`, and `renderScale` exposed in `render_game_to_text` |
+| Ballistic tracer visual sag | Confirmed via smoke: `tracerDropVisual` reports positive sag after a ballistic shot |
 
 ---
 
@@ -215,8 +217,8 @@ playable end-to-end, but has one residual partial gap versus the legacy Three.js
 
 1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
    drop, drag, and penetration. PlayCanvas now records ballistic flight/drop metadata in
-   combat events using the legacy drop formula, but still resolves weapon hits instantly
-   with distance-falloff hitscan.
+   combat events using the legacy drop formula and renders tracer sag from that data, but still
+   resolves weapon hits instantly with distance-falloff hitscan.
 
 See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with per-feature delta
 notes and legacy source citations.

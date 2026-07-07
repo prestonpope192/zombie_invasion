@@ -62,6 +62,7 @@ import {
 } from "./sliceSimulation";
 import { showRewardedAd } from "../fps/systems/rewardedAds";
 import { SfxSampleManager } from "./sfxSamples";
+import { computeBallisticTracerDrop } from "./shotFxRules";
 import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
@@ -3165,6 +3166,8 @@ export class PlayCanvasZombieSlice {
       this.app.root.addChild(tracer);
       tracer._sfxTtl = 0;
       tracer._sfxMaxTtl = 0;
+      tracer._sfxBallisticDrop = 0;
+      tracer._sfxBallisticActualDrop = 0;
       this.shotFx.tracers.push(tracer);
     }
 
@@ -3498,9 +3501,13 @@ export class PlayCanvasZombieSlice {
     const traceLen = isPellet ? Math.min(impactDist, 14) : Math.min(impactDist, 40);
     if (traceLen < 0.5) return;
 
-    // Midpoint of tracer segment
+    const ballisticDrop = computeBallisticTracerDrop(result.ballistic, traceLen);
+    const actualDrop = Number(result.ballistic?.dropMeters ?? 0);
+
+    // Midpoint of tracer segment. Ballistic shots get a subtle visual sag so
+    // the PlayCanvas route reads less like a perfectly flat hitscan beam.
     const midX = muzzleWorld.x + forward.x * traceLen * 0.5;
-    const midY = muzzleWorld.y + forward.y * traceLen * 0.5;
+    const midY = muzzleWorld.y + forward.y * traceLen * 0.5 - ballisticDrop * 0.5;
     const midZ = muzzleWorld.z + forward.z * traceLen * 0.5;
 
     // Find a free tracer slot
@@ -3522,6 +3529,8 @@ export class PlayCanvasZombieSlice {
     slot._sfxMaxTtl = ttl;
     slot._sfxTracerLen = traceLen;
     slot._sfxTracerThick = thickness;
+    slot._sfxBallisticDrop = ballisticDrop;
+    slot._sfxBallisticActualDrop = Number.isFinite(actualDrop) ? actualDrop : 0;
     slot.enabled = true;
   }
 
@@ -5883,6 +5892,9 @@ export class PlayCanvasZombieSlice {
       });
       const escort = villagers.find((villager) => villager.state === "escorting");
       const perks = this.state.villagerPerkModifiers ?? {};
+      const activeTracers = this.shotFx.tracers.filter((tracer) => tracer.enabled && tracer._sfxTtl > 0);
+      const tracerDropVisual = activeTracers.reduce((max, tracer) => Math.max(max, tracer._sfxBallisticDrop ?? 0), 0);
+      const tracerDropActual = activeTracers.reduce((max, tracer) => Math.max(max, tracer._sfxBallisticActualDrop ?? 0), 0);
       return [
         `mode=playcanvas-game`,
         `style=cinematic-low-poly-survival`,
@@ -5938,6 +5950,8 @@ export class PlayCanvasZombieSlice {
         `tutorialEnemyIntro=${guidance.enemyIntro ? guidance.enemyIntro.type : "none"}`,
         `tutorialMotivation=${guidance.motivation ?? "none"}`,
         `combatEvent=${this.state.lastCombatEvent ? JSON.stringify(this.state.lastCombatEvent) : "none"}`,
+        `tracerDropVisual=${tracerDropVisual.toFixed(3)}`,
+        `tracerDropActual=${tracerDropActual.toFixed(3)}`,
         `bossWaveActive=${boss.bossWaveActive}`,
         `secretBossActive=${boss.secretBossActive}`,
         `secretBossSpawned=${boss.secretBossSpawned}`,

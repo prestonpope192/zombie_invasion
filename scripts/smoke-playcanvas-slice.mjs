@@ -138,6 +138,7 @@ try {
   await page.evaluate(() => {
     const game = window.__playCanvasZombieGame;
     if (game) {
+      game.fxSlowMo = true;
       game.state.phase = "running";
       game.state.shotCooldownSec = 0;
       game.fire();
@@ -265,6 +266,8 @@ try {
   assert(state.text.includes("weaponReticle=sidearm"), "PlayCanvas weapon identity did not report sidearm reticle baseline");
   assert(state.text.includes("weaponShotFx=spark"), "PlayCanvas weapon identity did not report sidearm shot FX baseline");
   assert(state.text.includes('"ballistic"'), "PlayCanvas combat event did not expose ballistic telemetry");
+  const tracerDrop = Number(state.text.match(/tracerDropVisual=(\d+\.\d{3})/)?.[1] ?? 0);
+  assert(tracerDrop > 0, `PlayCanvas tracer did not expose positive ballistic visual sag (got: ${tracerDrop})`);
   assert(state.text.includes("rewardedTelemetry=0"), "PlayCanvas rewarded-ad telemetry baseline was not reported");
   assert(state.text.includes("rewardedLastEvent=none"), "PlayCanvas rewarded-ad last-event baseline was not reported");
   assert(state.text.includes("rewardedLastOffer=none"), "PlayCanvas rewarded-ad last-offer baseline was not reported");
