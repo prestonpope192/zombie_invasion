@@ -13,6 +13,8 @@ it up without re-reading long session logs.
   legacy Three.js FPS code, configs, tests, and deployment files.
 - [Continuation Guide](./continuation-guide.md): safe next steps, operating
   constraints, and verification commands for future work.
+- [Suno Soundtrack Prompt Plan](./suno-soundtrack-prompt-plan.md): paste-ready
+  generated-music prompts for the Zombie Invasion soundtrack direction.
 
 ## Existing Deep-Dive Docs
 
