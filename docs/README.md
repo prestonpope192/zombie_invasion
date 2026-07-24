@@ -15,6 +15,10 @@ it up without re-reading long session logs.
   constraints, and verification commands for future work.
 - [Suno Soundtrack Prompt Plan](./suno-soundtrack-prompt-plan.md): paste-ready
   generated-music prompts for the Zombie Invasion soundtrack direction.
+- [Soundtrack Listening Checklist](./soundtrack-listening-checklist.md):
+  runtime cue order, reference-only files, and ear-review pass criteria.
+- [Persistent Village Defense Finish Line](./qa/feature-finish-line/2026-07-13-persistent-village-defense.md):
+  acceptance criteria, regression ledger, browser evidence, and local release package.
 
 ## Existing Deep-Dive Docs
 

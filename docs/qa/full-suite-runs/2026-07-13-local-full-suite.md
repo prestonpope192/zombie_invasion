@@ -1,0 +1,99 @@
+# 2026-07-13 Local Full Suite
+
+## Run Metadata
+
+- Environment: `local`
+- Repo: `/Users/preston/Code/zombie_invasion`
+- Branch: `codex/dev-consolidation-20260707`
+- HEAD: `ba8978dcb923bd220e628f649e4b3e34dc73c389`
+- Log directory: `/tmp/zombie-full-suite-local-20260713T092617Z`
+- Browser target: `http://127.0.0.1:5198/` (PlayCanvas default route)
+- Authenticated coverage: not applicable; the game has no login/auth surface.
+- Supplemental web-game client: PASS on `127.0.0.1:5173` using the documented
+  harness and action file.
+- Worktree: dirty before and after; baseline and final status are in
+  `00-preflight.log` and `05-final-git-status.log`. No existing entries were
+  reverted, staged, committed, or overwritten.
+
+## Suite Inventory
+
+| Check | Status | Evidence |
+|---|---|---|
+| Focused village-defense Vitest | PASS | `npx vitest run test/village_structures.test.js test/playcanvas_slice.test.js test/minimap_renderer.test.js`; 3 files, 130 tests; `01-focused-village-defense.log` |
+| Full deterministic Vitest | PASS | Included by canonical rerun; 41 files, 261 tests; `03-npm-test-full-port5198.log` |
+| Production build | PASS | Included by canonical rerun; Vite 7.3.5, 2991 modules transformed; known large-chunk warning; same log |
+| PlayCanvas browser smoke, default route | PASS | Canonical smoke on `127.0.0.1:5198`; gameplay phase, village structure telemetry, damage effects, minimap, console/page/request error checks, and nonblank screenshot assertions passed; same log |
+| Mobile/responsive smoke | PASS | Harness covers 390x760 controls and structure-alert layout/no-overlap assertions; `scripts/smoke-playcanvas-slice.mjs:557-607`; same canonical log |
+| Canonical full gate, first attempt | FAIL (environment) | `npm run test:full` exit 1 because port 5176 was occupied by unrelated `/Users/preston/Code/skeleton-seige` Vite process and the harness fallback did not retarget its URL; `02-npm-test-full.log` |
+| Canonical full gate, resolved rerun | PASS | `PLAYCANVAS_SMOKE_PORT=5198 PLAYCANVAS_SMOKE_SCREENSHOT=output/village-defense/full-suite-20260713.png npm run test:full`; exit 0; `03-npm-test-full-port5198.log` |
+| `git diff --check` | PASS | Exit 0; `04-git-diff-check.log` |
+| Documented manual soundtrack listening checklist | BLOCKED | Required subjective human ear-review in `docs/soundtrack-listening-checklist.md` covers mood, listener fatigue, loop seams, and cue hierarchy; this headless worker cannot perform or certify that review |
+| Supplemental `npm run test:game` | PASS | Exact configured command passed with exit 0 on `127.0.0.1:5173`; bounded to 90 seconds; log `14-npm-test-game-5173-active.log` |
+
+## Finish-Line Ledger Verification
+
+All 13 current ledger rows ran through the focused three-file command and/or the
+canonical `npm run test:full` rerun. The browser rows ran through the exact
+PlayCanvas smoke assertions, including the 390x760 responsive checks. Every row
+passed locally.
+
+| Ledger row | Exact coverage | Result |
+|---|---|---|
+| Village health must equal its buildings | `village_structures.test.js` health budget and `playcanvas_slice.test.js` aggregate health assertions | PASS |
+| Zombies attack a nearest building, not a fixed order | Preferred-target and nearest-live-building assertions | PASS |
+| Zombies move on after a building falls | Nearest surviving-building retarget assertion | PASS |
+| Side buildings remain reachable | Authored gate, gate-opening, and side-structure routing assertions | PASS |
+| Damage accumulates between waves | Cumulative damage without automatic healing assertion | PASS |
+| Saved damage must not reset on reload | Save/load persistence and stable-ID sanitization assertions | PASS |
+| Village survival is paced beyond 30 seconds | Lone learning-wave walker assertion | PASS |
+| Concurrent attackers need bounded scaling | Swarm crowding diminishing-damage assertion | PASS |
+| Campaign ends only after total structural loss | Total structure health-sum campaign-end assertion | PASS |
+| Building damage and active attacks are readable | Minimap damage/attack rendering tests plus browser damage, HUD, world, rubble, and telemetry assertions | PASS |
+| Mobile alert must not overlap core HUD | 390x760 alert overlap and guidance-compaction assertions | PASS |
+| Collapsed structures must stop blocking players | Invisible wall collision removal assertion | PASS |
+| Upgrade must rebuild structural damage | Town Defenses rebuild/capacity assertion | PASS |
+
+## Browser Evidence
+
+- URL/port: `http://127.0.0.1:5198/`; local Vite server was cleaned up after smoke.
+- Default route: PlayCanvas game reached `phase=running` with `villageStructures=7`,
+  `survivingStructures=7`, and active gameplay telemetry.
+- Error status: no blocking console, page, or request failures; the harness
+  explicitly filters only the documented benign audio aborts.
+- Screenshot: `/Users/preston/Code/zombie_invasion/output/village-defense/full-suite-20260713.png`
+- Additional smoke artifacts regenerated by the harness: `output/village-defense/under-attack.png`,
+  `output/village-defense/critical-building.png`, `output/village-defense/destroyed-building.png`,
+  and `output/village-defense/mobile-alert.png`.
+- Supplemental web-game artifacts: `output/full-suite-web-game-local-20260713/shot-0.png`,
+  `shot-1.png`, `state-0.json`, and `state-1.json`. The client exited 0 with
+  no error JSON; state 0 reached `phase=running`, and state 1 reached
+  `phase=lost` after the scripted action sequence.
+
+## Loop Log
+
+| Loop | Failure group | Hypothesis/action | Result |
+|---|---|---|---|
+| 0 | Port contention during browser phase | Unrelated Vite listener on 5176 caused fallback-port target mismatch; preserved that process and reran on documented alternate port 5198 | Canonical rerun green; no code changes |
+| 1 | Supplemental harness server lifetime | Initial background server was reaped by the execution shell; kept the Vite server in an active session, reran the configured script, then stopped only that session | Supplemental client green; no app changes |
+
+## Warnings and Residual Risks
+
+- Vite reports the existing warning that `main-Bn9CuYKH.js` and
+  `FpsGame-CghXEZv3.js` exceed 500 kB after minification.
+- Vitest/Node emits the existing experimental localStorage warning.
+- This is local-only evidence. No hosted, dev-live, or production claim is made.
+- The full suite remains incomplete pending the required human soundtrack
+  ear-review; no code action is indicated by the automated results.
+
+## Overall Status
+
+**AUTOMATED PASS / FULL SUITE INCOMPLETE.** The required focused tests,
+canonical full gate, browser smoke, responsive assertions, finish-line ledger,
+supplemental web-game client, and `git diff --check` passed. The full suite
+cannot be certified until a human completes the soundtrack ear-review.
+
+## Next Action
+
+Preston or a human listener should complete
+`docs/soundtrack-listening-checklist.md` and record the results. No code
+action is indicated.

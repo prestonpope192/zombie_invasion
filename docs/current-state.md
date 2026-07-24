@@ -1,6 +1,6 @@
 # Current State
 
-**As of 2026-07-07** | Vitest: 201 pass (37 files) | Build: green | Smoke: green
+**As of 2026-07-13** | Village-defense focus: 130 pass (3 files) | Build: green | Browser smoke: green
 
 ---
 
@@ -37,16 +37,25 @@ system modules under `src/fps/systems/`.
 - Armor: cloth/kevlar/ceramic tiers; damage reduction applied per hit
 - Gear: flashlight (visual), flint & steel (fire patches with TTL, DPS, merge, cap=3)
 - Shop economy: weapon buy/equip, armor, gear, village upgrade, med kit, ordnance packs
-- Village: HP with max determined by village level and villager perk modifiers
-- Village bite: `VILLAGE_BITE_MULTIPLIER = 0.34`, cap 3.4; `PLAYER_AGGRO_RADIUS = 13`;
-  aggro-on-hit (4 s window)
+- Village: seven independently destructible structures whose summed health is
+  the village health; damage persists across waves and capacity changes retain
+  each building's health ratio
+- Village attack AI: unaggroed zombies retain the nearest live structure,
+  route through authored fence gates, attack its perimeter, and retarget only
+  when it falls
+- Village bite: `VILLAGE_BITE_MULTIPLIER = 0.22`; `PLAYER_AGGRO_RADIUS = 13`;
+  aggro-on-hit (4 s window), tuned so a lone wave-one walker removes less than
+  10% of the village in 30 seconds; concurrent attackers use diminishing
+  crowding returns, so four zombies deal about 2.1x one zombie's structure damage
 - Villager escort: enter buildings, locate villager, escort to Town Hall, perk awarded on rescue
 - Villager perks: shop discount, kill coin multiplier, damage reduction, HP bonus, grenade bonus
 - Door system: exterior/interior door interaction with range check
 - Breakable windows + structure impacts: material-specific particles, potential village damage tracked
 - Save/load: `zombie_invasion_playcanvas_save_v1` in localStorage; sanitizes legacy field aliases
+  and restores per-building health/collapse state by stable structure ID
 - Lifetime stats: kills, damage dealt/taken, village damage, waves cleared, play seconds
-- Adaptive music: `selectMusicCue` / `computeRaidThreatScore` from `musicDirector.js`
+- Adaptive music: `selectMusicCue` / `computeRaidThreatScore` from `musicDirector.js`;
+  runtime MP3 assets replaced with Preston-supplied generated soundtrack renders
 - First-session guidance: enemy intro messages, shop recommendations, wave threat briefs
 - **Rewarded ads — multi-offer system** (was MISSING; now implemented):
   - Wave-clear summary: DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES (per-wave claim keys)
@@ -97,7 +106,12 @@ system modules under `src/fps/systems/`.
   material-tinted impact bursts (3 slots × 6 particles); ballistic shots apply subtle tracer
   sag from `lastCombatEvent.ballistic.dropMeters`; zero per-shot allocations after warmup
 - Damage flash overlays: player (red radial), village (orange top)
-- Minimap: canvas 2D with zombie/villager/door/fire/building layers (top-right, 3-dot legend)
+- Minimap: canvas 2D with zombie/villager/door/fire/building layers plus
+  per-building damage colors, thick active attack rings with filled threat glyphs,
+  and destroyed-building X marks; marker line widths are isolated from the village ring
+- Building damage presentation: staged cracks/scorch, fallen beams, fire/smoke,
+  rubble replacement, a player-facing world health marker with an exclamation beacon,
+  HUD structure alert, and surviving-building count
 - Runtime performance telemetry: rolling FPS, frame time, slow-frame count, worst frame time,
   quality profile, and render scale exposed through `render_game_to_text`
 - Shop: in-raid side panel (all item types)
@@ -110,7 +124,7 @@ system modules under `src/fps/systems/`.
   - `.zi-hud-objective` (top-left): wave chip + village integrity bar
   - `.zi-hud-meta` (top-right): coins + kills + gear icon settings button
   - `.zi-hud-vitals` (bottom-left): health bar, stamina bar, weapon/ammo row
-  - Phase toast: compact wave-start / intermission overlay
+  - Phase toast: compact wave-start / intermission overlay; long status copy wraps instead of truncating
   - Bars driven by ratio with color thresholds (HP bar turns red when low)
 - In-game HUD clusters suppressed behind full-cover flow modals
 - Unified modal design language across menu / shop / game-over / victory panels
@@ -145,7 +159,19 @@ system modules under `src/fps/systems/`.
 - **Kill-streak badges**: badge shows at ≥ 3 kills within 3 s (COMBO / HOT STREAK / SLAYER /
   RAMPAGE milestones); pops in, auto-hides
 
-### Audio (Procedural Web Audio via audio3d.js Primitives)
+### Audio (Generated Music + Procedural Web Audio)
+
+Generated soundtrack MP3s live in `public/audio/music/` and are documented in
+`src/fps/assets/ASSETS.md`. Runtime cues keep the existing `MUSIC_CUES` filenames:
+menu, safe house, shop/intermission, raid low/mid/high, boss, victory, and
+game-over. `main_motif.mp3` and `shop_intermission_alt.mp3` are reference-only
+assets and are not wired to runtime music.
+
+`test/music_assets.test.js` verifies that every adaptive music cue has a real MP3
+asset, preserves the current pressure-band remap, and keeps reference renders out
+of the runtime cue map.
+
+### Procedural SFX (audio3d.js Primitives)
 
 All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was not modified.
 
@@ -166,13 +192,15 @@ All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was no
 Night ambient bed (`_startNightBed` / `_stopNightBed`): evolving slow pad on music channel;
 runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
-### Verified Baseline (2026-07-07)
+### Verified Baseline (2026-07-08)
 
 | Check | Result |
 |---|---|
-| `npm test` | 37 files, 201 tests, all pass |
+| `npm test` | 38 files, 204 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
+| Generated soundtrack assets | Confirmed by `test/music_assets.test.js`: MP3 files exist for all runtime cues; `raid_high` and boss share the requested render; motif/shop alternate stay reference-only |
+| Top status toast readability | Confirmed by smoke: pointer-lock fallback copy renders fully without nowrap/hidden overflow/ellipsis; screenshot `output/playcanvas-slice-smoke.png` |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
 | GLB villager pipeline | Confirmed in source; async fallback to primitive rig |
 | Zombie facing (movement-based) | Confirmed via real-GPU test |
@@ -187,6 +215,18 @@ runs during `running` and `intermission` phases; gated by `musicEnabled`.
 | Settings sheet haptics toggle | Confirmed via live-GPU: toggle visible and functional |
 | PlayCanvas performance telemetry | Confirmed via smoke: `perfFpsAvg`, `perfFrameMsAvg`, `perfSlowFrames`, `perfWorstFrameMs`, `qualityProfile`, and `renderScale` exposed in `render_game_to_text` |
 | Ballistic tracer visual sag | Confirmed via smoke: `tracerDropVisual` reports positive sag after a ballistic shot |
+
+### Persistent Village Defense Finish Line (2026-07-13)
+
+| Check | Result |
+|---|---|
+| Focused deterministic tests | 3 files, 129 tests passed |
+| Production build | Passed; existing large-chunk warning only |
+| Browser gameplay smoke | Passed with real zombie-to-building damage, world/HUD/minimap alerts, critical and destroyed visual states, and mobile no-overlap assertions |
+| Pacing | A lone learning-wave walker cannot remove 10% of village health in 30 simulated seconds |
+| Persistence boundary | Structure damage survives wave transitions and save/load; no inter-wave auto-heal |
+| Release boundary | Local-only proof; no deployment or hosted verification performed |
+| Evidence | `output/village-defense/` and `docs/qa/feature-finish-line/2026-07-13-persistent-village-defense.md` |
 
 ---
 
@@ -251,10 +291,13 @@ major milestone.
 
 ### Local vs hosted
 
-Hosted proof on Vercel is not current. `progress.md` records that a prior Vercel preview was
-blocked by Vercel Authentication in Playwright. Local `npm run build` and `npm run preview`
-work; Docker `docker compose up --build -d` is configured. Treat hosted status as unverified
-unless re-tested.
+Hosted proof on Vercel is current as of 2026-07-08. Production deployment
+`dpl_2xG8dtRpfTir4WL7kvTkUnEoEZZc` is `Ready` at
+`https://zombie-invasion-alpha.vercel.app/` and immutable URL
+`https://zombie-invasion-6mghi0w8z-preston-popes-projects.vercel.app/`.
+HTTP checks for `/` and `/playcanvas` passed, hosted PlayCanvas smoke passed,
+and generated soundtrack MP3s returned HTTP 200 `audio/mpeg`. Docker
+`docker compose up --build -d` remains available for LAN play.
 
 ### Save key isolation
 

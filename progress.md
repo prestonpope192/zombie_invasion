@@ -2646,3 +2646,207 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - Tracer + dead-zombie corpses (commit faeadbf): tracer now originates at this.muzzleFlash.getPosition() (real barrel) instead of analytic reconstruction. Dead zombies play Death then sink 0.4m + shrink to 0 over ~1.2s then disable (both GLB + procedural paths); frozen red hit-flash force-cleared on first dead frame (zombieGlb), bloom coronas off while dead. Verified live (sink/shrink, no red).
 - Animal-zombie models (committed by worker): new src/playcanvas/animalGlb.js loads 4 CC0 Quaternius animal GLBs (public/models/animal-{cow,pig,horse,chicken}.glb, downloaded only from static.poly.pizza) and routes zombie_cow/pig/horse/chicken to real animal models (undead grey-green tint, eye glow, blob shadow, per-type scale, +180 facing) instead of the scaled humanoid; falls back to humanoid/procedural if a model is missing. These types spawn via wave composition weights from wave 6+ (e.g. chicken 0.22, pig 0.14), so they're seen in normal play. Pig GLB only has Idle/Jump (no walk) — minor. 170 tests + smoke green.
 - Audio: user chose real CC0 samples over better synth — pass in progress (separate).
+
+## 2026-07-08 — Generated soundtrack import + finish-line coverage
+
+- Imported Preston-supplied Suno soundtrack from `/Users/preston/Downloads/Zombie Invasion.zip`, converting the downloaded `.m4a` files to MP3 with `ffmpeg` / `libmp3lame -q:a 2` into `public/audio/music/`.
+- Runtime cue mapping keeps existing `MUSIC_CUES` filenames, so no gameplay code change was needed:
+  - `menu_theme.mp3` <- `Zombie Invasion - Title Main Menu.m4a`
+  - `safe_house_intro.mp3` <- `Zombie Invasion - Safe House Wake-Up Start.m4a`
+  - `shop_intermission.mp3` <- `Zombie Invasion - Shop Intermission.m4a`
+  - `raid_low.mp3` <- `Zombie Invasion - Lane Defense Medium Threat Raid.m4a`
+  - `raid_mid.mp3` <- `Zombie Invasion - Horde Breach High Threat Raid.m4a`
+  - `raid_high.mp3` and `boss_battle.mp3` <- `Zombie Invasion - Boss Battle Mega Zombie.m4a`
+  - `victory_sting.mp3` <- `Zombie Invasion - Victory Dawn Holdout.m4a`
+  - `game_over_sting.mp3` <- `Zombie Invasion - Game Over Village Lost Sting.m4a`
+- Added reference-only renders: `public/audio/music/main_motif.mp3` and `public/audio/music/shop_intermission_alt.mp3`; neither is wired into runtime adaptive music.
+- Updated `src/fps/assets/ASSETS.md` with provenance, conversion details, and source-to-runtime mapping.
+- Added `test/music_assets.test.js` to enforce real MP3 assets for every adaptive cue, preserve the requested pressure-band remap (`raid_high` equals boss render), and keep motif/alternate shop files reference-only.
+- Finish-line validation:
+  - `npx vitest run test/music_assets.test.js test/music_director.test.js` -> 8 tests passed.
+  - `npm test` -> 38 files / 204 tests passed.
+  - `npm run build` -> passed with existing large chunk warning only.
+  - `npm run smoke:playcanvas` -> passed; text dump confirmed `musicEnabled=true`, `audioUnlocked=true`, and `musicCue=raid_low`; screenshot at `output/playcanvas-slice-smoke.png`.
+- Remaining product check: human ear review still needed for loop smoothness and whether `shop_intermission.mp3` or `shop_intermission_alt.mp3` should be the active shop cue.
+
+## 2026-07-08 — Make-it-better polish: readable top status toast
+
+- Product scan found the PlayCanvas smoke screenshot truncating the first-run pointer-lock fallback message (`Pointer lock unavailable here; drag the mouse to look arou...`) in the top-center status toast.
+- Updated `src/playcanvas/playcanvas.css` so `.zi-toast` messages can wrap instead of forcing single-line ellipsis; desktop max width increased within the safe center band, and mobile keeps the toast narrow while allowing two-line copy.
+- Updated `scripts/smoke-playcanvas-slice.mjs` with browser assertions that the top toast message exists, contains the pointer-lock fallback copy, is not `white-space: nowrap`, is not `overflow: hidden`, is not ellipsized, and does not overflow its rendered box.
+- Verification:
+  - `npm run smoke:playcanvas` -> passed; screenshot at `output/playcanvas-slice-smoke.png` shows the full pointer-lock fallback sentence.
+  - `npm test` -> 38 files / 204 tests passed.
+  - `npm run build` -> passed with existing large chunk warning only.
+
+## 2026-07-08 — Production deploy
+
+- Local full suite was green before deploy:
+  - `npx vitest run test/music_assets.test.js test/music_director.test.js` -> 8 tests passed.
+  - `npm test` -> 38 files / 204 tests passed.
+  - `npm run build` -> passed with existing large chunk warning only.
+  - `npm run smoke:playcanvas` -> passed.
+  - `npm run test:full` -> passed.
+- Initial `vercel deploy --prod --yes` uploaded source but remote Vercel build failed during `npm ci` with `npm error Invalid Version:`. Local `npm ci --dry-run`, lockfile semver checks, and `vercel build --prod` all passed, so the successful deploy used the verified prebuilt artifact.
+- Deployed with `vercel build --prod` followed by `vercel deploy --prebuilt --prod --yes`.
+- Production deployment:
+  - Deployment ID: `dpl_2xG8dtRpfTir4WL7kvTkUnEoEZZc`
+  - Immutable URL: `https://zombie-invasion-6mghi0w8z-preston-popes-projects.vercel.app`
+  - Production alias: `https://zombie-invasion-alpha.vercel.app`
+- Hosted verification:
+  - `vercel inspect` reported target `production`, status `Ready`.
+  - HTTP HEAD checks for `/` and `/playcanvas` returned 200 on both immutable deployment URL and `https://zombie-invasion-alpha.vercel.app`.
+  - Hosted smoke passed against the immutable URL with screenshot `output/playcanvas-deployed-smoke.png`.
+  - Hosted smoke passed against `https://zombie-invasion-alpha.vercel.app/` with screenshot `output/playcanvas-alpha-smoke.png`.
+  - Runtime/reference MP3 files returned HTTP 200 `audio/mpeg`.
+  - Vercel production error log scan returned no logs for the current branch.
+- `https://by-sgs.com` was aliased by Vercel but TLS was still provisioning during verification (`curl` returned `tlsv1 unrecognized name`).
+- Updated the smoke harness to ignore benign Chromium `net::ERR_ABORTED` request failures for `/audio/music/*.mp3` when cue transitions abort an in-flight audio load; deployed audio files were separately verified with HTTP 200 `audio/mpeg`.
+
+## 2026-07-09 — Make-it-better pass: design/graphics + game physics
+
+- Ran a two-focus improvement audit (design/graphics, then game physics) with three parallel read-only scans (HUD/CSS, 3D/VFX, physics/feel) plus live-browser evidence, then implemented the highest-confidence batch.
+- Design/HUD (`src/playcanvas/playcanvas.css`):
+  - Global `:focus-visible` accent outline for all interactive elements (previously only shop cards had one).
+  - Settings gear 28px -> 40px (44px on coarse pointers) with full-brightness glyph.
+  - Type floor: minimap legend 0.56rem -> 0.66rem, toast eyebrows 0.54/0.62rem -> 0.66rem, flow-stat labels -> 0.7rem.
+  - New tokens `--zi-accent-bright` / `--zi-on-accent`; replaced stray hover/on-accent hexes; minimap legend now uses `--zi-stamina`/`--zi-accent`/`--zi-village`.
+  - Flow secondary buttons 36/34px -> 44px min-height with full-text resting color (dim reserved for `:disabled`).
+  - `prefers-reduced-motion` block neutralizes decorative animation/transitions.
+- Graphics/feel (`src/playcanvas/main.js`):
+  - Camera walk-bob + landing dip (stride-locked, reduced-motion aware) — the view is no longer a gliding tripod.
+  - Stance FOV: ADS zooms 68 -> 54, sprint widens to 73, eased per-frame (`getPlayCanvasTargetFov` in the sim).
+  - Living sky: cloud clusters drift slowly; moon halo breathes (transform-only, no per-frame material.update()).
+  - Zombie spawn scale-in (0.35s) replaces pop-in; procedural-rig deaths topple ~80 degrees while sinking instead of shrink-in-place.
+  - Perf: window-glow materials skip `material.update()` when intensity is unchanged (previously every window, every frame).
+  - Minimap canvas dot colors aligned to the token legend; copy cleanup (Press Start, Zombie Invasion 3D view aria-label, Sound Effects label, stateful "Fullscreen On/Off" toggle).
+- Game physics (`src/playcanvas/sliceSimulation.js` — pure logic, node-tested):
+  - Fixed inverted stance-spread bug: `isSprinting` actually detected airborne state, so real sprint-fire was never penalized. Now real sprinting (key + movement, tracked as `player.sprinting`) OR airborne applies `SPRINT_SPREAD_MULT`.
+  - Knockback + hit-stagger: hits shove zombies along the hit axis scaled by config `massKg` and `staggerResistance` (blast events shove radially from the blast center); solid hits pause approach 0.12s. Fire-patch ticks explicitly excluded.
+  - Zombie crowd separation: soft pairwise circle push (flyers and mid-pounce exempt) so hordes read as individual bodies instead of stacking into one blob.
+  - Grenade ground bounce: one restitution/friction hop before detonation (airtime fuse still guarantees detonation).
+- Verification:
+  - `npx vitest run test/playcanvas_slice.test.js` -> 83 tests passed (7 new: sprint tracking, sprint-spread penalty, knockback+stagger, mass/resistance scaling, separation, grenade bounce, FOV targets).
+  - `npm test` -> 38 files / 211 tests passed.
+  - `npm run build` -> passed with existing large chunk warning only.
+  - Live browser (dev server, manual engine stepping): bob range 0.044m while sprinting; FOV 73 sprint / 54 ADS / 68 rest; cloud drift ~2m per 6s; knockback -1.17 m/s + 0.103s stun on pistol hit; overlapping pair settled at 0.85m gap; settings sheet shows stateful Fullscreen toggle; focus ring renders (3px accent); mobile viewport screenshot confirms legend/dot color match and enlarged tap targets.
+- Intentionally NOT changed (queued for a decision): player acceleration/friction momentum model, player-vs-building collision (door-flow risk), blood-moon wave atmosphere shift, recoil affecting aim, hit-stop on kills, blood/scorch decal pools, `--pc-*` -> `--zi-*` token merge.
+
+## 2026-07-10 - Holistic graphics, physics, and gameplay pass
+
+- Orchestration:
+  - Used four read-only explorer agents for graphics, physics, combat, and screenshot audits, then five low-reasoning bounded workers in disjoint or sequential file scopes.
+  - Main thread retained direction, integration, visual judgment, regression review, and final verification.
+- Graphics and presentation (`src/playcanvas/main.js`, `src/playcanvas/playcanvas.css`):
+  - Rebalanced the village toward a warm-vs-cold folk-horror hierarchy with readable road, ground, fence, timber, plaster, and firearm midtones.
+  - Rebuilt the sky clusters into restrained storm masses and replaced the hard multi-ring moon treatment with one renderer-safe, low-opacity halo shell.
+  - Added low-cost lantern ground pools and reduced village distress smoke from giant skyline ellipsoids to small fog-integrated roof puffs.
+  - Reduced the firearm viewmodel to 0.84 scale on desktop and 0.66 on narrow screens, with responsive framing that keeps the pistol visible without covering the reticle or mobile actions. Sidearm yaw remains -2 degrees, aligned with its fire path.
+  - Reflowed portrait status, objective, minimap, guidance, vitals, and action controls into non-overlapping left/right rails at 375x812.
+- Physics feel (`src/playcanvas/sliceSimulation.js`):
+  - Added planar player velocity, 30 m/s2 ground acceleration, 44 m/s2 braking, 8 m/s2 air control, and deterministic walk/crouch/sprint caps.
+  - Sprint now starts and drains stamina only while grounded and moving.
+  - Replaced discarded slow frames with bounded 0.15s catch-up split into <=0.05s simulation steps.
+  - Ground enemies now respect vertical separation and each enemy's configured attack range, preventing roof-height bites.
+- Gameplay readability and pacing:
+  - Added type-sensitive ordinary attack windups/recoveries: fast 0.16/0.40s, standard 0.24/0.55s, heavy 0.38/0.72s.
+  - Bite windups now drive a crouch and compact ground cue; pounce/slam targets lock at commitment and retain a landing marker through the attack.
+  - Waves now open with at most two enemies, use a 1.6x breathing interval after the opener, sustain at normal cadence, and accelerate to 0.65x cadence for the final pressure beat while preserving budgets and boss/mega reservations.
+- QA harness:
+  - Fixed `scripts/hud-screenshot.mjs` so first-run onboarding no longer blocks deterministic desktop/mobile capture.
+  - Extended `scripts/smoke-playcanvas-slice.mjs` with browser assertions for bite-cue placement and fixed pounce-target placement, plus a targeted telegraph screenshot.
+- Verification:
+  - `npm test` passed: 38 files / 221 tests.
+  - Final focused contracts passed: 98 tests across `active_game_contract` and `playcanvas_slice`.
+  - `npm run build` passed with the existing large-chunk warning only.
+  - Final `npm run smoke:playcanvas` passed after the distress-smoke correction; reported `spawned=2`, `perfFpsAvg=29.7`, and no blocking browser logs.
+  - Shared web-game client reached `phase=running`, spawned five enemies, and registered a pistol hit with no error file. Its canvas-only second-frame alpha artifact remains a harness capture issue; canonical full-page smoke captures are clean.
+  - Reviewed artifacts: `output/holistic-graphics-pass/final-desktop.png`, `final-mobile.png`, `final-distress-desktop.png`, and `final-pounce-telegraph.png`.
+- Deliberately deferred:
+  - Player-vs-building/fence collision still needs an authored door/gate collision map so accessibility is not broken by invisible walls.
+  - Authored environment textures/normal maps, GLB firearm viewmodels, and gameplay recoil patterns need a dedicated asset and balance pass.
+
+## 2026-07-10 — Make-it-better pass 3: performance, boss atmosphere, decals, code quality
+
+- Note: this working tree also received concurrent changes from another session earlier today
+  (player acceleration/braking, bite wind-up system, +10 tests). All work below was applied on
+  top of that state; combined suite is green.
+- Performance (`src/playcanvas/main.js`):
+  - Pooled shell casings, muzzle smoke puffs, and grenade smoke-trail puffs through a new
+    `_acquireFx`/`_retireFxEntity` free-list (they were `new pc.Entity` + `destroy()` per shot /
+    per 0.035s). Pooled FX get CLONED materials — the old code faded `opacity` on SHARED
+    material instances, so simultaneous smoke puffs fought over one material.
+  - `updateHud` live-zombie count now cached from the `updateZombies` loop (was a fresh
+    `filter()` allocation every frame).
+  - Telegraph rings only call `material.update()` when the telegraph type changes; the pulse is
+    carried by transform-only ring scale (was emissive+opacity+update per active zombie per frame).
+  - Weapon fire-profile table hoisted to module scope (was rebuilt on every shot).
+  - Fixed a real leak: telegraph rings are parented to app.root, so `clearZombieEntities`
+    leaked one ring per zombie on every reset; now destroyed with their zombie. Added an
+    orphan-entity sweep as a safety net.
+- Boss-wave atmosphere ("blood moon", `_updateAtmosphere`): while a boss-tier zombie is alive
+  (or secret-boss phase), fog/ambient/moonlight ease to a deep red over ~2s and restore after.
+  Scene-level writes only. Boss entrance adds a screen-shake thump + heavy haptic pattern.
+  Zombie eye coronas flare up to ~1.7x inside 10m (transform-only).
+- Ground decals: pooled blood splats on every kill (heavies get bigger pools of blood) and
+  scorch marks on every blast; persist 9-12s then fade via per-clone material opacity.
+- Design tokens: legacy `--pc-*` system fully retired from `playcanvas.css` (4 live usages
+  inlined with exact colors, 4 dead tokens deleted; zero `var(--pc-` remain).
+- Code quality: deleted dead `_spawnImpactDebris` stub and write-only `_sfxCallCounts`
+  (init + 13 increments, zero readers repo-wide); startup GLB diagnostics moved to
+  `console.debug`.
+- Tests: new "PlayCanvas save sanitization" block (6 tests) covering the previously untested
+  `sanitizePlayCanvasSave` — corrupted JSON, numeric clamping, unknown equipment fallback,
+  legacy field aliases, rescued/dead villager conflicts, legacy totalKills folding.
+- Verification:
+  - `npm test` -> 38 files / 227 tests passed. `npm run build` -> passed (existing chunk warning).
+  - Live browser: no console errors; blood decals present in fx after kills; shell pool
+    recycling confirmed; blood-moon factor 0 -> 1 with a live mini_boss (fog -> [0.14,0.045,0.06],
+    moon light -> red) and back to exactly [0.04,0.10,0.22] after boss death; screenshots captured
+    of the crimson boss-wave palette.
+  - `npm run smoke:playcanvas` not run: it targets port 5173, which is held by a different
+    session's dev server; this session verified against an auto-assigned port instead.
+- Queued (still pending Preston's call): recoil affecting aim, hit-stop on kills,
+  player-vs-building collision, main.js module extractions (weapon fire profiles ->
+  weaponFireProfiles.js was done; minimap renderer / SFX cues / dispose() teardown remain).
+
+## 2026-07-13 - Persistent multi-building village defense
+
+- Replaced the scalar village drain with seven authored structures whose summed HP is the
+  village integrity value. Damage now persists across wave transitions and capacity changes.
+- Unaggroed zombies select and retain the nearest live structure, route side attacks through
+  three real fence gates, bite the building perimeter, face their navigation target, and
+  immediately retarget the nearest survivor after a collapse.
+- Tuned base village capacity to 700 HP and the village-bite multiplier to 0.22. A deterministic
+  30-second pacing test confirms one learning-wave walker removes less than 10% total HP.
+- Added staged cracks/scorch, broken beams, fire, smoke, rubble replacement, world health
+  markers, named HUD alerts, surviving-building count, and minimap attack/damage/destroyed states.
+- Removed intact collision and roof support from destroyed buildings. Town Defenses now repairs
+  and rebuilds all structures while increasing total capacity.
+- Added `villageStructures.js`, deterministic minimap rendering coverage, focused structure
+  regressions for targeting, pacing, collapse, rebuild, and browser assertions for real zombie
+  damage, visual stages, telemetry, and portrait layout.
+- Added stable-ID structure-health persistence. A localStorage round-trip test proves damaged and
+  destroyed buildings restore correctly; sanitization drops unknown/corrupt structure records.
+- Verification: focused Vitest passed 3 files / 129 tests; `npm run build` passed with the existing
+  chunk warning; PlayCanvas browser smoke passed on port 5196 with no blocking errors.
+- Finish-line packet: `docs/qa/feature-finish-line/2026-07-13-persistent-village-defense.md`.
+- Release boundary: local-only. No migration, env/provider setup, deploy, or hosted validation.
+
+## 2026-07-13 - Make-it-better village-defense refinement
+
+- Used three bounded low-reasoning reviewers for graphics/UX, gameplay pacing, and
+  code/test risk; the main thread selected and integrated the final batch.
+- Added deterministic diminishing returns for zombies crowding one structure. Four concurrent
+  attackers now deal about 2.1x a lone attacker's damage instead of scaling linearly to 4x.
+- Strengthened world readability with a player-facing exclamation beacon beside the active
+  building health bar, repositioned after screenshot review to avoid first-wave guidance.
+- Strengthened minimap state language with thicker threat/destruction marks and a filled attack
+  glyph; explicitly reset canvas line width before structure footprints and the village ring.
+- Compacted portrait guidance copy during an active structure alert and extended browser layout
+  assertions to include the guidance panel.
+- Verification: focused Vitest passed 3 files / 130 tests; `npm run build` passed with the existing
+  chunk warning; final PlayCanvas browser smoke passed on port 5198 with no blocking errors.
+- Reviewed final desktop and portrait captures in `output/village-defense/under-attack.png` and
+  `output/village-defense/mobile-alert.png`.
+- Release boundary remains local-only. No deployment or hosted validation was performed.

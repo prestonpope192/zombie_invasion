@@ -35,6 +35,20 @@ import {
 } from "../fps/systems/villagerEscortRules";
 import wavesConfig from "../fps/config/waves_fps.json";
 import weaponsConfig from "../fps/config/weapons_fps.json";
+import {
+  BASE_VILLAGE_MAX_HP,
+  VILLAGE_FENCE_SEGMENTS,
+  VILLAGE_FENCE_X,
+  VILLAGE_STRUCTURE_DEFS,
+  createVillageStructureStates,
+  getVillageStructureDamageTier,
+  getVillageStructureDef,
+  getVillageStructureAttackPoint,
+  getVillageStructureNavigationPoint,
+  resizeVillageStructureStates,
+  selectNearestLiveVillageStructure,
+  syncVillageHealthAggregate,
+} from "./villageStructures";
 
 export const PLAYCANVAS_SAVE_KEY = "zombie_invasion_playcanvas_save_v1";
 const PLAYCANVAS_SAVE_VERSION = 2;
@@ -50,39 +64,74 @@ export const SLICE_WORLD = {
   fireConeCos: 0.976,
   zombieBiteRange: 1.15,
   villageBiteRange: 2.2,
-  // Solid obstacles the zombie sim collides against. These mirror the fence
-  // runs the PlayCanvas renderer draws at x=±7.2 (main.js scenery). Ground
-  // zombies, leapers, climbers, and bosses are stopped so no enemy appears to
-  // walk out of a wall; flyers are the only type allowed to pass over.
-  obstacles: [
-    { id: "fence-left", kind: "fence", minX: -7.36, maxX: -7.04, minZ: -46, maxZ: 22, height: 1.35 },
-    { id: "fence-right", kind: "fence", minX: 7.04, maxX: 7.36, minZ: -46, maxZ: 22, height: 1.35 },
-  ],
+  obstacles: [],
 };
 
-const VILLAGE_HOUSE_VISUALS = [
-  [-9.5, SLICE_WORLD.villageZ - 10, 5.8, 3.2, 5.8],
-  [9.4, SLICE_WORLD.villageZ - 8.8, 5.6, 3.0, 5.4],
-  [-13.2, SLICE_WORLD.villageZ - 1, 6.4, 3.5, 5.2],
-  [13.4, SLICE_WORLD.villageZ + 0.2, 6.2, 3.4, 5.4],
-  [-15.4, SLICE_WORLD.villageZ + 12.6, 7.2, 3.7, 6.8],
-  [15.8, SLICE_WORLD.villageZ + 12.2, 7.4, 3.8, 7.0],
-];
+for (const side of [-1, 1]) {
+  for (const [index, segment] of VILLAGE_FENCE_SEGMENTS.entries()) {
+    const x = side * VILLAGE_FENCE_X;
+    SLICE_WORLD.obstacles.push({
+      id: `fence-${side < 0 ? "left" : "right"}-${index}`,
+      kind: "fence",
+      blocks: "all",
+      minX: x - 0.16,
+      maxX: x + 0.16,
+      minZ: segment.minZ,
+      maxZ: segment.maxZ,
+      height: 1.35,
+    });
+  }
+}
+
+// Village building walls are solid for the PLAYER only (`blocks: "player"`,
+// see resolvePlayerObstacles). Zombies keep colliding with fences alone —
+// they have no pathfinding, so solid house corners would wedge them forever.
+// Footprints reuse the exact rooftop insets so wall edges and walkable roof
+// edges agree; the renderer draws its facades from the same coordinate list.
+for (const structure of VILLAGE_STRUCTURE_DEFS.filter((entry) => entry.kind === "house")) {
+  const { id, visualIndex: index, x, z, sx, sy, sz } = structure;
+  SLICE_WORLD.obstacles.push({
+    id: `house-${index}-walls`,
+    kind: "house",
+    blocks: "player",
+    structureId: id,
+    minX: x - sx * 0.64,
+    maxX: x + sx * 0.64,
+    minZ: z - sz * 0.58,
+    maxZ: z + sz * 0.58,
+    height: sy + 0.82,
+  });
+}
+SLICE_WORLD.obstacles.push({
+  id: "bell-tower-walls",
+  kind: "house",
+  blocks: "player",
+  structureId: "bell_tower",
+  minX: -2.1,
+  maxX: 2.1,
+  minZ: SLICE_WORLD.villageZ - 12 - 1.85,
+  maxZ: SLICE_WORLD.villageZ - 12 + 1.85,
+  height: 6.85,
+});
 
 const WALKABLE_SURFACE_EPS = 0.08;
 const PLAYER_LANDING_TOLERANCE = 0.18;
 const WALKABLE_SURFACES = [
-  ...VILLAGE_HOUSE_VISUALS.map(([x, z, sx, sy, sz], index) => ({
-    id: `house-${index}-roof`,
-    label: `House ${index + 1} roof`,
-    x,
-    z,
-    y: sy + 0.82,
-    halfX: sx * 0.64,
-    halfZ: sz * 0.58,
-  })),
+  ...VILLAGE_STRUCTURE_DEFS
+    .filter((structure) => structure.kind === "house")
+    .map((structure) => ({
+      id: `house-${structure.visualIndex}-roof`,
+      structureId: structure.id,
+      label: `${structure.label} roof`,
+      x: structure.x,
+      z: structure.z,
+      y: structure.sy + 0.82,
+      halfX: structure.sx * 0.64,
+      halfZ: structure.sz * 0.58,
+    })),
   {
     id: "bell-tower-roof",
+    structureId: "bell_tower",
     label: "Bell tower roof",
     x: 0,
     z: SLICE_WORLD.villageZ - 12,
@@ -177,15 +226,96 @@ function _idSeq(zombieId) {
   const m = zombieId?.match(/(\d+)$/);
   return m ? parseInt(m[1], 10) : 0;
 }
-// Village is far more durable than a one-on-one melee: a lone walker chews
-// ~2.5 dmg/s (was ~6.5), so the player has time to thin a wave before the
-// bell tower falls. Capped so a brute can't melt the village in one bite.
-const VILLAGE_BITE_MULTIPLIER = 0.34;
+// Building health now totals 700 at level 1. A lone wave-1 walker needs several
+// minutes to erase the entire village, while a neglected group can still bring
+// down one structure during a wave and carry that loss into later rounds.
+const VILLAGE_BITE_MULTIPLIER = 0.22;
+// Learning waves shouldn't lose the village off-screen: waves 1/2/3 drain the
+// village at 55/70/85% strength, wave 4+ at full. (Unengaged wave-1 walkers
+// could previously drain 100 HP in ~30s while a new player was still reading
+// the controls.)
+const VILLAGE_BITE_EARLY_WAVE_RAMP = [0.55, 0.7, 0.85];
+
+function getVillageBiteWaveRamp(state) {
+  return VILLAGE_BITE_EARLY_WAVE_RAMP[state.waveIndex ?? 0] ?? 1;
+}
+
+function getVillageAttackerDamageScale(attackerOrdinal) {
+  // The first zombie gets a clean swing; each additional body has less room
+  // to connect. A four-zombie pileup deals about 2.1x, rather than 4x, damage.
+  return 1 / Math.max(1, Math.round(Number(attackerOrdinal) || 1));
+}
+
 const VILLAGE_BITE_MAX_DAMAGE = 3.4;
 // How close the player must be for a zombie to break off the village and
 // chase them, and how long a zombie stays aggro'd after the player shoots it.
 const PLAYER_AGGRO_RADIUS = 13;
 const PLAYER_AGGRO_ON_HIT_SEC = 4;
+
+function prepareVillageStructureFrame(state, dt) {
+  if (!Array.isArray(state.villageStructures) || state.villageStructures.length !== VILLAGE_STRUCTURE_DEFS.length) {
+    state.villageStructures = createVillageStructureStates(state.maxVillageHp || getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers));
+  }
+  for (const structure of state.villageStructures) {
+    structure.underAttackSec = Math.max(0, (Number(structure.underAttackSec) || 0) - dt);
+    structure.attackerCount = 0;
+  }
+  syncVillageHealthAggregate(state);
+}
+
+export function damageVillageStructure(state, structureId, damage, attackerId = null) {
+  const structure = state.villageStructures?.find((entry) => entry.id === structureId);
+  if (!structure || structure.hp <= 0) return { applied: 0, destroyed: Boolean(structure && structure.hp <= 0) };
+  const requested = Math.max(0, Number(damage) || 0);
+  const applied = Math.min(structure.hp, requested);
+  if (applied <= 0) return { applied: 0, destroyed: false };
+
+  structure.hp = Math.max(0, structure.hp - applied);
+  structure.underAttackSec = 1.35;
+  structure.lastDamageSec = Number(state.elapsedSec) || 0;
+  const destroyed = structure.hp <= 0;
+  if (destroyed && structure.destroyedAtWave == null) {
+    structure.destroyedAtWave = state.waveNumber ?? 1;
+  }
+  state.lifetimeStats = state.lifetimeStats ?? defaultLifetimeStats();
+  state.lifetimeStats.villageDamageTaken = (Number(state.lifetimeStats.villageDamageTaken) || 0) + applied;
+  syncVillageHealthAggregate(state);
+
+  const definition = getVillageStructureDef(structure.id);
+  state.lastVillageDamageEvent = {
+    id: `village-damage-${state.nextVillageDamageSeq ?? 1}`,
+    structureId: structure.id,
+    label: definition?.label ?? structure.id,
+    damage: applied,
+    hp: structure.hp,
+    maxHp: structure.maxHp,
+    destroyed,
+    attackerId,
+    wave: state.waveNumber ?? 1,
+  };
+  state.nextVillageDamageSeq = (state.nextVillageDamageSeq ?? 1) + 1;
+  if (destroyed) {
+    state.lastMessage = `${definition?.label ?? "A village building"} destroyed — the horde is retargeting.`;
+  }
+  return { applied, destroyed, structureId: structure.id };
+}
+
+export function setVillageStructureHealthRatio(state, ratio, structureId = null) {
+  const clampedRatio = Math.max(0, Math.min(1, Number(ratio) || 0));
+  for (const structure of state.villageStructures ?? []) {
+    if (structureId && structure.id !== structureId) continue;
+    structure.hp = structure.maxHp * clampedRatio;
+    structure.underAttackSec = 0;
+    structure.attackerCount = 0;
+    structure.destroyedAtWave = clampedRatio <= 0 ? (state.waveNumber ?? 1) : null;
+  }
+  syncVillageHealthAggregate(state);
+  return state;
+}
+
+function isVillageStructureDestroyed(state, structureId) {
+  return (state.villageStructures ?? []).some((structure) => structure.id === structureId && structure.hp <= 0);
+}
 
 const JUMP_SPEED_MPS = 6.2;
 const DOUBLE_JUMP_SPEED_MPS = 8.4;
@@ -200,11 +330,65 @@ const STAMINA_RECOVERY_PER_SEC = 8;
 const SPRINT_SPEED_MPS = 6.0;
 const WALK_SPEED_MPS = 4.2;
 const CROUCH_SPEED_MPS = 2.2;
+const PLAYER_GROUND_ACCEL_MPS2 = 30;
+const PLAYER_GROUND_BRAKE_MPS2 = 44;
+const PLAYER_AIR_ACCEL_MPS2 = 8;
+const MAX_SLICE_STEP_SEC = 0.05;
+const MAX_SLICE_CATCHUP_SEC = 0.15;
+const TIMER_EPSILON_SEC = 1e-8;
+
+const BITE_WINDUP_SEC = 0.24;
+const BITE_RECOVERY_SEC = 0.55;
+const GROUND_BITE_VERTICAL_RANGE = 1.6;
+
+const FAST_BITE_TYPES = new Set(["crawler", "runner", "skitter", "leaper", "pouncer", "flyer", "zombie_chicken"]);
+const HEAVY_BITE_TYPES = new Set(["armored", "brute", "juggernaut", "mega_zombie", "mini_boss", "secret_boss", "zombie_cow", "zombie_horse"]);
+
+function getBiteTimings(zombie) {
+  const type = zombie?.type ?? "walker";
+  const defaults = FAST_BITE_TYPES.has(type)
+    ? { windupSec: 0.16, recoverySec: 0.4 }
+    : HEAVY_BITE_TYPES.has(type)
+      ? { windupSec: 0.38, recoverySec: 0.72 }
+      : { windupSec: BITE_WINDUP_SEC, recoverySec: BITE_RECOVERY_SEC };
+  return {
+    windupSec: Math.max(0.05, Number(zombie?.biteWindupSec ?? defaults.windupSec) || defaults.windupSec),
+    recoverySec: Math.max(0.1, Number(zombie?.biteRecoverySec ?? defaults.recoverySec) || defaults.recoverySec),
+  };
+}
 
 const HEADSHOT_MULTIPLIER = 3.25;
 const ADS_SPREAD_MULT = 0.4;
 const CROUCH_SPREAD_MULT = 0.65;
 const SPRINT_SPREAD_MULT = 2.0;
+
+// ── Hit physics (knockback / stagger) ────────────────────────────────────────
+// Damage shoves zombies along the hit direction, scaled by config massKg and
+// staggerResistance (default 1; heavies define < 1 so they barely budge).
+const KNOCKBACK_IMPULSE_SCALE = 4.5;   // (damage / massKg) → m/s conversion
+const KNOCKBACK_MAX_SPEED = 3.2;       // m/s cap per zombie regardless of stacking
+const KNOCKBACK_DECAY_PER_SEC = 6.5;   // exponential decay of the shove velocity
+const HITSTUN_MIN_DAMAGE = 8;          // hits below this don't interrupt movement
+const HITSTUN_SEC = 0.12;              // forward-motion pause on a solid hit
+
+// ── Zombie crowd separation ──────────────────────────────────────────────────
+// Soft circle-vs-circle push so a horde reads as individual bodies instead of
+// collapsing into one overlapping blob. Applied after movement each step.
+const SEPARATION_STRENGTH = 0.55;      // fraction of overlap corrected per step
+const SEPARATION_RADIUS_SCALE = 0.85;  // bodies may brush, not fuse
+
+// ── Thrown-ordnance ground bounce ────────────────────────────────────────────
+// One short hop: enough to read as a physical object without carrying the
+// blast far from where the player aimed the lob.
+const ORDNANCE_RESTITUTION = 0.3;      // vertical energy kept per bounce
+const ORDNANCE_BOUNCE_FRICTION = 0.5;  // horizontal speed kept per bounce
+const ORDNANCE_MAX_BOUNCES = 1;        // detonate on the bounce after this
+const ORDNANCE_REST_SPEED = 2.2;       // slower than this on contact → detonate
+
+// Camera FOV targets (pure data — main.js lerps the real camera toward this)
+const BASE_FOV_DEG = 68;
+const ADS_FOV_DEG = 54;
+const SPRINT_FOV_DEG = 73;
 
 // ── Aim model (precise weapons) ───────────────────────────────────────────
 // Per-type half-width of a zombie's body in the XZ plane. Precise weapons
@@ -560,6 +744,11 @@ export function createSliceState(save = loadPlayCanvasSave()) {
   const villagerPerkModifiers = getVillagerPerkModifiers({ rescuedVillagers });
   const villageLevel = normalizeVillageLevel(safeSave?.villageLevel);
   const maxVillageHp = getVillageMaxHp(villageLevel, villagerPerkModifiers);
+  const villageStructures = restoreSavedVillageStructureHealth(
+    createVillageStructureStates(maxVillageHp),
+    safeSave?.villageStructures,
+  );
+  const villageHp = villageStructures.reduce((total, structure) => total + structure.hp, 0);
   const startingFragCount = 5 + Math.max(0, villagerPerkModifiers.startingGrenadesBonus ?? 0);
   const hasSavedGrenades = Boolean(rawSave?.grenadeInventory && typeof rawSave.grenadeInventory === "object") || rawSave?.grenades !== undefined;
   const grenadeInventory = normalizeGrenadeInventory(
@@ -578,8 +767,11 @@ export function createSliceState(save = loadPlayCanvasSave()) {
     profileType: PLAYCANVAS_PROFILE_TYPE,
     phase: "ready",
     elapsedSec: 0,
-    villageHp: maxVillageHp,
+    villageHp,
     maxVillageHp,
+    villageStructures,
+    lastVillageDamageEvent: null,
+    nextVillageDamageSeq: 1,
     playerHp: 100,
     maxPlayerHp: 100,
     coins: Math.max(0, Number(safeSave?.coins ?? 0)),
@@ -651,6 +843,8 @@ export function createSliceState(save = loadPlayCanvasSave()) {
       y: 0,
       yaw: 0,
       pitch: 0,
+      vx: 0,
+      vz: 0,
       yVelocity: 0,
       onGround: true,
       canDoubleJump: false,
@@ -717,7 +911,16 @@ export function stepSlice(state, input, dt) {
     return state;
   }
 
-  const stepDt = Math.min(dt, 0.05);
+  let remaining = Math.min(Math.max(0, Number(dt) || 0), MAX_SLICE_CATCHUP_SEC);
+  while (remaining > 1e-9 && isCombatPhase(state.phase)) {
+    const stepDt = Math.min(remaining, MAX_SLICE_STEP_SEC);
+    stepSliceInternal(state, input, stepDt);
+    remaining -= stepDt;
+  }
+  return state;
+}
+
+function stepSliceInternal(state, input, stepDt) {
   state.elapsedSec += stepDt;
   state.waveElapsedSec += stepDt;
   state.lifetimeStats.playSeconds = Number(((state.lifetimeStats.playSeconds ?? 0) + stepDt).toFixed(3));
@@ -735,18 +938,13 @@ export function stepSlice(state, input, dt) {
     }
   }
 
-  // Stamina recovery when not sprinting or crouching interrupts sprint
-  const sprintActive = Boolean(input.sprint) && !input.crouch && (state.stamina ?? 100) > 0;
-  if (!sprintActive) {
-    state.stamina = Math.min(state.maxStamina ?? 100, (state.stamina ?? 100) + STAMINA_RECOVERY_PER_SEC * stepDt);
-  }
-
   // Wave grace countdown
   if (state.waveGraceSec > 0) {
     state.waveGraceSec = Math.max(0, state.waveGraceSec - stepDt);
   }
 
   stepImpactEvents(state, stepDt);
+  prepareVillageStructureFrame(state, stepDt);
 
   movePlayer(state, input, stepDt);
   if (state.phase === "running") {
@@ -764,7 +962,7 @@ export function stepSlice(state, input, dt) {
     persistPlayCanvasSave(state);
   } else if (state.villageHp <= 0) {
     state.phase = "lost";
-    state.lastMessage = "The bell tower fell. Restart the campaign to try again.";
+    state.lastMessage = "The village was destroyed. Restart the campaign to try again.";
     evaluateGoals(state);
     persistPlayCanvasSave(state);
   } else if (state.phase === "secret_boss" && isSecretBossCleared(state)) {
@@ -782,7 +980,7 @@ function beginWave(state, waveIndex) {
   state.waveNumber = state.waveIndex + 1;
   state.waveElapsedSec = 0;
   const wave = wavesConfig[state.waveIndex];
-  const openingPressure = Math.min(4, Math.max(1, Math.ceil((wave?.budget ?? 1) * 0.6)));
+  const openingPressure = Math.min(2, Math.max(1, wave?.budget ?? 1));
   state.spawnTimerSec = -(Math.max(0, openingPressure - 1) * (wave?.spawnIntervalSec ?? 1));
   state.spawnedThisWave = 0;
   state.megaSpawnedThisWave = 0;
@@ -792,8 +990,11 @@ function beginWave(state, waveIndex) {
   state.waveSummary = null;
   state.zombies = [];
   syncVillagerPerkModifiers(state);
-  state.maxVillageHp = getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers);
-  state.villageHp = Math.min(state.maxVillageHp, state.villageHp + (state.waveNumber === 1 ? 0 : 14));
+  state.villageStructures = resizeVillageStructureStates(
+    state.villageStructures,
+    getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers),
+  );
+  syncVillageHealthAggregate(state);
   state.playerHp = Math.min(state.maxPlayerHp, state.playerHp + (state.waveNumber === 1 ? 0 : 20));
   state.ammo = getWeaponDef(state.equippedWeaponId).magSize;
   state.pendingReload = false;
@@ -872,12 +1073,18 @@ function spawnWaveZombies(state, dt) {
   }
 
   state.spawnTimerSec -= dt;
-  while (state.spawnTimerSec <= 0 && state.spawnedThisWave < wave.budget) {
+  const openingSpawnCap = state.spawnedThisWave < 2 ? 2 : wave.budget;
+  while (state.spawnTimerSec <= 0 && state.spawnedThisWave < wave.budget && state.spawnedThisWave < openingSpawnCap) {
     const type = pickWaveSpawnType(state, wave);
     spawnZombie(state, type);
     state.spawnedThisWave += 1;
     const pressureScale = Math.max(0.72, 1 - state.waveIndex * 0.025);
-    state.spawnTimerSec += Math.max(0.45, wave.spawnIntervalSec * pressureScale);
+    const progress = state.spawnedThisWave / wave.budget;
+    const cadenceScale = state.spawnedThisWave === 2 ? 1.6 : progress >= 0.72 ? 0.65 : 1;
+    const nextInterval = Math.max(0.45, wave.spawnIntervalSec * pressureScale * cadenceScale);
+    state.spawnTimerSec = state.spawnedThisWave === 2
+      ? Math.max(0, state.spawnTimerSec) + nextInterval
+      : state.spawnTimerSec + nextInterval;
   }
 }
 
@@ -913,12 +1120,15 @@ function spawnZombie(state, type, spawn = null) {
   // Spawn inside the fenced lane corridor (fences sit at x=±7.2) so ground
   // zombies funnel down the lane instead of clipping through the side fences.
   const laneOffset = (nextRandom(state) * 5.6 + 0.6) * side;
-  const depth = -18 - nextRandom(state) * 12 - state.waveIndex * 0.9;
+  // Spawn beyond the north row so zombies visibly approach and split between
+  // nearby structures instead of materializing inside the village footprint.
+  const depth = Math.max(-48, -32 - nextRandom(state) * 8 - state.waveIndex * 0.55);
   const waveScale = 1 + state.waveIndex * 0.085;
   const isBoss = def.id === BOSS_DEF.id || def.id === BOSS_WAVE_TYPE_ID;
   const id = `${def.id}-${state.nextZombieSeq++}`;
   const jumpIntervalSec = def.jumpIntervalSec ?? 0;
   const isBossType = BOSS_TYPE_IDS.has(def.id);
+  const biteTimings = getBiteTimings({ type: def.id });
   state.zombies.push({
     id,
     type: def.id,
@@ -937,7 +1147,19 @@ function spawnZombie(state, type, spawn = null) {
     attackRange: def.attackRange ?? 1.6,
     hitFlashSec: 0,
     biteCooldownSec: 0,
+    bitePhase: "none",
+    biteTimerSec: 0,
+    biteWindupSec: biteTimings.windupSec,
+    biteRecoverySec: biteTimings.recoverySec,
+    targetStructureId: null,
+    navTargetX: 0,
+    navTargetZ: SLICE_WORLD.villageZ,
+    structureAttackSec: 0,
     dead: false,
+    // Hit physics
+    knockVx: 0,
+    knockVz: 0,
+    hitStunSec: 0,
     // Leaper / pouncer
     jumpIntervalSec,
     jumpSpeed: def.jumpSpeed ?? 0,
@@ -1065,18 +1287,29 @@ function isCombatPhase(phase) {
 
 function movePlayer(state, input, dt) {
   const crouching = Boolean(input.crouch);
-  const canSprint = Boolean(input.sprint) && !crouching && (state.stamina ?? 100) > 10;
+  const forward = (Number(input.forward) || 0) - (Number(input.back) || 0);
+  const strafe = (Number(input.right) || 0) - (Number(input.left) || 0);
+  const moving = forward !== 0 || strafe !== 0;
+  const grounded = Boolean(state.player.onGround);
+  const canSprint = Boolean(input.sprint) && moving && grounded && !crouching && (state.stamina ?? 100) > 10;
   const speed = crouching ? CROUCH_SPEED_MPS : canSprint ? SPRINT_SPEED_MPS : WALK_SPEED_MPS;
 
   state.player.crouching = crouching;
+  state.player.sprinting = canSprint;
+  state.player.vx = Number.isFinite(state.player.vx) ? state.player.vx : 0;
+  state.player.vz = Number.isFinite(state.player.vz) ? state.player.vz : 0;
 
   if (canSprint) {
     state.stamina = Math.max(0, (state.stamina ?? 100) - STAMINA_SPRINT_DRAIN_PER_SEC * dt);
+  } else {
+    state.stamina = Math.min(state.maxStamina ?? 100, (state.stamina ?? 100) + STAMINA_RECOVERY_PER_SEC * dt);
   }
 
-  const forward = input.forward - input.back;
-  const strafe = input.right - input.left;
-  if (forward !== 0 || strafe !== 0) {
+  // Actual sprinting = sprint key held with stamina AND moving. fireSliceWeapon
+  // reads this for the sprint spread penalty.
+  let desiredVx = 0;
+  let desiredVz = 0;
+  if (moving) {
     const length = Math.hypot(forward, strafe) || 1;
     const yaw = state.player.yaw;
     const sin = Math.sin(yaw);
@@ -1088,9 +1321,30 @@ function movePlayer(state, input, dt) {
     // player turned ~90° away from the spawn heading.
     const f = forward / length;
     const s = strafe / length;
-    state.player.x += (f * -sin + s * cos) * speed * dt;
-    state.player.z += (f * -cos + s * -sin) * speed * dt;
+    desiredVx = (f * -sin + s * cos) * speed;
+    desiredVz = (f * -cos + s * -sin) * speed;
   }
+  const velocityDeltaX = desiredVx - state.player.vx;
+  const velocityDeltaZ = desiredVz - state.player.vz;
+  const velocityDelta = Math.hypot(velocityDeltaX, velocityDeltaZ);
+  const accel = grounded
+    ? (moving ? PLAYER_GROUND_ACCEL_MPS2 : PLAYER_GROUND_BRAKE_MPS2)
+    : PLAYER_AIR_ACCEL_MPS2;
+  const maxVelocityDelta = accel * dt;
+  if (velocityDelta <= maxVelocityDelta || velocityDelta === 0) {
+    state.player.vx = desiredVx;
+    state.player.vz = desiredVz;
+  } else {
+    state.player.vx += velocityDeltaX / velocityDelta * maxVelocityDelta;
+    state.player.vz += velocityDeltaZ / velocityDelta * maxVelocityDelta;
+  }
+  const planarSpeed = Math.hypot(state.player.vx, state.player.vz);
+  if (planarSpeed > speed) {
+    state.player.vx *= speed / planarSpeed;
+    state.player.vz *= speed / planarSpeed;
+  }
+  state.player.x += state.player.vx * dt;
+  state.player.z += state.player.vz * dt;
 
   const activeBuilding = getActiveBuilding(state);
   if (activeBuilding?.interior?.center && activeBuilding?.interior?.size) {
@@ -1098,6 +1352,9 @@ function movePlayer(state, input, dt) {
     state.player.x = clamp(state.player.x, center.x - size.x * 0.46, center.x + size.x * 0.46);
     state.player.z = clamp(state.player.z, center.z - size.z * 0.46, center.z + size.z * 0.46);
   } else {
+    // Solid world: fences and house walls stop the player (roof play and
+    // jump-overs are height-exempt inside the resolver).
+    resolvePlayerObstacles(state);
     state.player.x = clamp(state.player.x, -SLICE_WORLD.arenaHalf, SLICE_WORLD.arenaHalf);
     state.player.z = clamp(state.player.z, -SLICE_WORLD.arenaHalf, SLICE_WORLD.arenaHalf + 3);
   }
@@ -1172,6 +1429,9 @@ function getWalkableSurfacesAt(state, x, z) {
     return surfaces;
   }
   for (const surface of WALKABLE_SURFACES) {
+    if (surface.structureId && isVillageStructureDestroyed(state, surface.structureId)) {
+      continue;
+    }
     if (
       Math.abs(x - surface.x) <= surface.halfX + SLICE_WORLD.playerRadius * 0.45 &&
       Math.abs(z - surface.z) <= surface.halfZ + SLICE_WORLD.playerRadius * 0.45
@@ -1208,6 +1468,102 @@ function pushCircleOutOfAabb(cx, cz, r, box) {
   return { x: cx, z: toMinZ < toMaxZ ? box.minZ - r : box.maxZ + r };
 }
 
+// Shove a zombie away from a hit origin. Heavier enemies (config massKg) and
+// stagger-resistant ones (config staggerResistance < 1) move less; solid hits
+// also pause forward movement briefly so shooting reads as physical contact.
+function applyZombieKnockback(state, zombie, damage, origin = null) {
+  if ((zombie.pounceSec ?? 0) > 0) {
+    return; // locked into a pounce/charge arc — don't bend the trajectory
+  }
+  const def = getEnemyDef(zombie.type);
+  const massKg = Math.max(30, Number(def?.massKg ?? 80));
+  const resist = clamp(Number(def?.staggerResistance ?? 1), 0.1, 1);
+  const ox = origin?.x ?? state.player.x;
+  const oz = origin?.z ?? state.player.z;
+  let dx = zombie.x - ox;
+  let dz = zombie.z - oz;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-6) {
+    const angle = _idSeq(zombie.id); // deterministic direction for a zero-length axis
+    dx = Math.cos(angle);
+    dz = Math.sin(angle);
+  } else {
+    dx /= d;
+    dz /= d;
+  }
+  const speed = Math.min(KNOCKBACK_MAX_SPEED, (damage * KNOCKBACK_IMPULSE_SCALE) / massKg) * resist;
+  zombie.knockVx = (zombie.knockVx ?? 0) + dx * speed;
+  zombie.knockVz = (zombie.knockVz ?? 0) + dz * speed;
+  const total = Math.hypot(zombie.knockVx, zombie.knockVz);
+  if (total > KNOCKBACK_MAX_SPEED) {
+    zombie.knockVx *= KNOCKBACK_MAX_SPEED / total;
+    zombie.knockVz *= KNOCKBACK_MAX_SPEED / total;
+  }
+  if (damage >= HITSTUN_MIN_DAMAGE) {
+    zombie.hitStunSec = Math.max(zombie.hitStunSec ?? 0, HITSTUN_SEC * resist);
+  }
+}
+
+// Soft pairwise separation so overlapping zombies push apart instead of
+// stacking on one point. O(n²) over live ground bodies — wave sizes stay in
+// the low tens, so this is far cheaper than a spatial grid would earn back.
+function resolveZombieSeparation(state) {
+  const zombies = state.zombies;
+  for (let i = 0; i < zombies.length; i++) {
+    const a = zombies[i];
+    if (a.dead || a.movementMode === "flyer" || (a.pounceSec ?? 0) > 0) continue;
+    const ra = getZombieBodyRadius(a) * SEPARATION_RADIUS_SCALE;
+    for (let j = i + 1; j < zombies.length; j++) {
+      const b = zombies[j];
+      if (b.dead || b.movementMode === "flyer" || (b.pounceSec ?? 0) > 0) continue;
+      const rb = getZombieBodyRadius(b) * SEPARATION_RADIUS_SCALE;
+      const minDist = ra + rb;
+      let dx = b.x - a.x;
+      let dz = b.z - a.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= minDist * minDist) continue;
+      const d = Math.sqrt(d2);
+      if (d < 1e-6) {
+        // Same point — split along a deterministic per-pair axis.
+        const angle = _idSeq(a.id) + _idSeq(b.id) * 0.7;
+        dx = Math.cos(angle);
+        dz = Math.sin(angle);
+      } else {
+        dx /= d;
+        dz /= d;
+      }
+      const push = (minDist - d) * SEPARATION_STRENGTH * 0.5;
+      a.x -= dx * push;
+      a.z -= dz * push;
+      b.x += dx * push;
+      b.z += dz * push;
+    }
+  }
+}
+
+// The rendered fence and house walls are solid for the player. Standing on a
+// roof (or clearing a fence mid-jump) stays legal: an obstacle is skipped when
+// the player's feet are at or above its top, with a small forgiveness so a
+// well-timed single jump (apex ≈ 1.32 m) clears the 1.35 m fences.
+const PLAYER_OBSTACLE_CLEARANCE = 0.25;
+
+function resolvePlayerObstacles(state) {
+  const feetY = Math.max(0, state.player.y ?? 0);
+  for (const obs of SLICE_WORLD.obstacles) {
+    if (obs.structureId && isVillageStructureDestroyed(state, obs.structureId)) {
+      continue;
+    }
+    if (feetY >= (obs.height ?? Infinity) - PLAYER_OBSTACLE_CLEARANCE) {
+      continue; // above the obstacle — on its roof or jumping over it
+    }
+    const res = pushCircleOutOfAabb(state.player.x, state.player.z, SLICE_WORLD.playerRadius, obs);
+    if (res) {
+      state.player.x = res.x;
+      state.player.z = res.z;
+    }
+  }
+}
+
 // How a zombie deals with a fence:
 //   "fly"   — flyers pass over low outdoor walls/fences.
 //   "block" — everyone else is stopped by fences and walls.
@@ -1232,6 +1588,9 @@ function resolveZombieObstacles(state) {
       continue;
     }
     for (const obs of obstacles) {
+      if (obs.blocks === "player") {
+        continue; // house walls are player-only — beelining zombies would wedge on corners
+      }
       const res = pushCircleOutOfAabb(zombie.x, zombie.z, r, obs);
       if (res) {
         zombie.x = res.x;
@@ -1261,35 +1620,63 @@ function stepZombies(state, dt) {
 
     zombie.hitFlashSec = Math.max(0, zombie.hitFlashSec - dt);
     zombie.biteCooldownSec = Math.max(0, (zombie.biteCooldownSec ?? 0) - dt);
+    zombie.bitePhase = zombie.bitePhase ?? "none";
+    zombie.biteTimerSec = Math.max(0, (zombie.biteTimerSec ?? 0) - dt);
     zombie.aggroPlayerSec = Math.max(0, (zombie.aggroPlayerSec ?? 0) - dt);
+    zombie.structureAttackSec = Math.max(0, (zombie.structureAttackSec ?? 0) - dt);
+
+    // ── Hit physics: apply the knockback shove, then stagger-freeze ────────
+    if ((zombie.knockVx ?? 0) !== 0 || (zombie.knockVz ?? 0) !== 0) {
+      zombie.x += zombie.knockVx * dt;
+      zombie.z += zombie.knockVz * dt;
+      const decay = Math.max(0, 1 - KNOCKBACK_DECAY_PER_SEC * dt);
+      zombie.knockVx *= decay;
+      zombie.knockVz *= decay;
+      if (Math.hypot(zombie.knockVx, zombie.knockVz) < 0.05) {
+        zombie.knockVx = 0;
+        zombie.knockVz = 0;
+      }
+    }
+    if ((zombie.hitStunSec ?? 0) > 0 && (zombie.pounceSec ?? 0) <= 0) {
+      zombie.hitStunSec = Math.max(0, zombie.hitStunSec - dt);
+      continue; // staggered: no approach, bite, or telegraph progress this frame
+    }
 
     const toPlayerX = state.player.x - zombie.x;
     const toPlayerZ = state.player.z - zombie.z;
     const playerDist = Math.hypot(toPlayerX, toPlayerZ);
-    const toVillageX = -zombie.x;
-    const toVillageZ = SLICE_WORLD.villageZ - zombie.z;
-    const villageDist = Math.hypot(toVillageX, toVillageZ);
-    // Chase the player when they're near, when the zombie is already on the
-    // player's side of the village line, or when freshly shot (aggro-on-hit).
+    // Nearby or recently attacking players peel zombies off structures. Once
+    // aggro expires, each zombie resumes its cached live structure target.
     const targetPlayer =
       playerDist < PLAYER_AGGRO_RADIUS ||
-      zombie.z > SLICE_WORLD.villageZ + 1 ||
       zombie.aggroPlayerSec > 0;
-    const tx = targetPlayer ? toPlayerX : toVillageX;
-    const tz = targetPlayer ? toPlayerZ : toVillageZ;
+    const structureTarget = targetPlayer
+      ? null
+      : selectNearestLiveVillageStructure(state.villageStructures, zombie, zombie.targetStructureId);
+    const structureDef = structureTarget ? getVillageStructureDef(structureTarget.id) : null;
+    if (structureTarget) zombie.targetStructureId = structureTarget.id;
+    const structureAttackPoint = structureDef ? getVillageStructureAttackPoint(structureDef, zombie) : null;
+    const navPoint = structureDef
+      ? getVillageStructureNavigationPoint(structureDef, zombie, { flyer: zombie.movementMode === "flyer" })
+      : null;
+    const tx = targetPlayer ? toPlayerX : (navPoint?.x ?? zombie.x) - zombie.x;
+    const tz = targetPlayer ? toPlayerZ : (navPoint?.z ?? zombie.z) - zombie.z;
     const dist = Math.hypot(tx, tz) || 1;
+    const structureDist = structureAttackPoint
+      ? Math.hypot(structureAttackPoint.x - zombie.x, structureAttackPoint.z - zombie.z)
+      : Infinity;
+    zombie.navTargetX = targetPlayer ? state.player.x : (navPoint?.x ?? zombie.x);
+    zombie.navTargetZ = targetPlayer ? state.player.z : (navPoint?.z ?? zombie.z);
 
-    // ── Bite check (same for all movement modes) ──────────────────────────
-    if (targetPlayer && playerDist < SLICE_WORLD.zombieBiteRange) {
-      if (zombie.biteCooldownSec <= 0) {
-        if ((state.invulnerableSec ?? 0) <= 0) {
-          const biteDamage = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * getArmorDamageMultiplier(state) * BITE_INTERVAL_SEC);
-          const before = state.playerHp;
-          state.playerHp = Math.max(0, state.playerHp - biteDamage);
-          state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
-        }
-        zombie.biteCooldownSec = BITE_INTERVAL_SEC;
-      }
+    // ── Player attacks ────────────────────────────────────────────────────
+    const attackRange = Math.max(0, Number(zombie.attackRange ?? SLICE_WORLD.zombieBiteRange));
+    const verticalSeparation = Math.abs((state.player.y ?? 0) - (zombie.y ?? 0));
+    const verticalRange = (zombie.movementMode ?? "ground") === "flyer"
+      ? Math.max(GROUND_BITE_VERTICAL_RANGE, attackRange)
+      : GROUND_BITE_VERTICAL_RANGE;
+    const playerInBiteRange = targetPlayer && playerDist < attackRange && verticalSeparation <= verticalRange;
+
+    if (playerInBiteRange) {
       // Boss slam: if the boss lands in bite range during a charge, fire slam hit here
       if (zombie.pounceSec > 0 && BOSS_TYPE_IDS.has(zombie.type) && !zombie.slamHitFired) {
         if ((state.invulnerableSec ?? 0) <= 0) {
@@ -1300,24 +1687,54 @@ function stepZombies(state, dt) {
         }
         zombie.slamHitFired = true;
         zombie.slamCooldownSec = SLAM_COOLDOWN_SEC;
+        continue;
       }
-      // Reset aerial state when biting
-      zombie.y = 0;
-      zombie.pounceSec = 0;
-      zombie.telegraphSec = 0;
-      zombie.telegraphType = "none";
-      continue;
+
+      // Pounce and slam own their active/telegraph states. Ordinary contact
+      // attacks only run while those special attacks are idle.
+      const specialAttackActive = (zombie.pounceSec ?? 0) > 0 ||
+        ((zombie.telegraphType === "pounce" || zombie.telegraphType === "slam") && (zombie.telegraphSec ?? 0) > 0);
+      if (!specialAttackActive) {
+        if (zombie.bitePhase === "none") {
+          const biteTimings = getBiteTimings(zombie);
+          zombie.bitePhase = "windup";
+          zombie.biteTimerSec = biteTimings.windupSec;
+          zombie.telegraphType = "bite";
+        } else if (zombie.bitePhase === "windup" && zombie.biteTimerSec <= TIMER_EPSILON_SEC) {
+          if ((state.invulnerableSec ?? 0) <= 0) {
+            const biteDamage = Math.min(BITE_MAX_DAMAGE, zombie.attackDps * getArmorDamageMultiplier(state) * BITE_INTERVAL_SEC);
+            const before = state.playerHp;
+            state.playerHp = Math.max(0, state.playerHp - biteDamage);
+            state.lifetimeStats.damageTaken += Math.max(0, Math.round(before - state.playerHp));
+          }
+          const biteTimings = getBiteTimings(zombie);
+          zombie.bitePhase = "recovery";
+          zombie.biteTimerSec = biteTimings.recoverySec;
+          zombie.biteCooldownSec = biteTimings.recoverySec;
+          zombie.telegraphType = "none";
+        } else if (zombie.bitePhase === "recovery" && zombie.biteTimerSec <= TIMER_EPSILON_SEC) {
+          zombie.bitePhase = "none";
+        }
+        continue;
+      }
+    } else if (zombie.bitePhase === "windup") {
+      zombie.bitePhase = "none";
+      zombie.biteTimerSec = 0;
+      if (zombie.telegraphType === "bite") zombie.telegraphType = "none";
+    } else if (zombie.bitePhase === "recovery" && zombie.biteTimerSec <= TIMER_EPSILON_SEC) {
+      zombie.bitePhase = "none";
     }
 
-    if (!targetPlayer && villageDist < SLICE_WORLD.villageBiteRange) {
+    const villageReachBonus = Number(getEnemyDef(zombie.type)?.villageReach ?? 0);
+    if (!targetPlayer && structureTarget && structureDist < SLICE_WORLD.villageBiteRange + villageReachBonus) {
+      structureTarget.attackerCount = Math.max(0, Number(structureTarget.attackerCount) || 0) + 1;
       if (zombie.biteCooldownSec <= 0) {
         const biteDamage = Math.min(
           VILLAGE_BITE_MAX_DAMAGE,
           zombie.attackDps * VILLAGE_BITE_MULTIPLIER * BITE_INTERVAL_SEC,
-        );
-        const before = state.villageHp;
-        state.villageHp = Math.max(0, state.villageHp - biteDamage);
-        state.lifetimeStats.villageDamageTaken += Math.max(0, Math.round(before - state.villageHp));
+        ) * getVillageBiteWaveRamp(state) * getVillageAttackerDamageScale(structureTarget.attackerCount);
+        damageVillageStructure(state, structureTarget.id, biteDamage, zombie.id);
+        zombie.structureAttackSec = 0.28;
         zombie.biteCooldownSec = BITE_INTERVAL_SEC;
       }
       zombie.y = 0;
@@ -1365,8 +1782,6 @@ function stepZombies(state, dt) {
         if (zombie.telegraphSec <= 0) {
           // Launch pounce
           zombie.pounceSec = POUNCE_DURATION_SEC;
-          zombie.pounceTargetX = state.player.x;
-          zombie.pounceTargetZ = state.player.z;
         }
       } else {
         // ── Idle approach / decide to pounce ──
@@ -1379,6 +1794,8 @@ function stepZombies(state, dt) {
           // Start telegraph
           zombie.telegraphSec = POUNCE_TELEGRAPH_SEC;
           zombie.telegraphType = "pounce";
+          zombie.pounceTargetX = state.player.x;
+          zombie.pounceTargetZ = state.player.z;
           // Don't move this frame (wind-up freeze)
         } else {
           // Normal creep approach
@@ -1429,8 +1846,6 @@ function stepZombies(state, dt) {
         zombie.telegraphSec -= dt;
         if (zombie.telegraphSec <= 0) {
           zombie.pounceSec = SLAM_DURATION_SEC;
-          zombie.pounceTargetX = state.player.x;
-          zombie.pounceTargetZ = state.player.z;
           zombie.slamHitFired = false;
         }
       } else {
@@ -1442,6 +1857,8 @@ function stepZombies(state, dt) {
         if (canSlam) {
           zombie.telegraphSec = SLAM_TELEGRAPH_SEC;
           zombie.telegraphType = "slam";
+          zombie.pounceTargetX = state.player.x;
+          zombie.pounceTargetZ = state.player.z;
         } else {
           // Normal boss walk
           zombie.x += (tx / dist) * zombie.speedMps * dt;
@@ -1461,7 +1878,9 @@ function stepZombies(state, dt) {
     zombie.y = 0;
   }
 
-  // Stop non-flying zombies at fences/walls; flyers are allowed to pass over.
+  // Keep the horde reading as individual bodies, then stop non-flying zombies
+  // at fences/walls; flyers are allowed to pass over.
+  resolveZombieSeparation(state);
   resolveZombieObstacles(state);
 }
 
@@ -1520,7 +1939,7 @@ function stepFirePatches(state, dt) {
         continue;
       }
       const falloff = Math.max(0.28, 1 - distance / Math.max(0.1, patch.radius));
-      damageZombie(state, zombie, patch.dps * falloff * dt);
+      damageZombie(state, zombie, patch.dps * falloff * dt, false);
       zombie.hitFlashSec = Math.max(zombie.hitFlashSec ?? 0, 0.1);
     }
   }
@@ -1546,8 +1965,11 @@ export function fireSliceWeapon(state) {
   // Spread multiplier based on stance
   const isCrouching = Boolean(state.player.crouching);
   const isAds = Boolean(state.player.ads);
-  const isSprinting = !state.player.onGround || Boolean(state.player.yVelocity && state.player.yVelocity > 0.5);
-  const spreadMult = isAds ? ADS_SPREAD_MULT : isCrouching ? CROUCH_SPREAD_MULT : isSprinting ? SPRINT_SPREAD_MULT : 1;
+  // Sprinting and airborne shots are both unstable. (An earlier version only
+  // checked airborne state under the name isSprinting, so actual sprint fire
+  // was never penalized.)
+  const isUnstable = Boolean(state.player.sprinting) || !state.player.onGround;
+  const spreadMult = isAds ? ADS_SPREAD_MULT : isCrouching ? CROUCH_SPREAD_MULT : isUnstable ? SPRINT_SPREAD_MULT : 1;
   const profile = getWeaponAttackProfile(weapon, spreadMult);
 
   const forwardX = -Math.sin(state.player.yaw);
@@ -2016,7 +2438,7 @@ export function getPlayCanvasMiniMapSnapshot(state) {
       hp: Math.ceil(zombie.hp),
     }));
   return {
-    worldHalfExtent: SLICE_WORLD.arenaHalf,
+    worldHalfExtent: Math.max(SLICE_WORLD.arenaHalf, 48),
     player: {
       x: Number(state.player.x.toFixed(2)),
       y: Number((state.player.y ?? 0).toFixed(2)),
@@ -2040,6 +2462,7 @@ export function getPlayCanvasMiniMapSnapshot(state) {
       radius: patch.radius,
       ttlSec: Number(patch.ttlSec.toFixed(2)),
     })),
+    villageStructures: getPlayCanvasVillageStructureSnapshot(state),
     buildings: getPlayCanvasBuildingSnapshot(state).buildings,
     villagers: getPlayCanvasVillagerSnapshot(state),
     escortDropoff: state.activeEscortVillagerId ? getEscortDropoff() : null,
@@ -2047,10 +2470,37 @@ export function getPlayCanvasMiniMapSnapshot(state) {
   };
 }
 
+export function getPlayCanvasVillageStructureSnapshot(state) {
+  return (state.villageStructures ?? []).map((structure) => {
+    const definition = getVillageStructureDef(structure.id);
+    const maxHp = Math.max(1, Number(structure.maxHp) || 1);
+    const hp = Math.max(0, Number(structure.hp) || 0);
+    return {
+      id: structure.id,
+      label: definition?.label ?? structure.id,
+      kind: definition?.kind ?? "building",
+      x: definition?.x ?? 0,
+      z: definition?.z ?? SLICE_WORLD.villageZ,
+      sx: definition?.sx ?? 1,
+      sy: definition?.sy ?? 1,
+      sz: definition?.sz ?? 1,
+      hp: Number(hp.toFixed(2)),
+      maxHp: Number(maxHp.toFixed(2)),
+      healthRatio: Number((hp / maxHp).toFixed(4)),
+      damageTier: getVillageStructureDamageTier(structure),
+      destroyed: hp <= 0,
+      underAttackSec: Number(Math.max(0, Number(structure.underAttackSec) || 0).toFixed(2)),
+      attackerCount: Math.max(0, Math.round(Number(structure.attackerCount) || 0)),
+      destroyedAtWave: structure.destroyedAtWave ?? null,
+    };
+  });
+}
+
 export function getPlayCanvasBuildingSnapshot(state) {
   return {
     activeBuildingId: state.activeBuildingId,
     openedCount: state.openedBuildings.length,
+    defenseStructures: getPlayCanvasVillageStructureSnapshot(state),
     buildings: BUILDING_DEFS.map((building) => ({
       id: building.id,
       label: building.label,
@@ -2161,6 +2611,18 @@ export function getPlayCanvasWeaponSnapshot(state) {
     silhouette: identity.silhouette,
     recoilKick: identity.recoilKick,
   };
+}
+
+// Target camera FOV for the current stance. Pure data — main.js lerps the real
+// PlayCanvas camera toward this so ADS reads as a zoom and sprint sells speed.
+export function getPlayCanvasTargetFov(state) {
+  if (state?.player?.ads) {
+    return ADS_FOV_DEG;
+  }
+  if (state?.player?.sprinting && state.player.onGround) {
+    return SPRINT_FOV_DEG;
+  }
+  return BASE_FOV_DEG;
 }
 
 export function getPlayCanvasGuidanceSnapshot(state) {
@@ -2376,9 +2838,13 @@ export function buyVillageUpgrade(state) {
   state.coins = Math.max(0, state.coins);
   state.villageLevel = item.nextLevel;
   syncVillagerPerkModifiers(state);
-  state.maxVillageHp = getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers);
-  state.villageHp = state.maxVillageHp;
-  state.lastMessage = `Town defenses upgraded to level ${state.villageLevel}.`;
+  state.villageStructures = resizeVillageStructureStates(
+    state.villageStructures,
+    getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers),
+    { repair: true },
+  );
+  syncVillageHealthAggregate(state);
+  state.lastMessage = `Town defenses upgraded to level ${state.villageLevel}. Buildings repaired and rebuilt.`;
   persistPlayCanvasSave(state);
   return { ok: true };
 }
@@ -2486,7 +2952,7 @@ function applyOrdnanceBlast(state, def, center) {
       continue;
     }
     const falloff = def.id === "nuke" ? 1 : Math.max(0.35, 1 - distance / Math.max(1, def.radius));
-    const { killed } = damageZombie(state, zombie, Math.round(def.damage * falloff));
+    const { killed } = damageZombie(state, zombie, Math.round(def.damage * falloff), center);
     zombie.hitFlashSec = 0.24;
     hitCount += 1;
     if (killed) {
@@ -2547,7 +3013,18 @@ function stepOrdnanceProjectiles(state, dt) {
     let detonate = false;
     if (projectile.y <= 0.1 && projectile.vy < 0) {
       projectile.y = 0.1;
-      detonate = true; // hit the ground
+      // Bounce with restitution + ground friction so grenades read as physical
+      // objects; settle (or run out of bounces) → detonate. The airtime fuse
+      // below still guarantees detonation for any stray throw.
+      projectile.bounces = (projectile.bounces ?? 0) + 1;
+      const impactSpeed = Math.abs(projectile.vy);
+      if (projectile.bounces > ORDNANCE_MAX_BOUNCES || impactSpeed < ORDNANCE_REST_SPEED) {
+        detonate = true; // came to rest on the ground
+      } else {
+        projectile.vy = impactSpeed * ORDNANCE_RESTITUTION;
+        projectile.vx *= ORDNANCE_BOUNCE_FRICTION;
+        projectile.vz *= ORDNANCE_BOUNCE_FRICTION;
+      }
     }
     if (!detonate) {
       for (const zombie of state.zombies) {
@@ -2652,6 +3129,7 @@ export function persistPlayCanvasSave(state) {
     rescuedVillagers: state.rescuedVillagers,
     deadVillagers: state.deadVillagers,
     villageLevel: state.villageLevel,
+    villageStructures: serializeVillageStructureHealth(state.villageStructures),
     grenadeInventory,
     activeOrdnanceId: state.activeOrdnanceId,
     activeGrenadeId,
@@ -2722,6 +3200,7 @@ export function sanitizePlayCanvasSave(raw) {
     rescuedVillagers,
     deadVillagers,
     villageLevel: normalizeVillageLevel(raw.villageLevel),
+    villageStructures: normalizeSavedVillageStructures(raw.villageStructures),
     ownedArmors,
     equippedArmorId,
     ownedGear: normalizeOwnedGear(raw.ownedGear),
@@ -2734,6 +3213,60 @@ export function sanitizePlayCanvasSave(raw) {
     claimedOfferKeys: normalizeClaimedOfferKeys(raw.claimedOfferKeys),
     claimedGoalIds: normalizeClaimedGoalIds(raw.claimedGoalIds),
   };
+}
+
+function normalizeSavedVillageStructures(raw) {
+  if (!Array.isArray(raw)) return [];
+  const validIds = new Set(VILLAGE_STRUCTURE_DEFS.map((definition) => definition.id));
+  const normalizedById = new Map();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || !validIds.has(entry.id)) continue;
+    const explicitRatio = Number(entry.healthRatio);
+    const hp = Number(entry.hp);
+    const maxHp = Number(entry.maxHp);
+    const derivedRatio = Number.isFinite(hp) && Number.isFinite(maxHp) && maxHp > 0 ? hp / maxHp : NaN;
+    const sourceRatio = Number.isFinite(explicitRatio) ? explicitRatio : derivedRatio;
+    if (!Number.isFinite(sourceRatio)) continue;
+    const healthRatio = Math.max(0, Math.min(1, sourceRatio));
+    const destroyedWave = Number(entry.destroyedAtWave);
+    normalizedById.set(entry.id, {
+      id: entry.id,
+      healthRatio,
+      destroyedAtWave: healthRatio <= 0 && Number.isFinite(destroyedWave) && destroyedWave > 0
+        ? Math.round(destroyedWave)
+        : null,
+    });
+  }
+  return VILLAGE_STRUCTURE_DEFS
+    .map((definition) => normalizedById.get(definition.id))
+    .filter(Boolean);
+}
+
+function serializeVillageStructureHealth(structures) {
+  const byId = new Map((structures ?? []).map((structure) => [structure.id, structure]));
+  return VILLAGE_STRUCTURE_DEFS.map((definition) => {
+    const structure = byId.get(definition.id);
+    const maxHp = Math.max(1, Number(structure?.maxHp) || 1);
+    const healthRatio = structure
+      ? Math.max(0, Math.min(1, (Number(structure.hp) || 0) / maxHp))
+      : 1;
+    return {
+      id: definition.id,
+      healthRatio: Number(healthRatio.toFixed(6)),
+      destroyedAtWave: healthRatio <= 0 ? (structure?.destroyedAtWave ?? null) : null,
+    };
+  });
+}
+
+function restoreSavedVillageStructureHealth(structures, savedStructures) {
+  const savedById = new Map(normalizeSavedVillageStructures(savedStructures).map((entry) => [entry.id, entry]));
+  for (const structure of structures) {
+    const saved = savedById.get(structure.id);
+    if (!saved) continue;
+    structure.hp = structure.maxHp * saved.healthRatio;
+    structure.destroyedAtWave = saved.healthRatio <= 0 ? saved.destroyedAtWave : null;
+  }
+  return structures;
 }
 
 function defaultLifetimeStats() {
@@ -2895,11 +3428,12 @@ function rescueVillager(state, villager) {
     state.rescuedVillagers.push(villager.id);
   }
   state.deadVillagers = state.deadVillagers.filter((id) => id !== villager.id);
-  const previousMaxVillageHp = Math.max(1, Number(state.maxVillageHp) || 1);
-  const previousVillageRatio = Math.max(0, Math.min(1, (Number(state.villageHp) || 0) / previousMaxVillageHp));
   syncVillagerPerkModifiers(state);
-  state.maxVillageHp = getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers);
-  state.villageHp = Math.max(0, Math.min(state.maxVillageHp, state.maxVillageHp * previousVillageRatio));
+  state.villageStructures = resizeVillageStructureStates(
+    state.villageStructures,
+    getVillageMaxHp(state.villageLevel, state.villagerPerkModifiers),
+  );
+  syncVillageHealthAggregate(state);
   if (!alreadyRescued) {
     state.coins += VILLAGER_RESCUE_COIN_REWARD;
     const perk = VILLAGER_PERK_DEFS[villager.id];
@@ -3018,7 +3552,7 @@ function getEnemyDef(type) {
   return ENEMY_DEFS.get(type) ?? ENEMY_DEFS.get("walker");
 }
 
-function damageZombie(state, zombie, rawDamage) {
+function damageZombie(state, zombie, rawDamage, knock = undefined) {
   if (!zombie || zombie.dead) {
     return { damage: 0, killed: false };
   }
@@ -3030,6 +3564,13 @@ function damageZombie(state, zombie, rawDamage) {
   zombie.hitFlashSec = 0.18;
   // Getting shot makes a village-bound zombie turn and come for the player.
   zombie.aggroPlayerSec = PLAYER_AGGRO_ON_HIT_SEC;
+  // Physical shove: default origin is the player (gunfire); blasts pass their
+  // center. `knock: false` skips it (fire-patch ticks shouldn't shove). The
+  // impulse uses the RAW hit so a vulnerable enemy (damageTakenMultiplier > 1)
+  // takes more damage without also flying farther.
+  if (knock !== false) {
+    applyZombieKnockback(state, zombie, rawDamage, knock && typeof knock === "object" ? knock : null);
+  }
   if (zombie.hp > 0) {
     return { damage, killed: false };
   }
@@ -3056,7 +3597,7 @@ function applyBlastDamage(state, primaryZombie, rawDamage, radius) {
       continue;
     }
     const falloff = Math.max(0.35, 1 - distance / Math.max(1, radius));
-    const result = damageZombie(state, zombie, rawDamage * falloff);
+    const result = damageZombie(state, zombie, rawDamage * falloff, center);
     hitCount += 1;
     killCount += result.killed ? 1 : 0;
     if (zombie.id === primaryZombie.id) {
@@ -3340,10 +3881,12 @@ function recordPlayCanvasStructureImpact(state, details) {
     materialId: details.materialId,
     windowShattered: details.windowShattered,
   });
-  const appliedVillageDamage = FRIENDLY_FIRE_VILLAGE_DAMAGE ? potentialVillageDamage : 0;
-  if (appliedVillageDamage > 0) {
-    state.villageHp = Math.max(0, state.villageHp - appliedVillageDamage);
-    state.lifetimeStats.villageDamageTaken += Math.round(appliedVillageDamage);
+  let appliedVillageDamage = 0;
+  if (FRIENDLY_FIRE_VILLAGE_DAMAGE && potentialVillageDamage > 0) {
+    const structure = selectNearestLiveVillageStructure(state.villageStructures, details.target);
+    if (structure) {
+      appliedVillageDamage = damageVillageStructure(state, structure.id, potentialVillageDamage, details.weaponId).applied;
+    }
   }
 
   state.structureHits = (state.structureHits ?? 0) + 1;
@@ -3550,7 +4093,7 @@ function normalizeVillageLevel(value) {
 function getVillageMaxHp(level, modifiers = {}) {
   const hpPerLevel = Math.max(0, Number(VILLAGE_UPGRADE.hpPerLevel ?? 0.08));
   const perkMultiplier = Math.max(0.1, Number(modifiers?.villageHpMultiplier ?? 1));
-  return Math.round(100 * perkMultiplier * (1 + (normalizeVillageLevel(level) - 1) * hpPerLevel));
+  return Math.round(BASE_VILLAGE_MAX_HP * perkMultiplier * (1 + (normalizeVillageLevel(level) - 1) * hpPerLevel));
 }
 
 function getVillageUpgradeCost(level) {

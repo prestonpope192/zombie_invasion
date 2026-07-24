@@ -14,7 +14,13 @@ import {
 import buildingsConfig from "../fps/config/buildings_fps.json";
 import qualityProfiles from "../fps/config/quality_profiles.json";
 import { Audio3D } from "../fps/systems/audio3d";
-import { worldRadiusToMiniMapPx, worldToMiniMapPoint } from "../fps/systems/minimapUtils";
+import { renderMiniMap } from "./minimapRenderer";
+import { SfxCues } from "./sfxCues";
+import {
+  VILLAGE_FENCE_SEGMENTS,
+  VILLAGE_FENCE_X,
+  VILLAGE_STRUCTURE_DEFS,
+} from "./villageStructures";
 import {
   buyC4Pack,
   buyGrenadePack,
@@ -33,7 +39,9 @@ import {
   getPlayCanvasImpactSnapshot,
   getPlayCanvasMiniMapSnapshot,
   getPlayCanvasBuildingSnapshot,
+  getPlayCanvasVillageStructureSnapshot,
   getPlayCanvasGuidanceSnapshot,
+  getPlayCanvasTargetFov,
   getPlayCanvasAudioSnapshot,
   getPlayCanvasWeaponSnapshot,
   getPlayCanvasVillagerSnapshot,
@@ -66,7 +74,6 @@ import { computeBallisticTracerDrop } from "./shotFxRules";
 import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
-const MINIMAP_PADDING_PX = 10;
 const VIEWPORT_RESIZE_CONFIRM_MS = 120;
 const VIEWPORT_RESIZE_SETTLE_MS = 220;
 const DESKTOP_BACKBUFFER_PIXEL_BUDGET = 1_800_000;
@@ -91,21 +98,108 @@ const WEAPON_SLOT_BINDINGS = [
 ];
 
 // Sky/backdrop materials that should not receive scene fog
-const NO_FOG_MATERIALS = new Set(["cloud", "cloudDark", "moon", "moonHalo", "moonHaloInner", "moonHaloMid", "moonHaloOuter"]);
+const NO_FOG_MATERIALS = new Set(["cloud", "cloudDark", "moon", "moonHalo"]);
+
+const WEAPON_FIRE_PROFILES = {
+    // ── Tier 0: melee ──────────────────────────────────────────────────────
+    pipe: {
+      kickback: 0.02, rise: 4,  roll: 8,   lateral: 0.03, duration: 0.10,
+      recover: 14, flashSize: 0,   flashWide: 1.0, flashTtl: 1.0,
+      shake: 0.02, camKick: 0.4, actionAmt: 0,    shells: false, smoke: false, smokeSz: 0,
+    },
+    // ── Tier 1: pistol ($50) ───────────────────────────────────────────────
+    pistol: {
+      kickback: 0.06, rise: 12,  roll: 2,   lateral: 0.01, duration: 0.13,
+      recover: 10, flashSize: 0.18, flashWide: 1.2, flashTtl: 0.9,
+      shake: 0.06, camKick: 1.0, actionAmt: 0.18, shells: true,  smoke: false, smokeSz: 0,
+    },
+    // ── Tier 2: revolver ($120) ────────────────────────────────────────────
+    revolver: {
+      kickback: 0.12, rise: 22,  roll: -4,  lateral: 0.02, duration: 0.18,
+      recover: 7,  flashSize: 0.26, flashWide: 1.6, flashTtl: 1.1,
+      shake: 0.10, camKick: 1.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.10,
+    },
+    // ── Tier 3: smg ($220) ─────────────────────────────────────────────────
+    smg: {
+      kickback: 0.07, rise: 10,  roll: 3,   lateral: 0.03, duration: 0.08,
+      recover: 12, flashSize: 0.16, flashWide: 1.0, flashTtl: 0.7,
+      shake: 0.05, camKick: 0.8, actionAmt: 0.12, shells: true,  smoke: false, smokeSz: 0,
+    },
+    // ── Tier 4: machine_pistol ($300) ──────────────────────────────────────
+    machine_pistol: {
+      kickback: 0.06, rise: 9,   roll: 4,   lateral: 0.04, duration: 0.07,
+      recover: 13, flashSize: 0.14, flashWide: 1.1, flashTtl: 0.6,
+      shake: 0.04, camKick: 0.7, actionAmt: 0.10, shells: true,  smoke: false, smokeSz: 0,
+    },
+    // ── Tier 5: rifle ($420) ───────────────────────────────────────────────
+    rifle: {
+      kickback: 0.14, rise: 18,  roll: -3,  lateral: 0.02, duration: 0.16,
+      recover: 8,  flashSize: 0.28, flashWide: 1.4, flashTtl: 1.0,
+      shake: 0.12, camKick: 1.4, actionAmt: 0.14, shells: true,  smoke: true,  smokeSz: 0.12,
+    },
+    // ── Tier 6: battle_rifle ($560) ────────────────────────────────────────
+    battle_rifle: {
+      kickback: 0.20, rise: 26,  roll: -5,  lateral: 0.03, duration: 0.20,
+      recover: 6,  flashSize: 0.34, flashWide: 1.6, flashTtl: 1.1,
+      shake: 0.18, camKick: 2.0, actionAmt: 0.16, shells: true,  smoke: true,  smokeSz: 0.14,
+    },
+    // ── Tier 7: shotgun ($620) ─────────────────────────────────────────────
+    shotgun: {
+      kickback: 0.30, rise: 32,  roll: -8,  lateral: 0.04, duration: 0.26,
+      recover: 4,  flashSize: 0.42, flashWide: 2.6, flashTtl: 1.3,
+      shake: 0.26, camKick: 2.6, actionAmt: 0.32, shells: false, smoke: true,  smokeSz: 0.18,
+    },
+    // ── Tier 8: lmg ($760) ────────────────────────────────────────────────
+    lmg: {
+      kickback: 0.16, rise: 16,  roll: 2,   lateral: 0.05, duration: 0.14,
+      recover: 7,  flashSize: 0.30, flashWide: 1.5, flashTtl: 1.0,
+      shake: 0.14, camKick: 1.6, actionAmt: 0.14, shells: true,  smoke: true,  smokeSz: 0.13,
+    },
+    // ── Tier 9: dmr ($840) ────────────────────────────────────────────────
+    dmr: {
+      kickback: 0.24, rise: 30,  roll: -4,  lateral: 0.02, duration: 0.24,
+      recover: 5,  flashSize: 0.38, flashWide: 1.8, flashTtl: 1.2,
+      shake: 0.22, camKick: 2.4, actionAmt: 0.28, shells: true,  smoke: true,  smokeSz: 0.16,
+    },
+    // ── Tier 10: sniper ($980) ────────────────────────────────────────────
+    sniper: {
+      kickback: 0.38, rise: 44,  roll: -6,  lateral: 0.01, duration: 0.34,
+      recover: 3,  flashSize: 0.44, flashWide: 1.4, flashTtl: 1.6,
+      shake: 0.36, camKick: 3.4, actionAmt: 0.38, shells: true,  smoke: true,  smokeSz: 0.22,
+    },
+    // ── Tier 11: grenade_launcher ($940) ──────────────────────────────────
+    grenade_launcher: {
+      kickback: 0.32, rise: 36,  roll: 6,   lateral: 0.05, duration: 0.30,
+      recover: 3,  flashSize: 0.48, flashWide: 2.8, flashTtl: 1.5,
+      shake: 0.40, camKick: 2.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.28,
+    },
+    // ── Tier 12: rpg ($1000) ──────────────────────────────────────────────
+    rpg: {
+      kickback: 0.44, rise: 40,  roll: 8,   lateral: 0.06, duration: 0.36,
+      recover: 2,  flashSize: 0.55, flashWide: 3.0, flashTtl: 1.8,
+      shake: 0.55, camKick: 3.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.38,
+    },
+    // ── Tier 13: flamethrower ($1320) ─────────────────────────────────────
+    flamethrower: {
+      kickback: 0.04, rise: 3,   roll: 0,   lateral: 0.02, duration: 0.06,
+      recover: 16, flashSize: 0.22, flashWide: 1.0, flashTtl: 0.9,
+      shake: 0.03, camKick: 0.3, actionAmt: 0,    shells: false, smoke: false, smokeSz: 0,
+    },
+  };
 
 const MATERIALS = {
-  cloud: { diffuse: [0.30, 0.48, 0.72], emissive: [0.10, 0.20, 0.34], roughness: 0.92 },
-  cloudDark: { diffuse: [0.055, 0.13, 0.22], emissive: [0.012, 0.035, 0.07], roughness: 0.96 },
-  ground: { diffuse: [0.085, 0.12, 0.09], emissive: [0.005, 0.01, 0.008], roughness: 0.96 },
+  cloud: { diffuse: [0.16, 0.25, 0.38], emissive: [0.035, 0.065, 0.11], roughness: 0.96 },
+  cloudDark: { diffuse: [0.075, 0.12, 0.19], emissive: [0.012, 0.025, 0.045], roughness: 0.98 },
+  ground: { diffuse: [0.11, 0.145, 0.11], emissive: [0.008, 0.014, 0.011], roughness: 0.96 },
   grassDark: { diffuse: [0.045, 0.095, 0.075], emissive: [0.004, 0.01, 0.01], roughness: 0.98 },
-  road: { diffuse: [0.15, 0.105, 0.075], emissive: [0.009, 0.007, 0.005], roughness: 0.86 },
+  road: { diffuse: [0.21, 0.16, 0.12], emissive: [0.014, 0.011, 0.008], roughness: 0.86 },
   wetRoad: { diffuse: [0.09, 0.085, 0.078], emissive: [0.028, 0.04, 0.052], roughness: 0.32 },
   mudHighlight: { diffuse: [0.24, 0.16, 0.1], emissive: [0.028, 0.018, 0.01], roughness: 0.68 },
   pathEdge: { diffuse: [0.22, 0.2, 0.17], emissive: [0.012, 0.011, 0.008], roughness: 0.94 },
-  wood: { diffuse: [0.33, 0.22, 0.13], emissive: [0.011, 0.007, 0.004], roughness: 0.9 },
-  weatheredWood: { diffuse: [0.24, 0.18, 0.13], emissive: [0.007, 0.005, 0.003], roughness: 0.95 },
+  wood: { diffuse: [0.4, 0.29, 0.18], emissive: [0.017, 0.011, 0.006], roughness: 0.9 },
+  weatheredWood: { diffuse: [0.31, 0.24, 0.18], emissive: [0.012, 0.009, 0.006], roughness: 0.95 },
   timber: { diffuse: [0.16, 0.095, 0.052], emissive: [0.007, 0.004, 0.002], roughness: 0.92 },
-  houseWall: { diffuse: [0.58, 0.52, 0.44], emissive: [0.018, 0.016, 0.012], roughness: 0.94 },
+  houseWall: { diffuse: [0.46, 0.43, 0.38], emissive: [0.014, 0.015, 0.015], roughness: 0.94 },
   plasterShadow: { diffuse: [0.34, 0.32, 0.29], emissive: [0.008, 0.008, 0.007], roughness: 0.96 },
   roof: { diffuse: [0.31, 0.105, 0.07], emissive: [0.008, 0.003, 0.002], roughness: 0.94 },
   roofDark: { diffuse: [0.19, 0.15, 0.15], emissive: [0.006, 0.005, 0.005], roughness: 0.94 },
@@ -114,6 +208,7 @@ const MATERIALS = {
   windowGlow: { diffuse: [1, 0.76, 0.45], emissive: [1.45, 0.62, 0.2], roughness: 0.38 },
   lantern: { diffuse: [1, 0.62, 0.28], emissive: [2.15, 0.88, 0.24], roughness: 0.35 },
   moon: { diffuse: [0.78, 0.9, 1], emissive: [0.95, 1.18, 1.55], roughness: 0.42 },
+  moonHalo: { diffuse: [0.36, 0.52, 0.82], emissive: [0.08, 0.14, 0.28], roughness: 1, opacity: 0.08, blend: "additive" },
   zombie: { diffuse: [0.24, 0.19, 0.15], emissive: [0.01, 0.008, 0.006], roughness: 0.86 },
   runner: { diffuse: [0.28, 0.21, 0.16], emissive: [0.012, 0.009, 0.007], roughness: 0.82 },
   zombieHit: { diffuse: [0.72, 0.10, 0.12], emissive: [0.5, 0.06, 0.06], roughness: 0.7 },
@@ -140,17 +235,12 @@ const MATERIALS = {
   pine: { diffuse: [0.06, 0.14, 0.1], emissive: [0.005, 0.016, 0.016], roughness: 0.92 },
   stone: { diffuse: [0.45, 0.42, 0.36], emissive: [0.035, 0.035, 0.035], roughness: 0.86 },
   stoneDark: { diffuse: [0.3, 0.29, 0.26], emissive: [0.018, 0.018, 0.016], roughness: 0.9 },
-  // Graduated moon glow — three nested spheres, opacity falls off with radius
-  moonHaloInner: { diffuse: [0.65, 0.78, 1], emissive: [0.10, 0.18, 0.35], roughness: 1, opacity: 0.22 },
-  moonHaloMid:   { diffuse: [0.55, 0.68, 1], emissive: [0.06, 0.11, 0.24], roughness: 1, opacity: 0.11 },
-  moonHaloOuter: { diffuse: [0.42, 0.58, 0.92], emissive: [0.03, 0.06, 0.14], roughness: 1, opacity: 0.05 },
-  // Legacy key kept in case anything else references it
-  moonHalo: { diffuse: [0.58, 0.72, 1], emissive: [0.08, 0.14, 0.28], roughness: 1, opacity: 0.18 },
+  lanternPool: { diffuse: [0.56, 0.25, 0.08], emissive: [0.16, 0.055, 0.012], roughness: 1, opacity: 0.22, blend: "additive" },
   groundMist: { diffuse: [0.32, 0.44, 0.64], emissive: [0.06, 0.11, 0.20], roughness: 1, opacity: 0.16 },
   // Barrel/scope — neutral steel; low emissive avoids the old blue plastic read.
   metal: { diffuse: [0.34, 0.34, 0.32], emissive: [0.075, 0.08, 0.085], emissiveIntensity: 0.7, roughness: 0.28, metalness: 0.78 },
-  blackMetal: { diffuse: [0.055, 0.058, 0.06], emissive: [0.035, 0.04, 0.045], emissiveIntensity: 0.65, roughness: 0.42, metalness: 0.82 },
-  rail: { diffuse: [0.19, 0.19, 0.18], emissive: [0.06, 0.065, 0.068], emissiveIntensity: 0.65, roughness: 0.36, metalness: 0.78 },
+  blackMetal: { diffuse: [0.105, 0.11, 0.115], emissive: [0.05, 0.055, 0.06], emissiveIntensity: 0.72, roughness: 0.42, metalness: 0.82 },
+  rail: { diffuse: [0.25, 0.245, 0.23], emissive: [0.075, 0.078, 0.08], emissiveIntensity: 0.7, roughness: 0.36, metalness: 0.78 },
   gunmetalLight: { diffuse: [0.46, 0.45, 0.4], emissive: [0.09, 0.092, 0.085], emissiveIntensity: 0.55, roughness: 0.24, metalness: 0.86 },
   gunBlackVoid: { diffuse: [0.005, 0.005, 0.004], emissive: [0, 0, 0], roughness: 0.7, metalness: 0.4 },
   gripRubber: { diffuse: [0.035, 0.04, 0.034], emissive: [0.008, 0.01, 0.008], roughness: 0.92, metalness: 0.05 },
@@ -160,6 +250,12 @@ const MATERIALS = {
   muzzle: { diffuse: [1, 0.88, 0.44], emissive: [2.2, 1.4, 0.25], roughness: 0.18 },
   blastFire: { diffuse: [1, 0.55, 0.16], emissive: [3.2, 1.5, 0.35], roughness: 1, opacity: 0.9, blend: "additive" },
   blastSmoke: { diffuse: [0.18, 0.16, 0.15], emissive: [0.05, 0.04, 0.035], roughness: 1, opacity: 0.55 },
+  structureSmoke: { diffuse: [0.32, 0.29, 0.27], emissive: [0.09, 0.055, 0.025], roughness: 1, opacity: 0.68 },
+  structureAlert: { diffuse: [0.92, 0.34, 0.08], emissive: [1.4, 0.32, 0.04], roughness: 0.8, opacity: 0.72 },
+  structureCritical: { diffuse: [0.72, 0.055, 0.035], emissive: [1.8, 0.08, 0.025], roughness: 0.82, opacity: 0.78 },
+  rubbleDark: { diffuse: [0.11, 0.09, 0.075], emissive: [0.025, 0.012, 0.006], roughness: 0.98 },
+  bloodDecal: { diffuse: [0.26, 0.028, 0.03], emissive: [0.02, 0.002, 0.002], roughness: 0.55, opacity: 0.8 },
+  scorchDecal: { diffuse: [0.05, 0.045, 0.04], emissive: [0.008, 0.006, 0.005], roughness: 1, opacity: 0.72 },
   // Muzzle smoke puff — grey translucent, expands and fades on shot
   smokeGrey: { diffuse: [0.22, 0.22, 0.24], emissive: [0.06, 0.06, 0.07], roughness: 1, opacity: 0.38 },
   blastRing: { diffuse: [1, 0.78, 0.4], emissive: [2.6, 1.7, 0.6], roughness: 1, opacity: 0.8, blend: "additive" },
@@ -178,6 +274,7 @@ export class PlayCanvasZombieSlice {
     this.audio.setMusicEnabled(this.state.musicEnabled);
     this.audio.setSfxEnabled(this.state.sfxEnabled);
     this.samples = new SfxSampleManager();
+    this.sfxCues = new SfxCues({ audio: this.audio, samples: this.samples, isSfxEnabled: () => this.state.sfxEnabled });
     this.samples.setMuted(this.state.sfxEnabled === false);
     // Zombie ambient groan throttle — emit at most one groan per 4s
     this._zombieGroanCooldownSec = 0;
@@ -216,6 +313,7 @@ export class PlayCanvasZombieSlice {
     this.entitiesByLandscape = new Map();
     this.entitiesByWindow = new Map();
     this.entitiesByImpact = new Map();
+    this.villageStructureVisuals = new Map();
     this.ordnanceEntitiesById = new Map();
     this.fx = [];
     // ?fxslow=1 — stretches shot-FX lifetimes 10x for screenshot capture; always off in prod
@@ -283,7 +381,7 @@ export class PlayCanvasZombieSlice {
     this._vignetteActive = false;
     // ── Audio cue state ────────────────────────────────────────────────────────
     // Heartbeat: time-since-last-beat (drives the slow 2-thump loop)
-    this._heartbeatPhaseSec = 0;
+    this.sfxCues.resetHeartbeat();
     this._heartbeatActive = false;
     // Reload state tracking (to detect start / finish transitions)
     this._wasReloading = false;
@@ -291,12 +389,6 @@ export class PlayCanvasZombieSlice {
     this._nightBedTimerId = null;
     this._nightBedPhase = 0;   // index into evolving pad sequence
     this._nightBedRunning = false;
-    // SFX call counters (verification only — no overhead at runtime)
-    this._sfxCallCounts = {
-      hitConfirm: 0, kill: 0, headshot: 0, streak: 0,
-      reloadStart: 0, reloadFinish: 0, empty: 0,
-      coin: 0, playerDamage: 0, heartbeat: 0, uiClick: 0, nightBedStart: 0,
-    };
 
     // ── Village-distress visual state ──────────────────────────────────────────
     // Smoothed HP ratio (0–1); drives all staged visuals.  Initialised to 1 (pristine).
@@ -324,7 +416,7 @@ export class PlayCanvasZombieSlice {
       loadZombieGlbContainer(this.app).then((asset) => {
         this.glbContainer = asset;
         if (asset) {
-          console.log("[PlayCanvas] GLB zombie container ready.");
+          console.debug("[PlayCanvas] GLB zombie container ready.");
         } else {
           console.warn("[PlayCanvas] GLB container load failed — falling back to procedural rig.");
         }
@@ -335,7 +427,7 @@ export class PlayCanvasZombieSlice {
         const anyLoaded = containers.man || containers.woman;
         if (anyLoaded) {
           this.villagerGlbContainers = containers;
-          console.log("[PlayCanvas] Villager GLB containers ready (man:", !!containers.man, "woman:", !!containers.woman, ").");
+          console.debug("[PlayCanvas] Villager GLB containers ready (man:", !!containers.man, "woman:", !!containers.woman, ").");
         } else {
           console.warn("[PlayCanvas] Villager GLB load failed — using primitive villager fallback.");
         }
@@ -347,7 +439,7 @@ export class PlayCanvasZombieSlice {
         if (anyLoaded) {
           this.animalGlbContainers = containers;
           const loaded = Object.entries(containers).filter(([, v]) => v).map(([k]) => k);
-          console.log("[PlayCanvas] Animal GLB containers ready:", loaded.join(", "));
+          console.debug("[PlayCanvas] Animal GLB containers ready:", loaded.join(", "));
         } else {
           console.warn("[PlayCanvas] All animal GLB loads failed — using zombie GLB fallback for animals.");
         }
@@ -364,7 +456,7 @@ export class PlayCanvasZombieSlice {
   buildDom() {
     this.root.innerHTML = `
       <div class="pc-slice">
-        <canvas class="pc-slice-canvas" aria-label="PlayCanvas zombie invasion prototype"></canvas>
+        <canvas class="pc-slice-canvas" aria-label="Zombie Invasion 3D view"></canvas>
         <div class="pc-slice-hud" aria-live="polite">
 
           <!-- TOP-LEFT: wave + village integrity -->
@@ -379,6 +471,11 @@ export class PlayCanvasZombieSlice {
                 <i class="zi-bar-fill" data-bar="village"></i>
               </div>
               <b data-field="village">100/100</b>
+            </div>
+            <div class="zi-structure-alert" data-structure-alert hidden role="status" aria-live="assertive">
+              <span class="zi-structure-alert-icon" aria-hidden="true">!</span>
+              <span><small>UNDER ATTACK</small><b data-structure-alert-label>Village</b></span>
+              <strong data-structure-alert-health>100%</strong>
             </div>
           </div>
 
@@ -423,7 +520,7 @@ export class PlayCanvasZombieSlice {
           <!-- TOP-CENTER: phase / message toast -->
           <div class="zi-toast" aria-live="assertive">
             <span data-field="phase">Ready</span>
-            <strong data-field="message">Click Start Slice</strong>
+            <strong data-field="message">Press Start</strong>
           </div>
 
           <!-- Hidden stash: fields still written by updateHud but not shown -->
@@ -480,7 +577,7 @@ export class PlayCanvasZombieSlice {
         <div class="pc-flow-panel" data-panel="flow" aria-live="polite">
           <span data-flow-field="eyebrow">Night Survival</span>
           <h1 data-flow-field="title">Zombie Invasion</h1>
-          <p data-flow-field="body">Survive the 12-wave village defense in the new cinematic low-poly style.</p>
+          <p data-flow-field="body">Survive the 12-wave village defense.</p>
           <div class="pc-flow-stats">
             <span>Wave <b data-flow-field="wave">1</b></span>
             <span>Best <b data-flow-field="best">1</b></span>
@@ -584,7 +681,7 @@ export class PlayCanvasZombieSlice {
                 <button type="button" data-action="music" aria-label="Toggle music">Toggle</button>
               </div>
               <div class="zi-settings-row">
-                <span>Sound FX</span>
+                <span>Sound Effects</span>
                 <button type="button" data-action="sfx" aria-label="Toggle sound effects">Toggle</button>
               </div>
               <div class="zi-settings-row">
@@ -660,6 +757,9 @@ export class PlayCanvasZombieSlice {
     this.reticle = this.root.querySelector(".pc-slice-reticle");
     this.minimapCanvas = this.root.querySelector(".pc-minimap-canvas");
     this.minimapCtx = this.minimapCanvas?.getContext("2d") ?? null;
+    this.structureAlert = this.root.querySelector("[data-structure-alert]");
+    this.structureAlertLabel = this.root.querySelector("[data-structure-alert-label]");
+    this.structureAlertHealth = this.root.querySelector("[data-structure-alert-health]");
     // Settings sheet
     this.settingsSheet = this.root.querySelector('[data-panel="settings"]');
     // More popover
@@ -716,6 +816,7 @@ export class PlayCanvasZombieSlice {
       music:   this.root.querySelector('[data-action="music"]'),
       sfx:     this.root.querySelector('[data-action="sfx"]'),
       haptics: this.root.querySelector('[data-action="haptics"]'),
+      fullscreen: this.root.querySelector('[data-action="fullscreen"]'),
     };
     this.shopPanel = this.root.querySelector('[data-panel="shop"]');
     this.shopGuideTitle = this.root.querySelector("[data-shop-guide-title]");
@@ -925,12 +1026,14 @@ export class PlayCanvasZombieSlice {
   installViewportResizeHandlers() {
     const sync = () => this.scheduleViewportFrameSync();
 
-    window.addEventListener("resize", sync);
-    window.addEventListener("orientationchange", sync);
-    window.addEventListener("fullscreenchange", sync);
-    window.addEventListener("webkitfullscreenchange", sync);
-    window.visualViewport?.addEventListener("resize", sync);
-    window.visualViewport?.addEventListener("scroll", sync);
+    this._on(window, "resize", sync);
+    this._on(window, "orientationchange", sync);
+    this._on(window, "fullscreenchange", sync);
+    this._on(window, "webkitfullscreenchange", sync);
+    if (window.visualViewport) {
+      this._on(window.visualViewport, "resize", sync);
+      this._on(window.visualViewport, "scroll", sync);
+    }
 
     if (typeof ResizeObserver !== "undefined") {
       this._viewportResizeObserver = new ResizeObserver(sync);
@@ -1002,6 +1105,7 @@ export class PlayCanvasZombieSlice {
     });
     moon.setEulerAngles(42, 18, 0);
     this.app.root.addChild(moon);
+    this.moonKeyLight = moon; // kept for the boss-wave blood-moon tint
 
     const fillLight = new pc.Entity("sky-fill");
     fillLight.addComponent("light", {
@@ -1028,12 +1132,9 @@ export class PlayCanvasZombieSlice {
 
     this.addSkyLayers();
     this.addPrimitive("moon-disc", "sphere", [0, 27, -72], [4.8, 4.8, 4.8], "moon");
-    // Moon glow: 3 nested halo spheres with decreasing opacity = soft graduated falloff.
-    // Inner halo (r8, op 0.22) → mid halo (r13, op 0.11) → outer corona (r20, op 0.05).
-    // Placed just behind the disc (z -71) so they layer behind it visually.
-    this.addPrimitive("moon-halo-inner", "sphere", [0, 27, -71], [8, 8, 8], "moonHaloInner");
-    this.addPrimitive("moon-halo-mid",   "sphere", [0, 27, -70], [13, 13, 13], "moonHaloMid");
-    this.addPrimitive("moon-halo-outer", "sphere", [0, 27, -69], [20, 20, 20], "moonHaloOuter");
+    // One restrained translucent shell is less elaborate than a textured
+    // billboard, but stays reliable on SwiftShader and mobile WebGL fallbacks.
+    this.addPrimitive("moon-soft-halo", "sphere", [0, 27, -72.8], [8.5, 8.5, 8.5], "moonHalo");
     this.addGround();
     this.addVillage();
     this.addBuildingInteriors();
@@ -1102,23 +1203,25 @@ export class PlayCanvasZombieSlice {
   }
 
   addVillage() {
-    this.addBellTower(0, SLICE_WORLD.villageZ - 12);
-    this.minimapStructures.push({ x: 0, z: SLICE_WORLD.villageZ - 12, sx: 3.3, sz: 2.8, kind: "tower" });
+    const tower = VILLAGE_STRUCTURE_DEFS.find((structure) => structure.kind === "tower");
+    this.addBellTower(tower.x, tower.z, tower.id);
+    this.minimapStructures.push({ id: tower.id, x: tower.x, z: tower.z, sx: tower.sx, sz: tower.sz, kind: "tower" });
     // village-safe-pool: no ground disc, the bell tower glow is sufficient
     this.addLantern(-1.8, 2.6, SLICE_WORLD.villageZ + 0.3);
     this.addLantern(1.8, 2.6, SLICE_WORLD.villageZ + 0.3);
 
-    const houses = [
-      [-9.5, SLICE_WORLD.villageZ - 10, 5.8, 3.2, 5.8],
-      [9.4, SLICE_WORLD.villageZ - 8.8, 5.6, 3.0, 5.4],
-      [-13.2, SLICE_WORLD.villageZ - 1, 6.4, 3.5, 5.2],
-      [13.4, SLICE_WORLD.villageZ + 0.2, 6.2, 3.4, 5.4],
-      [-15.4, SLICE_WORLD.villageZ + 12.6, 7.2, 3.7, 6.8],
-      [15.8, SLICE_WORLD.villageZ + 12.2, 7.4, 3.8, 7.0],
-    ];
-    houses.forEach(([x, z, sx, sy, sz], index) => {
-      this.addHouseFacade(`house-${index}`, x, z, sx, sy, sz, index);
-    });
+    for (const structure of VILLAGE_STRUCTURE_DEFS.filter((entry) => entry.kind === "house")) {
+      this.addHouseFacade(
+        `house-${structure.visualIndex}`,
+        structure.x,
+        structure.z,
+        structure.sx,
+        structure.sy,
+        structure.sz,
+        structure.visualIndex,
+        structure.id,
+      );
+    }
 
     for (let x = -6; x <= 6; x += 2) {
       // Low barrier resting on the ground (was floating at y=0.65 + tilted 12°,
@@ -1163,106 +1266,262 @@ export class PlayCanvasZombieSlice {
     // dots/artifacts rather than stars; the moon + clouds carry the night sky.)
   }
 
+  // Drift clouds slowly. Transform-only updates
+  // (a handful of setLocalPosition/Scale calls) so the living sky costs
+  // essentially nothing per frame. Skipped under prefers-reduced-motion.
+  _updateSky(dt) {
+    if (this._reducedMotion || !(dt > 0)) return;
+    this._skyTimeSec = (this._skyTimeSec ?? 0) + dt;
+    const t = this._skyTimeSec;
+    if (this._cloudDrift?.length) {
+      for (const puff of this._cloudDrift) {
+        const pos = puff.entity.getLocalPosition();
+        puff.entity.setLocalPosition(
+          puff.baseX + Math.sin(t * puff.speed + puff.phase) * puff.range,
+          pos.y,
+          pos.z,
+        );
+      }
+    }
+  }
+
+  // Blood-moon escalation: while a boss-tier zombie is alive (or the secret
+  // boss phase is active) the fog, ambient, and moonlight shift toward a deep
+  // red, then ease back when the threat dies. Scene-level color writes only —
+  // no per-frame material.update(). Factor eases over ~2s each way.
+  _updateAtmosphere(dt) {
+    if (!(dt > 0)) return;
+    let bossAlive = this.state.phase === "secret_boss";
+    if (!bossAlive) {
+      for (const z of this.state.zombies) {
+        if (!z.dead && (z.type === "mini_boss" || z.type === "mega_zombie" || z.type === "secret_boss")) {
+          bossAlive = true;
+          break;
+        }
+      }
+    }
+    const target = bossAlive ? 1 : 0;
+    const current = this._bloodMoonFactor ?? 0;
+    if (current === target) return;
+    const step = Math.min(Math.abs(target - current), dt * 0.5);
+    const f = current + Math.sign(target - current) * step;
+    this._bloodMoonFactor = f;
+    const mix = (a, b) => a + (b - a) * f;
+    this.app.scene.fog.color.set(mix(0.04, 0.14), mix(0.10, 0.045), mix(0.22, 0.06));
+    this.app.scene.ambientLight = new pc.Color(mix(0.12, 0.19), mix(0.17, 0.10), mix(0.26, 0.10));
+    if (this.moonKeyLight?.light) {
+      this.moonKeyLight.light.color.set(mix(0.75, 1.0), mix(0.86, 0.42), mix(1.0, 0.34));
+    }
+  }
+
   addCloudCluster(name, x, y, z, scale) {
-    // Puffy billowy cloud: 7 overlapping spheres with vertical proportion closer
-    // to horizontal (sy ~0.70–0.90 × sx instead of the old ~0.12–0.16 × sx).
-    // Layout: large central body, two mid-height flanking lobes, two upper puffs,
-    // two lower anchor puffs (slightly darker cloudDark material).
+    // Five overlapping, vertically varied puffs form one broad storm mass.
+    // The restrained count and dark lower lobes avoid both bubble piles and strips.
     // [ox, oy, oz, sx, sy, sz, materialKey]
     const offsets = [
-      // central body — biggest sphere, sets cloud mass
-      [0,    0,    0,    4.8, 3.6, 2.6, "cloud"],
-      // right lobe
-      [3.2,  0.2,  0.1,  3.6, 2.8, 2.2, "cloud"],
-      // left lobe
-      [-3.0, 0.1, -0.1,  3.2, 2.6, 2.0, "cloud"],
-      // upper puff (centre)
-      [0.4,  2.2,  0.2,  2.8, 2.4, 1.8, "cloud"],
-      // upper puff (right)
-      [2.6,  1.8, -0.1,  2.2, 1.9, 1.6, "cloud"],
-      // lower anchor left — slightly darker base
-      [-2.2,-0.9,  0.3,  3.0, 2.0, 2.0, "cloudDark"],
-      // lower anchor right — slightly darker base
-      [2.8, -0.8,  0.1,  2.6, 1.8, 1.8, "cloudDark"],
+      [0, 0, 0, 5.4, 2.6, 2.7, "cloudDark"],
+      [-3.8, -0.35, 0.35, 4.1, 1.9, 2.3, "cloudDark"],
+      [4.0, -0.2, 0.2, 4.4, 2.0, 2.4, "cloudDark"],
+      [-1.5, 1.25, -0.25, 3.8, 2.45, 2.15, "cloud"],
+      [2.0, 1.05, -0.45, 3.5, 2.2, 2.0, "cloud"],
     ];
+    // Whole-cluster drift parameters — every puff of a cluster shares them so
+    // the cloud moves as one body (see _updateSky).
+    if (!this._cloudDrift) this._cloudDrift = [];
+    const drift = {
+      speed: 0.05 + (scale % 0.13) * 0.35, // ~120s+ period, varied per cluster
+      phase: x * 0.37,
+      range: 2.2 + scale * 1.4,
+    };
     for (const [ox, oy, oz, sx, sy, sz, mat] of offsets) {
       const cloud = this.addPrimitive(`${name}-${ox}`, "sphere", [x + ox * scale, y + oy * scale, z + oz * scale], [sx * scale, sy * scale, sz * scale], mat);
       cloud.setEulerAngles(0, ox * 9, 0);
+      this._cloudDrift.push({ entity: cloud, baseX: x + ox * scale, ...drift });
     }
   }
 
-  addBellTower(x, z) {
+  addBellTower(x, z, structureId) {
+    const intactRoot = new pc.Entity(`${structureId}-intact`);
+    this.app.root.addChild(intactRoot);
     // Wall rises to ~6.0 so the roof eaves (≈6.05) cap it directly — previously
     // the wall stopped at 4.8 while the roof sat at 6.6, leaving the roof
     // floating above a ~1.2m sky gap.
-    this.addPrimitive("bell-tower-base", "box", [x, 3.0, z], [3.3, 6.0, 2.8], "houseWall");
-    this.addPrimitive("bell-tower-plaster-stain", "box", [x - 0.65, 2.0, z - 1.43], [0.9, 1.6, 0.05], "plasterShadow");
-    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
-    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber");
-    this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z - 1.43], [0.72, 1.15, 0.08], "windowGlow"));
-    this.addWindowFrame("bell-window-frame", x, 3.2, z - 1.48, 0.9, 1.34);
+    this.addPrimitive("bell-tower-base", "box", [x, 3.0, z], [3.3, 6.0, 2.8], "houseWall", intactRoot);
+    this.addPrimitive("bell-tower-plaster-stain", "box", [x - 0.65, 2.0, z - 1.43], [0.9, 1.6, 0.05], "plasterShadow", intactRoot);
+    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber", intactRoot);
+    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber", intactRoot);
+    this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z - 1.43], [0.72, 1.15, 0.08], "windowGlow", intactRoot), structureId);
+    this.addWindowFrame("bell-window-frame", x, 3.2, z - 1.48, 0.9, 1.34, intactRoot);
     // Belfry arch + bell read against the upper wall, just under the roofline.
-    this.addPrimitive("bell-arch", "box", [x, 5.35, z - 1.45], [2.1, 1.1, 0.22], "timber");
-    this.addPrimitive("bell", "sphere", [x, 5.0, z - 1.62], [0.55, 0.55, 0.55], "metal");
-    this.addPitchedRoof("bell-roof", x, z, 4.2, 3.7, 6.6, "roofDark");
-    this.addPrimitive("bell-cross-vertical", "box", [x, 8.55, z - 0.1], [0.12, 1.0, 0.12], "metal");
-    this.addPrimitive("bell-cross-horizontal", "box", [x, 8.74, z - 0.1], [0.65, 0.1, 0.1], "metal");
+    this.addPrimitive("bell-arch", "box", [x, 5.35, z - 1.45], [2.1, 1.1, 0.22], "timber", intactRoot);
+    this.addPrimitive("bell", "sphere", [x, 5.0, z - 1.62], [0.55, 0.55, 0.55], "metal", intactRoot);
+    this.addPitchedRoof("bell-roof", x, z, 4.2, 3.7, 6.6, "roofDark", intactRoot);
+    this.addPrimitive("bell-cross-vertical", "box", [x, 8.55, z - 0.1], [0.12, 1.0, 0.12], "metal", intactRoot);
+    this.addPrimitive("bell-cross-horizontal", "box", [x, 8.74, z - 0.1], [0.65, 0.1, 0.1], "metal", intactRoot);
+    this.createVillageStructureDamageVisuals(structureId, intactRoot);
   }
 
-  addHouseFacade(name, x, z, sx, sy, sz, index) {
+  addHouseFacade(name, x, z, sx, sy, sz, index, structureId) {
     const side = Math.sign(x) || 1;
-    this.minimapStructures.push({ x, z, sx, sz, kind: "building" });
-    this.addPrimitive(`${name}-body`, "box", [x, sy / 2, z], [sx, sy, sz], "houseWall");
-    this.addPrimitive(`${name}-foundation`, "box", [x, 0.22, z + sz / 2 + 0.035], [sx * 0.96, 0.42, 0.16], "stoneDark");
-    this.addPrimitive(`${name}-plaster-patch-a`, "box", [x - side * sx * 0.08, sy * 0.42, z + sz / 2 + 0.062], [sx * 0.28, sy * 0.34, 0.045], "plasterShadow");
-    this.addPrimitive(`${name}-plaster-patch-b`, "box", [x + side * sx * 0.26, sy * 0.28, z + sz / 2 + 0.064], [sx * 0.18, sy * 0.22, 0.045], "plasterShadow");
-    this.addPitchedRoof(`${name}-roof`, x, z, sx * 1.14, sz * 1.1, sy + 0.66, index > 3 ? "roofDark" : "roof");
-    this.addPrimitive(`${name}-timber-mid`, "box", [x, sy * 0.58, z + sz / 2 + 0.05], [sx * 0.88, 0.16, 0.12], "timber");
-    this.addPrimitive(`${name}-timber-upper`, "box", [x, sy * 0.86, z + sz / 2 + 0.055], [sx * 0.82, 0.13, 0.12], "timber");
-    this.addPrimitive(`${name}-timber-left`, "box", [x - sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber");
-    this.addPrimitive(`${name}-timber-right`, "box", [x + sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber");
-    this.addPrimitive(`${name}-brace-left`, "box", [x - sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber").setEulerAngles(0, 0, 22);
-    this.addPrimitive(`${name}-brace-right`, "box", [x + sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber").setEulerAngles(0, 0, -22);
-    this.addPrimitive(`${name}-door`, "box", [x + side * sx * 0.18, 0.72, z + sz / 2 + 0.08], [0.76, 1.25, 0.09], "timber");
-    this.addPrimitive(`${name}-door-panel`, "box", [x + side * sx * 0.18, 0.78, z + sz / 2 + 0.135], [0.52, 0.86, 0.045], "weatheredWood");
-    this.addPrimitive(`${name}-door-step`, "box", [x + side * sx * 0.18, 0.11, z + sz / 2 + 0.45], [1.05, 0.18, 0.5], "stone");
-    this.registerWindowEntity(`${name}-window-a`, this.addPrimitive(`${name}-window-a`, "box", [x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.09], [0.72, 0.82, 0.08], "windowGlow"));
-    this.registerWindowEntity(`${name}-window-b`, this.addPrimitive(`${name}-window-b`, "box", [x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.09], [0.48, 0.62, 0.08], "windowGlow"));
-    this.addWindowFrame(`${name}-window-a-frame`, x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.135, 0.88, 0.98);
-    this.addWindowFrame(`${name}-window-b-frame`, x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.135, 0.62, 0.78);
+    const intactRoot = new pc.Entity(`${structureId}-intact`);
+    this.app.root.addChild(intactRoot);
+    this.minimapStructures.push({ id: structureId, x, z, sx, sz, kind: "building" });
+    this.addPrimitive(`${name}-body`, "box", [x, sy / 2, z], [sx, sy, sz], "houseWall", intactRoot);
+    this.addPrimitive(`${name}-foundation`, "box", [x, 0.22, z + sz / 2 + 0.035], [sx * 0.96, 0.42, 0.16], "stoneDark", intactRoot);
+    this.addPrimitive(`${name}-plaster-patch-a`, "box", [x - side * sx * 0.08, sy * 0.42, z + sz / 2 + 0.062], [sx * 0.28, sy * 0.34, 0.045], "plasterShadow", intactRoot);
+    this.addPrimitive(`${name}-plaster-patch-b`, "box", [x + side * sx * 0.26, sy * 0.28, z + sz / 2 + 0.064], [sx * 0.18, sy * 0.22, 0.045], "plasterShadow", intactRoot);
+    this.addPitchedRoof(`${name}-roof`, x, z, sx * 1.14, sz * 1.1, sy + 0.66, index > 3 ? "roofDark" : "roof", intactRoot);
+    this.addPrimitive(`${name}-timber-mid`, "box", [x, sy * 0.58, z + sz / 2 + 0.05], [sx * 0.88, 0.16, 0.12], "timber", intactRoot);
+    this.addPrimitive(`${name}-timber-upper`, "box", [x, sy * 0.86, z + sz / 2 + 0.055], [sx * 0.82, 0.13, 0.12], "timber", intactRoot);
+    this.addPrimitive(`${name}-timber-left`, "box", [x - sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber", intactRoot);
+    this.addPrimitive(`${name}-timber-right`, "box", [x + sx * 0.38, sy * 0.55, z + sz / 2 + 0.06], [0.16, sy * 0.8, 0.12], "timber", intactRoot);
+    this.addPrimitive(`${name}-brace-left`, "box", [x - sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber", intactRoot).setEulerAngles(0, 0, 22);
+    this.addPrimitive(`${name}-brace-right`, "box", [x + sx * 0.2, sy * 0.43, z + sz / 2 + 0.07], [0.12, sy * 0.62, 0.11], "timber", intactRoot).setEulerAngles(0, 0, -22);
+    this.addPrimitive(`${name}-door`, "box", [x + side * sx * 0.18, 0.72, z + sz / 2 + 0.08], [0.76, 1.25, 0.09], "timber", intactRoot);
+    this.addPrimitive(`${name}-door-panel`, "box", [x + side * sx * 0.18, 0.78, z + sz / 2 + 0.135], [0.52, 0.86, 0.045], "weatheredWood", intactRoot);
+    this.addPrimitive(`${name}-door-step`, "box", [x + side * sx * 0.18, 0.11, z + sz / 2 + 0.45], [1.05, 0.18, 0.5], "stone", intactRoot);
+    this.registerWindowEntity(`${name}-window-a`, this.addPrimitive(`${name}-window-a`, "box", [x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.09], [0.72, 0.82, 0.08], "windowGlow", intactRoot), structureId);
+    this.registerWindowEntity(`${name}-window-b`, this.addPrimitive(`${name}-window-b`, "box", [x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.09], [0.48, 0.62, 0.08], "windowGlow", intactRoot), structureId);
+    this.addWindowFrame(`${name}-window-a-frame`, x - side * sx * 0.22, sy * 0.78, z + sz / 2 + 0.135, 0.88, 0.98, intactRoot);
+    this.addWindowFrame(`${name}-window-b-frame`, x + side * sx * 0.35, sy * 0.62, z + sz / 2 + 0.135, 0.62, 0.78, intactRoot);
     this.addLantern(x - side * sx * 0.5, 1.55, z + sz / 2 + 0.28);
     if (index >= 4) {
-      this.addPrimitive(`${name}-wagon`, "box", [x - side * 2.1, 0.55, z + sz / 2 + 1.3], [2.0, 0.6, 0.9], "wood");
-      this.addPrimitive(`${name}-wheel-a`, "cylinder", [x - side * 2.9, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber").setEulerAngles(90, 0, 0);
-      this.addPrimitive(`${name}-wheel-b`, "cylinder", [x - side * 1.35, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber").setEulerAngles(90, 0, 0);
+      this.addPrimitive(`${name}-wagon`, "box", [x - side * 2.1, 0.55, z + sz / 2 + 1.3], [2.0, 0.6, 0.9], "wood", intactRoot);
+      this.addPrimitive(`${name}-wheel-a`, "cylinder", [x - side * 2.9, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber", intactRoot).setEulerAngles(90, 0, 0);
+      this.addPrimitive(`${name}-wheel-b`, "cylinder", [x - side * 1.35, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber", intactRoot).setEulerAngles(90, 0, 0);
     }
+    this.createVillageStructureDamageVisuals(structureId, intactRoot);
   }
 
-  addWindowFrame(name, x, y, z, width, height) {
-    this.addPrimitive(`${name}-top`, "box", [x, y + height * 0.5, z], [width, 0.08, 0.08], "timber");
-    this.addPrimitive(`${name}-bottom`, "box", [x, y - height * 0.5, z], [width, 0.08, 0.08], "timber");
-    this.addPrimitive(`${name}-left`, "box", [x - width * 0.5, y, z], [0.08, height, 0.08], "timber");
-    this.addPrimitive(`${name}-right`, "box", [x + width * 0.5, y, z], [0.08, height, 0.08], "timber");
-    this.addPrimitive(`${name}-cross-v`, "box", [x, y, z + 0.015], [0.045, height * 0.72, 0.06], "weatheredWood");
-    this.addPrimitive(`${name}-cross-h`, "box", [x, y, z + 0.015], [width * 0.68, 0.045, 0.06], "weatheredWood");
+  addWindowFrame(name, x, y, z, width, height, parent = this.app.root) {
+    this.addPrimitive(`${name}-top`, "box", [x, y + height * 0.5, z], [width, 0.08, 0.08], "timber", parent);
+    this.addPrimitive(`${name}-bottom`, "box", [x, y - height * 0.5, z], [width, 0.08, 0.08], "timber", parent);
+    this.addPrimitive(`${name}-left`, "box", [x - width * 0.5, y, z], [0.08, height, 0.08], "timber", parent);
+    this.addPrimitive(`${name}-right`, "box", [x + width * 0.5, y, z], [0.08, height, 0.08], "timber", parent);
+    this.addPrimitive(`${name}-cross-v`, "box", [x, y, z + 0.015], [0.045, height * 0.72, 0.06], "weatheredWood", parent);
+    this.addPrimitive(`${name}-cross-h`, "box", [x, y, z + 0.015], [width * 0.68, 0.045, 0.06], "weatheredWood", parent);
   }
 
-  addPitchedRoof(name, x, z, width, depth, y, materialKey) {
+  addPitchedRoof(name, x, z, width, depth, y, materialKey, parent = this.app.root) {
     // Panels slope UP toward the centre ridge (∧). The inner edge of each panel
     // must be high and the outer eave low — the previous signs were swapped,
     // which raised the eaves and dropped the centre (an upside-down ∨ roof).
-    const left = this.addPrimitive(`${name}-left`, "box", [x - width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey);
+    const left = this.addPrimitive(`${name}-left`, "box", [x - width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey, parent);
     left.setEulerAngles(0, 0, 25);
-    const right = this.addPrimitive(`${name}-right`, "box", [x + width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey);
+    const right = this.addPrimitive(`${name}-right`, "box", [x + width * 0.19, y, z], [width * 0.62, 0.24, depth], materialKey, parent);
     right.setEulerAngles(0, 0, -25);
-    this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "roofEdge");
+    this.addPrimitive(`${name}-ridge`, "box", [x, y + width * 0.13, z], [0.18, 0.22, depth * 1.04], "roofEdge", parent);
     for (let i = -2; i <= 2; i += 1) {
       const zOff = i * depth * 0.18;
-      const leftBatten = this.addPrimitive(`${name}-batten-l-${i}`, "box", [x - width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge");
+      const leftBatten = this.addPrimitive(`${name}-batten-l-${i}`, "box", [x - width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge", parent);
       leftBatten.setEulerAngles(0, 0, 25);
-      const rightBatten = this.addPrimitive(`${name}-batten-r-${i}`, "box", [x + width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge");
+      const rightBatten = this.addPrimitive(`${name}-batten-r-${i}`, "box", [x + width * 0.2, y + 0.045, z + zOff], [width * 0.56, 0.055, 0.045], "roofEdge", parent);
       rightBatten.setEulerAngles(0, 0, -25);
     }
+  }
+
+  createVillageStructureDamageVisuals(structureId, intactRoot) {
+    const definition = VILLAGE_STRUCTURE_DEFS.find((structure) => structure.id === structureId);
+    if (!definition) return;
+    const { x, z, sx, sy, sz } = definition;
+    const facadeZ = z + sz * 0.5 + 0.17;
+
+    const cracks = new pc.Entity(`${structureId}-damage-cracks`);
+    this.app.root.addChild(cracks);
+    const crackA = this.addPrimitive(`${structureId}-crack-a`, "box", [x - sx * 0.16, sy * 0.62, facadeZ], [0.11, sy * 0.56, 0.07], "scorchDecal", cracks);
+    crackA.setEulerAngles(0, 0, 31);
+    const crackB = this.addPrimitive(`${structureId}-crack-b`, "box", [x + sx * 0.18, sy * 0.42, facadeZ + 0.01], [0.1, sy * 0.44, 0.07], "scorchDecal", cracks);
+    crackB.setEulerAngles(0, 0, -38);
+    this.addPrimitive(`${structureId}-scorch`, "box", [x, sy * 0.22, facadeZ - 0.01], [sx * 0.44, sy * 0.28, 0.06], "scorchDecal", cracks);
+
+    const critical = new pc.Entity(`${structureId}-damage-critical`);
+    this.app.root.addChild(critical);
+    const fallenBeam = this.addPrimitive(`${structureId}-fallen-beam`, "box", [x, sy * 0.72, facadeZ + 0.08], [sx * 0.72, 0.2, 0.16], "timber", critical);
+    fallenBeam.setEulerAngles(0, 0, 12);
+    this.addPrimitive(`${structureId}-char-panel`, "box", [x + sx * 0.28, sy * 0.54, facadeZ + 0.06], [sx * 0.22, sy * 0.74, 0.08], "rubbleDark", critical);
+
+    const fire = new pc.Entity(`${structureId}-damage-fire`);
+    fire.setLocalPosition(x, 0, z);
+    this.app.root.addChild(fire);
+    this.addPrimitive(`${structureId}-fire-a`, "sphere", [-sx * 0.2, sy * 0.7, sz * 0.5 + 0.29], [0.42, 0.74, 0.42], "blastFire", fire);
+    this.addPrimitive(`${structureId}-fire-a-core`, "sphere", [-sx * 0.2, sy * 0.62, sz * 0.5 + 0.37], [0.2, 0.38, 0.2], "lantern", fire);
+    this.addPrimitive(`${structureId}-fire-b`, "sphere", [sx * 0.24, sy * 0.42, sz * 0.5 + 0.27], [0.34, 0.58, 0.34], "blastFire", fire);
+    this.addPrimitive(`${structureId}-fire-roof`, "sphere", [sx * 0.08, sy + 0.58, sz * 0.28], [0.34, 0.64, 0.34], "blastFire", fire);
+
+    const smoke = this.addPrimitive(
+      `${structureId}-damage-smoke`,
+      "sphere",
+      [x, sy + 1.5, z + sz * 0.22],
+      [1.05, 1.4, 1.05],
+      "structureSmoke",
+    );
+    smoke._villageSmokeBaseY = sy + 1.5;
+    smoke._villageSmokeBaseZ = z + sz * 0.22;
+
+    const rubble = new pc.Entity(`${structureId}-rubble`);
+    this.app.root.addChild(rubble);
+    const rubblePieces = [
+      [-0.32, -0.2, 0.34, 0.28, 0.38, "stoneDark", 18],
+      [0.26, 0.18, 0.28, 0.34, 0.3, "rubbleDark", -16],
+      [-0.08, 0.3, 0.42, 0.2, 0.28, "roofDark", 34],
+      [0.36, -0.24, 0.3, 0.26, 0.44, "timber", 58],
+      [-0.38, 0.24, 0.26, 0.3, 0.32, "houseWall", -28],
+      [0.04, -0.34, 0.46, 0.18, 0.24, "roofDark", 9],
+    ];
+    rubblePieces.forEach(([ox, oz, psx, psy, psz, material, rot], index) => {
+      const piece = this.addPrimitive(
+        `${structureId}-rubble-${index}`,
+        "box",
+        [x + ox * sx, 0.12 + psy * 0.7, z + oz * sz],
+        [Math.max(0.5, psx * sx), Math.max(0.3, psy * sy), Math.max(0.5, psz * sz)],
+        material,
+        rubble,
+      );
+      piece.setEulerAngles(index * 7, rot, rot * 0.32);
+    });
+
+    const attackRing = this.addPrimitive(
+      `${structureId}-attack-ring`,
+      "cylinder",
+      [x, 0.045, z],
+      [Math.max(sx, sz) * 0.68, 0.025, Math.max(sx, sz) * 0.68],
+      "structureAlert",
+    );
+
+    const alertRoot = new pc.Entity(`${structureId}-alert`);
+    alertRoot.setLocalPosition(x, sy + 1.55, z);
+    this.app.root.addChild(alertRoot);
+    this.addPrimitive(`${structureId}-health-back`, "box", [0, 0, 0], [2.35, 0.24, 0.08], "healthBack", alertRoot);
+    const alertFill = this.addPrimitive(`${structureId}-health-fill`, "box", [0, 0, 0.055], [2.18, 0.13, 0.065], "structureAlert", alertRoot);
+    const criticalFill = this.addPrimitive(`${structureId}-health-critical`, "box", [0, 0, 0.065], [2.18, 0.13, 0.065], "structureCritical", alertRoot);
+    const beaconStem = this.addPrimitive(`${structureId}-alert-beacon-stem`, "box", [-1.4, 0.15, 0], [0.11, 0.32, 0.08], "structureAlert", alertRoot);
+    const beacon = this.addPrimitive(`${structureId}-alert-beacon`, "sphere", [-1.4, -0.15, 0], [0.18, 0.18, 0.18], "structureAlert", alertRoot);
+
+    cracks.enabled = false;
+    critical.enabled = false;
+    fire.enabled = false;
+    smoke.enabled = false;
+    rubble.enabled = false;
+    attackRing.enabled = false;
+    alertRoot.enabled = false;
+    criticalFill.enabled = false;
+    this.villageStructureVisuals.set(structureId, {
+      definition,
+      intactRoot,
+      cracks,
+      critical,
+      fire,
+      smoke,
+      rubble,
+      attackRing,
+      alertRoot,
+      alertFill,
+      criticalFill,
+      beaconStem,
+      beacon,
+      displayRatio: 1,
+      lastTier: -1,
+    });
   }
 
   addPine(name, x, z, scale, rotY = 0) {
@@ -1365,18 +1624,23 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`grass-tuft-${i}`, "cone", [x, sy * 0.5, z], [sx, sy, sx], "grassDark");
     }
 
-    // Fences — posts every 8u; rails span the FULL gap between posts (8.1u,
-    // centred at z+4) so they actually connect. Two rails (top + mid) read as a
-    // proper fence instead of short segments floating between widely-set posts.
-    for (let z = -46; z <= 18; z += 8) {
-      this.addPrimitive(`fence-left-${z}`, "box", [-7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
-      this.addPrimitive(`fence-right-${z}`, "box", [7.2, 0.72, z], [0.26, 1.25, 0.28], "wood");
-      this.addPrimitive(`fence-cap-left-${z}`, "box", [-7.2, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
-      this.addPrimitive(`fence-cap-right-${z}`, "box", [7.2, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
-      if (z < 18) {
+    // Split fence runs leave three authored gates on each side. Zombies route
+    // through the gate nearest their selected structure, and the player can
+    // use the same openings to rotate between threatened buildings.
+    for (const side of [-1, 1]) {
+      const sideName = side < 0 ? "left" : "right";
+      const x = side * VILLAGE_FENCE_X;
+      for (const [segmentIndex, segment] of VILLAGE_FENCE_SEGMENTS.entries()) {
+        const length = segment.maxZ - segment.minZ;
+        const centerZ = (segment.minZ + segment.maxZ) * 0.5;
         for (const [rail, ry] of [["top", 1.04], ["mid", 0.58]]) {
-          this.addPrimitive(`fence-${rail}-left-${z}`, "box", [-7.2, ry, z + 4], [0.16, 0.2, 8.1], "wood");
-          this.addPrimitive(`fence-${rail}-right-${z}`, "box", [7.2, ry, z + 4], [0.16, 0.2, 8.1], "wood");
+          this.addPrimitive(`fence-${rail}-${sideName}-${segmentIndex}`, "box", [x, ry, centerZ], [0.16, 0.2, length], "wood");
+        }
+        const postCount = Math.max(1, Math.ceil(length / 4));
+        for (let postIndex = 0; postIndex <= postCount; postIndex += 1) {
+          const z = segment.minZ + (length * postIndex) / postCount;
+          this.addPrimitive(`fence-${sideName}-${segmentIndex}-${postIndex}`, "box", [x, 0.72, z], [0.26, 1.25, 0.28], "wood");
+          this.addPrimitive(`fence-cap-${sideName}-${segmentIndex}-${postIndex}`, "box", [x, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
         }
       }
     }
@@ -1384,6 +1648,7 @@ export class PlayCanvasZombieSlice {
 
   addLantern(x, y, z) {
     this.addPrimitive(`lantern-${x}-${z}`, "sphere", [x, y, z], [0.22, 0.22, 0.22], "lantern");
+    this.addPrimitive(`lantern-pool-${x}-${z}`, "cylinder", [x, 0.035, z], [2.4, 0.018, 2.4], "lanternPool");
     const light = new pc.Entity(`lantern-light-${x}-${z}`);
     light.addComponent("light", {
       type: "omni",
@@ -1450,7 +1715,8 @@ export class PlayCanvasZombieSlice {
     group.enabled = false;
     this.weaponRoot.addChild(group);
     group._muzzle = options.muzzle ?? [0, 0.04, -1.35];
-    group._rootPosition = options.rootPosition ?? [0.48, -0.5, -0.95];
+    const rootPosition = options.rootPosition ?? [0.48, -0.5, -0.95];
+    group._rootPosition = [rootPosition[0] * 0.9, rootPosition[1] - 0.1, rootPosition[2] - 0.1];
     group._rootEuler = options.rootEuler ?? [-1, -6, 0];
     this.weaponModels.set(key, group);
     return group;
@@ -1460,7 +1726,7 @@ export class PlayCanvasZombieSlice {
     // Root offset: X=0.28 places the gun well in the bottom-right without being cut off.
     // Internal parts are shifted slightly left (X reduced) so the rightmost piece (forearm-r)
     // stays within screen bounds at 375px mobile width.
-    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.36, -0.43, -1.08], rootEuler: [-2, -18, 0] });
+    const root = this.createWeaponGroup("sidearm", { muzzle: [0.02, 0.03, -0.84], rootPosition: [0.36, -0.43, -1.08], rootEuler: [-1, -2, 0] });
     // Tag the slide entity so the per-weapon animation can rack it back on fire.
     const slide = this.addPrimitive("sidearm-slide", "box", [0, 0.08, -0.2], [0.22, 0.16, 0.64], "blackMetal", root);
     root._actionPart = slide;
@@ -1672,6 +1938,10 @@ export class PlayCanvasZombieSlice {
     }
     const position = model?._rootPosition ?? [0.48, -0.5, -0.95];
     const euler = model?._rootEuler ?? [-1, -6, 0];
+    const narrowView = (this.viewportMetrics?.width ?? window.innerWidth) <= 600;
+    const viewmodelScale = narrowView ? 0.66 : 0.84;
+    const frameOffsetX = narrowView ? -0.13 : 0.025;
+    const frameOffsetY = narrowView ? 0.02 : -0.025;
 
     // ── Per-weapon recoil curve ───────────────────────────────────────────────
     // kick = normalized [0..1]: 1 = just fired (peak), 0 = fully recovered.
@@ -1695,10 +1965,11 @@ export class PlayCanvasZombieSlice {
     const pitchDeg = kick * kickPower * prof.rise;         // muzzle rise
     const rollDeg  = kick * prof.roll;                     // snap roll
     this.weaponRoot.setLocalPosition(
-      position[0] + kickX,
-      position[1] + kickY,
+      position[0] + frameOffsetX + kickX,
+      position[1] + frameOffsetY + kickY,
       position[2] + kickZ,
     );
+    this.weaponRoot.setLocalScale(viewmodelScale, viewmodelScale, viewmodelScale);
     this.weaponRoot.setLocalEulerAngles(
       euler[0] + pitchDeg,
       euler[1],
@@ -1760,8 +2031,20 @@ export class PlayCanvasZombieSlice {
     this.camera.addChild(this.flashlight);
   }
 
+  // Freshly spawned zombies scale in over this window (rise-from-the-dirt read
+  // instead of popping into existence). Timer lives on the entity; consumed in
+  // updateZombies. Skipped when reduced motion is preferred.
+  static SPAWN_IN_SEC = 0.35;
+
   createZombieEntity(zombie) {
     let root;
+
+    // Boss-tier entrance: a thump of screen shake (and a heavy haptic pattern)
+    // announces the arrival before the player has even spotted it.
+    if (zombie.type === "mini_boss" || zombie.type === "mega_zombie" || zombie.type === "secret_boss") {
+      this._addShakeTrauma(0.45);
+      this._vibrate?.([0, 40, 70, 50]);
+    }
 
     // Animal-type zombie: use dedicated animal GLB if the container is ready.
     // Falls through to zombie GLB / procedural rig on any failure or missing model.
@@ -1828,9 +2111,108 @@ export class PlayCanvasZombieSlice {
     return entity;
   }
 
-  registerWindowEntity(id, entity) {
+  registerWindowEntity(id, entity, structureId = null) {
+    entity._villageStructureId = structureId;
     this.entitiesByWindow.set(id, entity);
     return entity;
+  }
+
+  // Register a listener on a GLOBAL target (window/document/visualViewport)
+  // and record it for dispose(). Listeners on this.root's descendants don't
+  // need this — they die with the DOM.
+  _on(target, event, handler, options) {
+    target.addEventListener(event, handler, options);
+    if (!this._teardownListeners) this._teardownListeners = [];
+    this._teardownListeners.push({ target, event, handler, options });
+  }
+
+  // Full teardown: global listeners, timers, focus traps, the PlayCanvas app,
+  // the DOM, and the window automation globals. Makes re-initialising the game
+  // on the same page (hot reload, embeds, tests) leak-free.
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    for (const { target, event, handler, options } of this._teardownListeners ?? []) {
+      target.removeEventListener(event, handler, options);
+    }
+    this._teardownListeners = [];
+    const traps = [...(this._focusTraps ?? [])];
+    this._focusTraps = [];
+    for (const teardown of traps) {
+      try { teardown(); } catch { /* trap already released */ }
+    }
+    if (this._viewportResizeRaf) cancelAnimationFrame(this._viewportResizeRaf);
+    clearTimeout(this._viewportResizeConfirmTimer);
+    clearTimeout(this._viewportResizeSettledTimer);
+    clearTimeout(this._hitmarkerTimer);
+    clearTimeout(this._floaterTimer);
+    clearTimeout(this._coinsPopTimer);
+    clearTimeout(this._killsPopTimer);
+    clearTimeout(this._streakHideTimer);
+    this._viewportResizeObserver?.disconnect();
+    this._stopNightBed();
+    try {
+      this.app?.destroy();
+    } catch { /* engine teardown is best-effort */ }
+    this.root?.replaceChildren?.();
+    // Only clear the automation globals if they still point at THIS instance —
+    // a newer instance may have claimed them already.
+    if (typeof window !== "undefined" && window.__playCanvasZombieGame === this) {
+      for (const key of [
+        "__playCanvasZombieSlice",
+        "__playCanvasZombieGame",
+        "advanceTime",
+        "render_playcanvas_slice_to_text",
+        "render_playcanvas_game_to_text",
+        "render_game_to_text",
+      ]) {
+        delete window[key];
+      }
+    }
+  }
+
+  // ── Pooled transient FX (shell casings, smoke puffs, decals) ──────────────
+  // addPrimitive assigns SHARED material instances, so transient FX that fade
+  // `opacity` used to fight over one material (simultaneous smoke puffs each
+  // writing the same instance) and churned an entity create/destroy per shot.
+  // Pool entities per kind and give each a CLONED material it can fade safely.
+  _acquireFx(kind, shape, materialKey) {
+    if (!this._fxFree) this._fxFree = new Map();
+    let list = this._fxFree.get(kind);
+    if (!list) {
+      list = [];
+      this._fxFree.set(kind, list);
+    }
+    let entity = list.pop();
+    if (!entity) {
+      this._fxPoolSeq = (this._fxPoolSeq ?? 0) + 1;
+      entity = this.addPrimitive(`fx-${kind}-${this._fxPoolSeq}`, shape, [0, -40, 0], [0.01, 0.01, 0.01], materialKey);
+      const mat = this.materials.get(materialKey)?.clone?.();
+      if (mat && entity.render?.meshInstances?.[0]) {
+        mat.update();
+        entity.render.meshInstances[0].material = mat;
+      }
+      entity._fxPoolKind = kind;
+    }
+    entity.enabled = true;
+    entity.setEulerAngles(0, 0, 0);
+    return entity;
+  }
+
+  // Return a pooled FX entity to its free list (updateFx calls this instead of
+  // destroy() for pooled kinds).
+  _retireFxEntity(entity) {
+    if (!entity._fxPoolKind || !this._fxFree) {
+      entity.destroy();
+      return;
+    }
+    entity.enabled = false;
+    const mat = entity.render?.meshInstances?.[0]?.material;
+    if (mat && mat.opacity !== 1) {
+      mat.opacity = 1;
+      mat.update();
+    }
+    this._fxFree.get(entity._fxPoolKind)?.push(entity);
   }
 
   attachInput() {
@@ -1844,7 +2226,7 @@ export class PlayCanvasZombieSlice {
     this.root.querySelector('[data-action="shop"]').addEventListener("click", () => this.toggleShop());
     this.root.querySelector('[data-action="shop-close"]')?.addEventListener("click", () => {
       this.shopOpen = false;
-      this._sfxUiClick?.();
+      this.sfxCues.uiClick();
       this.updateHud();
     });
     this.root.querySelector('[data-action="map"]').addEventListener("click", () => this.toggleMiniMap());
@@ -1947,16 +2329,16 @@ export class PlayCanvasZombieSlice {
 
     this.attachShopInput();
 
-    window.addEventListener("keydown", (event) => this.setKey(event, true));
-    window.addEventListener("keyup", (event) => this.setKey(event, false));
+    this._on(window, "keydown", (event) => this.setKey(event, true));
+    this._on(window, "keyup", (event) => this.setKey(event, false));
     this.root.querySelector('[data-action="ordnance"]').addEventListener("click", () => this.useActiveOrdnance());
     this.attachTouchControls();
-    window.addEventListener("mousemove", (event) => this.handleLookMove(event));
-    window.addEventListener("pointerup", () => {
+    this._on(window, "mousemove", (event) => this.handleLookMove(event));
+    this._on(window, "pointerup", () => {
       this.input.dragLooking = false;
       this.input.fire = false;
     });
-    window.addEventListener("pointercancel", () => {
+    this._on(window, "pointercancel", () => {
       this.input.dragLooking = false;
       this.input.fire = false;
     });
@@ -1964,12 +2346,12 @@ export class PlayCanvasZombieSlice {
     // (mobile app-switch) means held-key `keyup` events never arrive, which used
     // to leave movement stuck on — controls felt "locked up" mid-game. Clear ALL
     // input on focus/visibility loss so nothing gets stuck down.
-    window.addEventListener("blur", () => this._clearAllInput());
-    document.addEventListener("visibilitychange", () => {
+    this._on(window, "blur", () => this._clearAllInput());
+    this._on(document, "visibilitychange", () => {
       if (document.hidden) this._clearAllInput();
     });
     // pointerlockchange / pointerlockerror fire on document, not window.
-    document.addEventListener("pointerlockchange", () => {
+    this._on(document, "pointerlockchange", () => {
       this.input.pointerLocked = document.pointerLockElement === this.canvas;
       if (this.input.pointerLocked) {
         this.input.dragLooking = false;
@@ -1977,7 +2359,7 @@ export class PlayCanvasZombieSlice {
         this.updateHud();
       }
     });
-    document.addEventListener("pointerlockerror", () => {
+    this._on(document, "pointerlockerror", () => {
       this.input.pointerLocked = false;
       this.state.lastMessage = "Pointer lock unavailable here; drag the mouse to look around.";
       this.updateHud();
@@ -2136,7 +2518,7 @@ export class PlayCanvasZombieSlice {
     } else {
       this.state.lastMessage = `${item.label} is unavailable right now.`;
     }
-    this._sfxUiClick();
+    this.sfxCues.uiClick();
     this.updateHud();
   }
 
@@ -2161,9 +2543,9 @@ export class PlayCanvasZombieSlice {
     }
 
     if (result?.ok) {
-      this._sfxShopBuy();
+      this.sfxCues.shopBuy();
     } else {
-      this._sfxUiClick();
+      this.sfxCues.uiClick();
     }
     this.updateHud();
     this.renderShop();
@@ -2370,10 +2752,10 @@ export class PlayCanvasZombieSlice {
       clearMove();
     };
 
-    window.addEventListener("pointerdown", onPointerDown, { passive: false });
-    window.addEventListener("pointermove", onPointerMove, { passive: false });
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
+    this._on(window, "pointerdown", onPointerDown, { passive: false });
+    this._on(window, "pointermove", onPointerMove, { passive: false });
+    this._on(window, "pointerup", onPointerUp);
+    this._on(window, "pointercancel", onPointerUp);
   }
 
   // ── Right-zone touch look ─────────────────────────────────────────────────────
@@ -2592,7 +2974,7 @@ export class PlayCanvasZombieSlice {
     // Opening the shop mid-combat must free the cursor — otherwise the pointer
     // stays locked to the canvas for mouse-look and you can't click shop items.
     if (this.shopOpen) this._releasePointerLockForUi();
-    this._sfxUiClick();
+    this.sfxCues.uiClick();
     this.updateHud();
   }
 
@@ -2729,7 +3111,7 @@ export class PlayCanvasZombieSlice {
       btn?.focus();
       this._settingsReturnFocus = null;
     }
-    this._sfxUiClick();
+    this.sfxCues.uiClick();
   }
 
   toggleMorePopover() {
@@ -2744,7 +3126,7 @@ export class PlayCanvasZombieSlice {
   startOrContinueCampaign({ pointerLock = false } = {}) {
     const previousPhase = this.state.phase;
     this.unlockAudio();
-    this._sfxUiClick();
+    this.sfxCues.uiClick();
     startSlice(this.state);
     this.shopOpen = false;
     if (this.state.phase === "running" && previousPhase !== "running") {
@@ -2772,7 +3154,7 @@ export class PlayCanvasZombieSlice {
 
   cycleWeapon() {
     cycleOwnedWeapon(this.state);
-    this._sfxUiClick();
+    this.sfxCues.uiClick();
     this.updateHud();
     if (this.shopOpen) {
       this.renderShop();
@@ -2783,7 +3165,7 @@ export class PlayCanvasZombieSlice {
     const slot = WEAPON_SLOT_BINDINGS.find((binding) => binding.code === code);
     if (!slot || slot.id === this.state.equippedWeaponId) return;
     equipOwnedWeapon(this.state, slot.id);
-    this._sfxUiClick();
+    this.sfxCues.uiClick();
     this.updateHud();
     if (this.shopOpen) {
       this.renderShop();
@@ -2818,7 +3200,7 @@ export class PlayCanvasZombieSlice {
     }
     if (result.reason === "empty") {
       // Cue 5c: dry empty-mag click — no weapon shot, no visuals
-      this._sfxEmpty();
+      this.sfxCues.empty();
       this.updateHud();
       return;
     }
@@ -2872,7 +3254,7 @@ export class PlayCanvasZombieSlice {
       // Hitmarker
       this._showHitmarker(result.killCount > 0, result.headshot);
       // Cue 1: hit confirm (non-kill hits only — kill has its own heavier cue)
-      if (!result.killCount) this._sfxHitConfirm();
+      if (!result.killCount) this.sfxCues.hitConfirm();
       // Hit-confirm haptic
       this._vibrate(result.killCount > 0 ? [0, 10, 20, 30] : 15);
     }
@@ -2882,11 +3264,11 @@ export class PlayCanvasZombieSlice {
       this._showKillFeedback(coinsDelta);
       this._updateStreak(result.killCount);
       // Cue 2: kill thud
-      this._sfxKill();
+      this.sfxCues.kill();
       // Cue 3: headshot ding (layered on kill)
-      if (result.headshot) this._sfxHeadshot();
+      if (result.headshot) this.sfxCues.headshot();
       // Cue 6: coin ching when coins were awarded
-      if (coinsDelta > 0) this._sfxCoin();
+      if (coinsDelta > 0) this.sfxCues.coin();
       // Kill haptic pattern
       this._vibrate([0, 15, 25, 45]);
     }
@@ -3212,94 +3594,10 @@ export class PlayCanvasZombieSlice {
   // Cost tiers: pipe(0) · pistol(50) · revolver(120) · smg(220) · machine_pistol(300) ·
   //             rifle(420) · battle_rifle(560) · shotgun(620) · lmg(760) · dmr(840) ·
   //             sniper(980) · grenade_launcher(940) · rpg(1000) · flamethrower(1320)
+  // Per-weapon fire feel (kick, flash, shells, smoke). Table hoisted to
+  // module scope — it used to be rebuilt on every shot.
   _getWeaponFireProfile(weaponId) {
-    const PROFILES = {
-      // ── Tier 0: melee ──────────────────────────────────────────────────────
-      pipe: {
-        kickback: 0.02, rise: 4,  roll: 8,   lateral: 0.03, duration: 0.10,
-        recover: 14, flashSize: 0,   flashWide: 1.0, flashTtl: 1.0,
-        shake: 0.02, camKick: 0.4, actionAmt: 0,    shells: false, smoke: false, smokeSz: 0,
-      },
-      // ── Tier 1: pistol ($50) ───────────────────────────────────────────────
-      pistol: {
-        kickback: 0.06, rise: 12,  roll: 2,   lateral: 0.01, duration: 0.13,
-        recover: 10, flashSize: 0.18, flashWide: 1.2, flashTtl: 0.9,
-        shake: 0.06, camKick: 1.0, actionAmt: 0.18, shells: true,  smoke: false, smokeSz: 0,
-      },
-      // ── Tier 2: revolver ($120) ────────────────────────────────────────────
-      revolver: {
-        kickback: 0.12, rise: 22,  roll: -4,  lateral: 0.02, duration: 0.18,
-        recover: 7,  flashSize: 0.26, flashWide: 1.6, flashTtl: 1.1,
-        shake: 0.10, camKick: 1.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.10,
-      },
-      // ── Tier 3: smg ($220) ─────────────────────────────────────────────────
-      smg: {
-        kickback: 0.07, rise: 10,  roll: 3,   lateral: 0.03, duration: 0.08,
-        recover: 12, flashSize: 0.16, flashWide: 1.0, flashTtl: 0.7,
-        shake: 0.05, camKick: 0.8, actionAmt: 0.12, shells: true,  smoke: false, smokeSz: 0,
-      },
-      // ── Tier 4: machine_pistol ($300) ──────────────────────────────────────
-      machine_pistol: {
-        kickback: 0.06, rise: 9,   roll: 4,   lateral: 0.04, duration: 0.07,
-        recover: 13, flashSize: 0.14, flashWide: 1.1, flashTtl: 0.6,
-        shake: 0.04, camKick: 0.7, actionAmt: 0.10, shells: true,  smoke: false, smokeSz: 0,
-      },
-      // ── Tier 5: rifle ($420) ───────────────────────────────────────────────
-      rifle: {
-        kickback: 0.14, rise: 18,  roll: -3,  lateral: 0.02, duration: 0.16,
-        recover: 8,  flashSize: 0.28, flashWide: 1.4, flashTtl: 1.0,
-        shake: 0.12, camKick: 1.4, actionAmt: 0.14, shells: true,  smoke: true,  smokeSz: 0.12,
-      },
-      // ── Tier 6: battle_rifle ($560) ────────────────────────────────────────
-      battle_rifle: {
-        kickback: 0.20, rise: 26,  roll: -5,  lateral: 0.03, duration: 0.20,
-        recover: 6,  flashSize: 0.34, flashWide: 1.6, flashTtl: 1.1,
-        shake: 0.18, camKick: 2.0, actionAmt: 0.16, shells: true,  smoke: true,  smokeSz: 0.14,
-      },
-      // ── Tier 7: shotgun ($620) ─────────────────────────────────────────────
-      shotgun: {
-        kickback: 0.30, rise: 32,  roll: -8,  lateral: 0.04, duration: 0.26,
-        recover: 4,  flashSize: 0.42, flashWide: 2.6, flashTtl: 1.3,
-        shake: 0.26, camKick: 2.6, actionAmt: 0.32, shells: false, smoke: true,  smokeSz: 0.18,
-      },
-      // ── Tier 8: lmg ($760) ────────────────────────────────────────────────
-      lmg: {
-        kickback: 0.16, rise: 16,  roll: 2,   lateral: 0.05, duration: 0.14,
-        recover: 7,  flashSize: 0.30, flashWide: 1.5, flashTtl: 1.0,
-        shake: 0.14, camKick: 1.6, actionAmt: 0.14, shells: true,  smoke: true,  smokeSz: 0.13,
-      },
-      // ── Tier 9: dmr ($840) ────────────────────────────────────────────────
-      dmr: {
-        kickback: 0.24, rise: 30,  roll: -4,  lateral: 0.02, duration: 0.24,
-        recover: 5,  flashSize: 0.38, flashWide: 1.8, flashTtl: 1.2,
-        shake: 0.22, camKick: 2.4, actionAmt: 0.28, shells: true,  smoke: true,  smokeSz: 0.16,
-      },
-      // ── Tier 10: sniper ($980) ────────────────────────────────────────────
-      sniper: {
-        kickback: 0.38, rise: 44,  roll: -6,  lateral: 0.01, duration: 0.34,
-        recover: 3,  flashSize: 0.44, flashWide: 1.4, flashTtl: 1.6,
-        shake: 0.36, camKick: 3.4, actionAmt: 0.38, shells: true,  smoke: true,  smokeSz: 0.22,
-      },
-      // ── Tier 11: grenade_launcher ($940) ──────────────────────────────────
-      grenade_launcher: {
-        kickback: 0.32, rise: 36,  roll: 6,   lateral: 0.05, duration: 0.30,
-        recover: 3,  flashSize: 0.48, flashWide: 2.8, flashTtl: 1.5,
-        shake: 0.40, camKick: 2.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.28,
-      },
-      // ── Tier 12: rpg ($1000) ──────────────────────────────────────────────
-      rpg: {
-        kickback: 0.44, rise: 40,  roll: 8,   lateral: 0.06, duration: 0.36,
-        recover: 2,  flashSize: 0.55, flashWide: 3.0, flashTtl: 1.8,
-        shake: 0.55, camKick: 3.8, actionAmt: 0,    shells: false, smoke: true,  smokeSz: 0.38,
-      },
-      // ── Tier 13: flamethrower ($1320) ─────────────────────────────────────
-      flamethrower: {
-        kickback: 0.04, rise: 3,   roll: 0,   lateral: 0.02, duration: 0.06,
-        recover: 16, flashSize: 0.22, flashWide: 1.0, flashTtl: 0.9,
-        shake: 0.03, camKick: 0.3, actionAmt: 0,    shells: false, smoke: false, smokeSz: 0,
-      },
-    };
-    return PROFILES[weaponId] ?? PROFILES.pistol; // safe default
+    return WEAPON_FIRE_PROFILES[weaponId] ?? WEAPON_FIRE_PROFILES.pistol; // safe default
   }
 
   flashMuzzle() {
@@ -3326,9 +3624,9 @@ export class PlayCanvasZombieSlice {
     if (prof.smoke && prof.smokeSz > 0) {
       const muzzlePos = this.muzzleFlash.getPosition();
       const fwd = this.camera.forward;
-      const puff = this.addPrimitive(`smoke-puff-${performance.now()}`, "sphere",
-        [muzzlePos.x + fwd.x * 0.3, muzzlePos.y + fwd.y * 0.3 + 0.04, muzzlePos.z + fwd.z * 0.3],
-        [0.01, 0.01, 0.01], "smokeGrey");
+      const puff = this._acquireFx("muzzle-puff", "sphere", "smokeGrey");
+      puff.setLocalPosition(muzzlePos.x + fwd.x * 0.3, muzzlePos.y + fwd.y * 0.3 + 0.04, muzzlePos.z + fwd.z * 0.3);
+      puff.setLocalScale(0.01, 0.01, 0.01);
       puff._sliceTtl = 0.32;
       puff._sliceMaxTtl = 0.32;
       puff._sliceExpand = true;
@@ -3340,9 +3638,9 @@ export class PlayCanvasZombieSlice {
     // Shell casing ejection (fast tiny box arcing right/up)
     if (prof.shells) {
       const muzzlePos = this.muzzleFlash.getPosition();
-      const shell = this.addPrimitive(`shell-${performance.now()}`, "box",
-        [muzzlePos.x + 0.18, muzzlePos.y + 0.02, muzzlePos.z + 0.1],
-        [0.025, 0.008, 0.008], "gunmetalLight");
+      const shell = this._acquireFx("shell", "box", "gunmetalLight");
+      shell.setPosition(muzzlePos.x + 0.18, muzzlePos.y + 0.02, muzzlePos.z + 0.1);
+      shell.setLocalScale(0.025, 0.008, 0.008);
       shell._sfxVelocity = {
         x: 2.4 + Math.random() * 1.2,
         y: 1.8 + Math.random() * 0.8,
@@ -3636,9 +3934,6 @@ export class PlayCanvasZombieSlice {
     slot._sfxPartSize = partSize;
   }
 
-  _spawnImpactDebris(_result, _forward, _origin, _distance) {
-    // Legacy stub — new system uses _spawnImpactBurst; kept for compatibility
-  }
 
   spawnBlastFx(ordnanceId, center = null) {
     // Blast centre: explicit landing point for lobbed grenades, else a bit
@@ -3655,6 +3950,9 @@ export class PlayCanvasZombieSlice {
       cx = origin.x + forward.x * dist;
       cz = origin.z + forward.z * dist;
     }
+
+    // Lingering scorch mark on the street where the blast landed.
+    this._spawnGroundDecal("scorch", cx, cz, ordnanceId === "nuke" ? 4.6 : ordnanceId === "c4" ? 2.6 : 2.0);
     // Per-ordnance blast radius.
     const R = ordnanceId === "nuke" ? 8.5 : ordnanceId === "c4" ? 4.6 : 3.2;
     const seq = Math.round(performance.now());
@@ -3708,6 +4006,7 @@ export class PlayCanvasZombieSlice {
     const fadeLight = () => {
       flash._sliceTtl -= 1 / 60;
       if (flash.light) flash.light.intensity = Math.max(0, (ordnanceId === "nuke" ? 10 : 6) * (flash._sliceTtl / 0.3));
+      if (this._disposed) { flash.destroy(); return; }
       if (flash._sliceTtl > 0) { requestAnimationFrame(fadeLight); } else { flash.destroy(); }
     };
     requestAnimationFrame(fadeLight);
@@ -3746,7 +4045,9 @@ export class PlayCanvasZombieSlice {
       entity._trailCdSec -= dt;
       if (entity._trailCdSec <= 0) {
         entity._trailCdSec = 0.035;
-        const puff = this.addPrimitive(`ordnance-trail-${p.id}-${Math.round(performance.now())}`, "sphere", [p.x, p.y, p.z], [0.12, 0.12, 0.12], "blastSmoke");
+        const puff = this._acquireFx("trail-puff", "sphere", "blastSmoke");
+        puff.setLocalPosition(p.x, p.y, p.z);
+        puff.setLocalScale(0.12, 0.12, 0.12);
         puff._sliceTtl = 0.34; puff._sliceMaxTtl = 0.34; puff._sliceExpand = true;
         puff._sliceStartScale = [0.12, 0.12, 0.12]; puff._sliceBaseScale = [0.03, 0.03, 0.03];
         puff._sliceFadeFrom = 0.5;
@@ -3811,6 +4112,10 @@ export class PlayCanvasZombieSlice {
 
   clearZombieEntities() {
     for (const entity of this.entitiesByZombie.values()) {
+      // Telegraph rings are parented to app.root (they must hug the ground
+      // while the body lifts), so destroying the zombie entity alone leaked
+      // one ring per zombie every reset.
+      entity._telegraphRing?.destroy();
       entity.destroy();
     }
     this.entitiesByZombie.clear();
@@ -3837,7 +4142,7 @@ export class PlayCanvasZombieSlice {
     this.lastAudioPlayerHp = this.state.playerHp;
     this.lastAudioCueId = "";
     this._wasReloading = false;
-    this._heartbeatPhaseSec = 0;
+    this.sfxCues.resetHeartbeat();
     this._stopNightBed();
   }
 
@@ -3910,6 +4215,7 @@ export class PlayCanvasZombieSlice {
   }
 
   update(dt) {
+    if (this._disposed) return;
     this.recordPerformanceTelemetry(dt);
     const gameplayPausedByUi = this._isUiOverlayOpen();
     const frameDt = gameplayPausedByUi ? 0 : dt;
@@ -3943,7 +4249,8 @@ export class PlayCanvasZombieSlice {
       if (this.input.fire && getPlayCanvasWeaponSnapshot(this.state).fireMode === "automatic") {
         this.fire();
       }
-      stepSlice(this.state, this.input, Math.max(0, Math.min(frameDt, 0.05)) || 0);
+      const simulationDt = Number.isFinite(frameDt) && frameDt > 0 ? Math.min(frameDt, 0.15) : 0;
+      stepSlice(this.state, this.input, simulationDt);
     }
     this.input.jump = false;
     // When combat ends (e.g. a wave clears into intermission), release the
@@ -3962,9 +4269,9 @@ export class PlayCanvasZombieSlice {
     }
     // Cue 5: reload start / finish detection (pendingReload flag transition)
     if (!wasReloading && this.state.pendingReload) {
-      this._sfxReloadStart();
+      this.sfxCues.reloadStart();
     } else if (wasReloading && !this.state.pendingReload) {
-      this._sfxReloadFinish();
+      this.sfxCues.reloadFinish();
     }
     this._wasReloading = this.state.pendingReload;
     this.trackAudioDamage(previousVillageHp, previousPlayerHp);
@@ -3977,7 +4284,7 @@ export class PlayCanvasZombieSlice {
       if (this._playerHurtFxCdSec <= 0) {
         this._addShakeTrauma(0.3);
         this._vibrate(45);
-        this._sfxPlayerDamage();
+        this.sfxCues.playerDamage();
         this._playerHurtFxCdSec = 0.7;
       }
     }
@@ -3993,9 +4300,9 @@ export class PlayCanvasZombieSlice {
     this._updateVignette(this.state.playerHp);
     // Cue 8: low-health heartbeat
     if (this.state.playerHp < 25 && this.state.phase === "running") {
-      this._sfxHeartbeatTick(frameDt);
+      this.sfxCues.heartbeatTick(frameDt, this.state.playerHp);
     } else {
-      this._heartbeatPhaseSec = 0;
+      this.sfxCues.resetHeartbeat();
     }
     // Cue 10: ambient night bed — start on first wave, stop when not in active play
     // The cricket ambience is a sound effect, so it follows the SFX toggle —
@@ -4039,6 +4346,7 @@ export class PlayCanvasZombieSlice {
           }
           // Show after a short delay so the wave-clear summary is visible first
           setTimeout(() => {
+            if (this._disposed) return;
             this._showGoalToast('Spend your coins in the Shop between waves!');
           }, 4200);
         }
@@ -4073,7 +4381,9 @@ export class PlayCanvasZombieSlice {
     if (this.villageFlashOverlay) {
       this.villageFlashOverlay.style.opacity = String(this.villageDamageFlashSec * 2.2);
     }
-    this.updateCamera();
+    this.updateCamera(frameDt);
+    this._updateSky(frameDt);
+    this._updateAtmosphere(frameDt);
     this.updateAudioState(frameDt);
     this.updateWeaponVisuals();
     this.updateZombies(frameDt);
@@ -4081,6 +4391,7 @@ export class PlayCanvasZombieSlice {
     this.updateOrdnanceProjectiles(frameDt);
     this.updateLandscapeMutationVisuals();
     this.updateWindowImpactVisuals();
+    this.updateVillageStructureVisuals(frameDt);
     this.updateVillageDistress(frameDt);
     this.updateGearVisuals();
     this.drawMiniMap();
@@ -4106,11 +4417,63 @@ export class PlayCanvasZombieSlice {
     perf.fpsAvg = perf.frameMsAvg > 0 ? 1000 / perf.frameMsAvg : 0;
   }
 
-  updateCamera() {
+  updateCamera(dt = 0) {
     const player = this.state.player;
     const eyeHeight = player.crouching ? 1.3 : 1.62;
     const jumpY = player.y ?? 0;
-    this.camera.setLocalPosition(player.x, eyeHeight + jumpY, player.z);
+
+    // ── Locomotion feel: walk bob + landing dip (reduced-motion aware) ──────
+    // The view used to be dead-still while moving; a small stride-locked bob
+    // plus a dip when landing from a fall makes locomotion read as footsteps
+    // instead of a gliding tripod.
+    let bobY = 0;
+    let bobLateral = 0;
+    if (!this._reducedMotion && dt > 0) {
+      const dx = player.x - (this._camPrevX ?? player.x);
+      const dz = player.z - (this._camPrevZ ?? player.z);
+      const speed = Math.hypot(dx, dz) / dt;
+      const speedRatio = Math.min(1, speed / 6);
+      if (speed > 0.4 && player.onGround) {
+        this._bobPhase = (this._bobPhase ?? 0) + dt * (7 + speedRatio * 4);
+        this._bobBlend = Math.min(1, (this._bobBlend ?? 0) + dt * 5);
+      } else {
+        this._bobBlend = Math.max(0, (this._bobBlend ?? 0) - dt * 7);
+      }
+      const amp = (this._bobBlend ?? 0) * (0.02 + speedRatio * 0.025);
+      bobY = -Math.abs(Math.sin(this._bobPhase ?? 0)) * amp; // step rhythm dips down
+      bobLateral = Math.cos((this._bobPhase ?? 0) * 0.5) * amp * 0.7;
+      // Landing dip: brief knee-bend of the eye line after a real fall.
+      if (!(this._camPrevOnGround ?? true) && player.onGround && (this._camPrevYVel ?? 0) < -3) {
+        this._landDipSec = 0.2;
+        this._landDipDepth = Math.min(0.2, Math.abs(this._camPrevYVel ?? 0) * 0.014);
+      }
+      if ((this._landDipSec ?? 0) > 0) {
+        this._landDipSec = Math.max(0, this._landDipSec - dt);
+        const t = 1 - this._landDipSec / 0.2;
+        bobY -= Math.sin(t * Math.PI) * (this._landDipDepth ?? 0.1);
+      }
+    }
+    this._camPrevX = player.x;
+    this._camPrevZ = player.z;
+    this._camPrevOnGround = player.onGround ?? true;
+    this._camPrevYVel = player.yVelocity ?? 0;
+
+    // ── Stance FOV: ADS zooms in, sprint widens (sim owns the targets) ──────
+    const cam = this.camera?.camera;
+    if (cam && dt > 0) {
+      const targetFov = getPlayCanvasTargetFov(this.state);
+      const ease = this._reducedMotion ? 1 : Math.min(1, dt * 9);
+      cam.fov += (targetFov - cam.fov) * ease;
+    }
+
+    // Lateral bob is applied along the camera-right axis (cos, -sin).
+    const rightX = Math.cos(this.yaw);
+    const rightZ = -Math.sin(this.yaw);
+    this.camera.setLocalPosition(
+      player.x + rightX * bobLateral,
+      eyeHeight + jumpY + bobY,
+      player.z + rightZ * bobLateral,
+    );
     const pitchWithRecoil = this.pitch - (this.recoilPitchOffset ?? 0);
     // Additive screen shake — trauma^2 model, reduced-motion aware
     const [shakePitch, shakeYaw] = this._computeShakeOffset();
@@ -4121,16 +4484,11 @@ export class PlayCanvasZombieSlice {
     );
   }
 
-  // Yaw (degrees) a zombie should face: mirrors the sim's targeting rule in
-  // stepZombies (chase player inside 8m or past the village line, else head
-  // for the village), so facing always matches movement direction. Turns are
-  // smoothed shortest-arc at a fixed rate so zombies pivot rather than snap.
+  // Yaw follows the simulation-owned navigation point. That point may be the
+  // player, a gate waypoint, or the selected building perimeter.
   resolveZombieYawDeg(entity, zombie, dt) {
-    const player = this.state.player;
-    const playerDist = Math.hypot(player.x - zombie.x, player.z - zombie.z);
-    const targetPlayer = playerDist < 8 || zombie.z > SLICE_WORLD.villageZ + 1;
-    const tx = (targetPlayer ? player.x : 0) - zombie.x;
-    const tz = (targetPlayer ? player.z : SLICE_WORLD.villageZ) - zombie.z;
+    const tx = Number(zombie.navTargetX ?? this.state.player.x) - zombie.x;
+    const tz = Number(zombie.navTargetZ ?? this.state.player.z) - zombie.z;
     // PlayCanvas yaw 0 faces -Z, so facing direction (tx,tz) is atan2(-tx,-tz).
     const targetYaw = Math.atan2(-tx, -tz) * pc.math.RAD_TO_DEG;
     const current = entity._yawDeg ?? targetYaw;
@@ -4143,8 +4501,39 @@ export class PlayCanvasZombieSlice {
     return yaw;
   }
 
+  // Drop a pooled ground decal (blood splat on kills, scorch ring on blasts).
+  // Decals persist ~9-12s then fade — kills leave a mark on the street instead
+  // of evaporating with the body. depthWrite is already off for these
+  // materials; the y jitter keeps overlapping decals from z-fighting.
+  _spawnGroundDecal(kind, x, z, size) {
+    this._decalSeq = (this._decalSeq ?? 0) + 1;
+    const decal = this._acquireFx(kind, "cylinder", kind === "blood" ? "bloodDecal" : "scorchDecal");
+    decal.setLocalPosition(x, 0.016 + (this._decalSeq % 7) * 0.0022, z);
+    decal.setLocalScale(size, 0.01, size);
+    decal.setEulerAngles(0, (this._decalSeq * 53) % 360, 0);
+    const ttl = kind === "blood" ? 9 : 12;
+    decal._sliceTtl = ttl;
+    decal._sliceMaxTtl = ttl;
+    decal._sfxIsDecal = true;
+    decal._sfxDecalOpacity = kind === "blood" ? 0.8 : 0.72;
+    this.fx.push(decal);
+  }
+
+  // Scale factor for the spawn-in window (see SPAWN_IN_SEC). Returns 1 once
+  // grown, immediately 1 under reduced motion.
+  _spawnInScale(entity, dt) {
+    if (this._reducedMotion) return 1;
+    if (entity._spawnInSec === undefined) entity._spawnInSec = PlayCanvasZombieSlice.SPAWN_IN_SEC;
+    if (entity._spawnInSec <= 0) return 1;
+    entity._spawnInSec = Math.max(0, entity._spawnInSec - dt);
+    const t = 1 - entity._spawnInSec / PlayCanvasZombieSlice.SPAWN_IN_SEC;
+    return 0.15 + 0.85 * t * t; // ease-in growth
+  }
+
   updateZombies(dt = 0) {
+    let liveCount = 0;
     for (const zombie of this.state.zombies) {
+      if (!zombie.dead) liveCount += 1;
       const entity = this.entitiesByZombie.get(zombie.id) ?? this.createZombieEntity(zombie);
 
       // ── Telegraph ring (pounce = amber, slam = red) ──────────────────────
@@ -4157,6 +4546,15 @@ export class PlayCanvasZombieSlice {
       }
 
       const zombieY = zombie.y ?? 0;
+
+      // First frame of death → leave a blood splat on the street (covers every
+      // kill source: gunfire, blasts, fire patches).
+      if (zombie.dead && !entity._bloodDecalDone) {
+        entity._bloodDecalDone = true;
+        const heavy = zombie.type === "mega_zombie" || zombie.type === "secret_boss" ||
+          zombie.type === "mini_boss" || zombie.type === "juggernaut" || zombie.type === "brute";
+        this._spawnGroundDecal("blood", zombie.x, zombie.z, (heavy ? 1.7 : 0.85) + ((this._decalSeq ?? 0) % 5) * 0.08);
+      }
 
       if (entity._glb) {
         // ── GLB path ──────────────────────────────────────────────────────────
@@ -4207,15 +4605,25 @@ export class PlayCanvasZombieSlice {
           entity._deathFadeSec = undefined; // reset in case entity is reused
           // All Quaternius animal models (and humanoid) face +Z at rest (opposite the -Z
           // forward convention), hence the 180° yaw offset applies to animals too.
-          const telegraphing = (zombie.telegraphSec ?? 0) > 0;
+          const telegraphing = (zombie.telegraphSec ?? 0) > 0 || zombie.bitePhase === "windup" || (zombie.structureAttackSec ?? 0) > 0;
           // Wind-up crouch: squash Y slightly during telegraph
           const yScale = telegraphing ? 0.85 : 1.0;
           entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt) + 180, 0);
-          entity.setLocalScale(1, yScale, 1);
+          const spawnK = this._spawnInScale(entity, dt);
+          entity.setLocalScale(spawnK, yScale * spawnK, spawnK);
           if (entity._glb?.isAnimal) {
             animateAnimalGlbEntity(entity, zombie, this.state.elapsedSec);
           } else {
             animateZombieGlbEntity(entity, zombie, this.state.elapsedSec);
+          }
+          // Per-zombie hit-freeze: the sim already halts movement during
+          // hitStunSec; freezing the AnimComponent makes the impact read.
+          // The animator rewrites anim.speed every frame, so the freeze is
+          // re-applied after it and recovers by itself on the next
+          // unstunned frame.
+          const glbAnim = entity._glb?.modelEntity?.anim;
+          if (glbAnim && (zombie.hitStunSec ?? 0) > 0) {
+            glbAnim.speed = 0;
           }
           // Keep blob shadow fixed at ground level (y=0) even when body lifts.
           const glbShadow = entity._glb?.shadow;
@@ -4238,6 +4646,20 @@ export class PlayCanvasZombieSlice {
             entity._bloomCoronaR.setLocalPosition(entity._eyeR.getLocalPosition());
             entity._bloomCoronaR.enabled = true;
           }
+          // Menace cue: eye coronas flare up to ~1.7× as the zombie closes the
+          // last 10m to the player. Transform-only (no material writes).
+          if (entity._bloomCoronaL || entity._bloomCoronaR) {
+            const eyeDist = Math.hypot(this.state.player.x - zombie.x, this.state.player.z - zombie.z);
+            const flare = 1 + Math.max(0, (10 - eyeDist) / 10) * 0.7;
+            for (const corona of [entity._bloomCoronaL, entity._bloomCoronaR]) {
+              if (!corona) continue;
+              if (corona._baseCoronaScale === undefined) {
+                corona._baseCoronaScale = corona.getLocalScale().x;
+              }
+              const cs = corona._baseCoronaScale * flare;
+              corona.setLocalScale(cs, cs, cs);
+            }
+          }
         }
       } else {
         // ── Procedural rig path ───────────────────────────────────────────────
@@ -4255,7 +4677,11 @@ export class PlayCanvasZombieSlice {
             const t     = entity._deathFadeSec / FADE_DUR; // 0→1
             const scale = 1.0 - t;
             const sinkY  = -t * 0.4;
+            // Topple: pitch the whole rig over (fast at first, easing out) so
+            // the death reads as a fall rather than a shrink-in-place.
+            const topple = this._reducedMotion ? 0 : Math.min(1, t * 1.6) * 80;
             entity.setLocalPosition(zombie.x, sinkY, zombie.z);
+            entity.setLocalEulerAngles(topple, entity._yawDeg ?? 0, 0);
             entity.setLocalScale(scale, scale, scale);
             // Apply rig materials WITHOUT hit flash tint (dead = normal color)
             const skinMat    = entity._rig?.skinMat ?? "zombieFlesh";
@@ -4269,8 +4695,9 @@ export class PlayCanvasZombieSlice {
         entity.setLocalPosition(zombie.x, zombieY, zombie.z);
         entity.setLocalEulerAngles(0, this.resolveZombieYawDeg(entity, zombie, dt), 0);
         // Wind-up crouch: squash Y during telegraph
-        const telegraphing = (zombie.telegraphSec ?? 0) > 0;
-        entity.setLocalScale(1, telegraphing ? 0.85 : 1.0, 1);
+        const telegraphing = (zombie.telegraphSec ?? 0) > 0 || zombie.bitePhase === "windup" || (zombie.structureAttackSec ?? 0) > 0;
+        const spawnK = this._spawnInScale(entity, dt);
+        entity.setLocalScale(spawnK, (telegraphing ? 0.85 : 1.0) * spawnK, spawnK);
         // Subtle breathing on torso only (±0.015)
         const torsoPivot = entity._rig?.torsoPivot;
         if (torsoPivot) {
@@ -4287,7 +4714,29 @@ export class PlayCanvasZombieSlice {
         const skinMat = entity._rig?.skinMat ?? "zombieFlesh";
         const shirtMatKey = entity._rig?.shirtMatKey ?? "zombieShirtGrey";
         applyZombieRigMaterials(entity, this.materials, skinMat, shirtMatKey, zombie.hitFlashSec > 0);
-        animateZombieRig(entity, zombie, this.state.elapsedSec);
+        // Per-zombie hit-freeze: the rig is a stateless pose function of the
+        // passed time, so simply not driving it holds the current pose for
+        // the stun window (materials above keep flashing).
+        if ((zombie.hitStunSec ?? 0) <= 0) {
+          animateZombieRig(entity, zombie, this.state.elapsedSec);
+        }
+      }
+    }
+    // Cached for updateHud — avoids a fresh filter() allocation every frame.
+    this._liveZombieCount = liveCount;
+
+    // Orphan sweep: if the sim ever drops a zombie from state.zombies without
+    // a full clear, its entity would otherwise linger frozen in its last pose
+    // until the next wave reset. Size mismatch is the cheap trigger.
+    if (this.entitiesByZombie.size > this.state.zombies.length) {
+      const liveIds = new Set();
+      for (const z of this.state.zombies) liveIds.add(z.id);
+      for (const [id, entity] of this.entitiesByZombie) {
+        if (!liveIds.has(id)) {
+          entity._telegraphRing?.destroy();
+          entity.destroy();
+          this.entitiesByZombie.delete(id);
+        }
       }
     }
   }
@@ -4301,7 +4750,10 @@ export class PlayCanvasZombieSlice {
   _updateZombieTelegraph(entity, zombie) {
     const telegSec = zombie.telegraphSec ?? 0;
     const telegType = zombie.telegraphType ?? "none";
-    const active = telegSec > 0 && telegType !== "none";
+    const biteActive = zombie.bitePhase === "windup";
+    const specialActive = (telegType === "pounce" || telegType === "slam") &&
+      (telegSec > 0 || (zombie.pounceSec ?? 0) > 0);
+    const active = biteActive || specialActive;
 
     if (!entity._telegraphRing) {
       // Build a thin flat cylinder (disc) as a ground ring
@@ -4333,24 +4785,38 @@ export class PlayCanvasZombieSlice {
     ring.enabled = active;
 
     if (active) {
-      // Move to zombie ground position
-      ring.setLocalPosition(zombie.x, 0.02, zombie.z);
+      const targetLocked = telegType === "pounce" || telegType === "slam";
+      ring.setLocalPosition(
+        targetLocked ? (zombie.pounceTargetX ?? zombie.x) : zombie.x,
+        0.02,
+        targetLocked ? (zombie.pounceTargetZ ?? zombie.z) : zombie.z,
+      );
 
-      // Color by type (in-place set avoids new pc.Color() allocation per frame)
-      if (telegType === "slam") {
-        mat.emissive.set(1.0, 0.31, 0.64);
-      } else {
-        mat.emissive.set(0.88, 0.54, 0.0);
+      // Color by type — StandardMaterial.update() re-uploads shader params, so
+      // only touch the material when the telegraph type actually changes. The
+      // per-frame pulse is carried entirely by the (transform-only) ring scale.
+      const teleKey = telegType === "slam" ? "slam" : biteActive ? "bite" : "pounce";
+      if (entity._telegraphKey !== teleKey) {
+        entity._telegraphKey = teleKey;
+        if (teleKey === "slam") {
+          mat.emissive.set(1.0, 0.31, 0.64);
+        } else if (teleKey === "bite") {
+          mat.emissive.set(1.0, 0.24, 0.08);
+        } else {
+          mat.emissive.set(0.88, 0.54, 0.0);
+        }
+        mat.opacity = 0.78;
+        mat.update();
       }
 
       // Pulse scale: shrinks from 1.0 → 0.4 as telegraph winds up, then pops
-      const maxDuration = telegType === "slam" ? 0.70 : 0.40;
-      const progress = Math.max(0, Math.min(1, 1 - telegSec / maxDuration));
-      const scale = 0.9 - progress * 0.5; // 0.9 → 0.4
+      const maxDuration = biteActive ? (zombie.biteWindupSec ?? 0.24) : telegType === "slam" ? 0.70 : 0.40;
+      const remainingSec = biteActive ? (zombie.biteTimerSec ?? 0) : telegSec;
+      const progress = Math.max(0, Math.min(1, 1 - remainingSec / maxDuration));
+      const baseScale = biteActive ? 0.48 : 0.9;
+      const scale = baseScale - progress * (biteActive ? 0.16 : 0.5);
       const pulse = 1 + Math.sin(this.state.elapsedSec * 18) * 0.08;
       ring.setLocalScale(scale * pulse, 0.04, scale * pulse);
-      mat.opacity = 0.6 + progress * 0.4;
-      mat.update();
     }
   }
 
@@ -4462,6 +4928,86 @@ export class PlayCanvasZombieSlice {
     }
   }
 
+  updateVillageStructureVisuals(dt) {
+    const structures = getPlayCanvasVillageStructureSnapshot(this.state);
+    const activeAlerts = [];
+    const t = this.state.elapsedSec ?? 0;
+    for (const structure of structures) {
+      const visual = this.villageStructureVisuals.get(structure.id);
+      if (!visual) continue;
+      const targetRatio = Math.max(0, Math.min(1, structure.healthRatio));
+      const ease = Math.min(1, Math.max(0, dt) * (targetRatio > visual.displayRatio ? 4 : 2.2));
+      visual.displayRatio += (targetRatio - visual.displayRatio) * ease;
+      const tier = structure.damageTier;
+      const destroyed = structure.destroyed;
+      const underAttack = structure.underAttackSec > 0 && !destroyed;
+
+      visual.intactRoot.enabled = !destroyed;
+      visual.cracks.enabled = tier >= 1 && !destroyed;
+      visual.critical.enabled = tier >= 2 && !destroyed;
+      visual.fire.enabled = tier >= 3 && !destroyed;
+      visual.smoke.enabled = tier >= 2 || destroyed;
+      visual.rubble.enabled = destroyed;
+      visual.attackRing.enabled = underAttack;
+      visual.alertRoot.enabled = underAttack;
+
+      const width = Math.max(0.02, 2.18 * targetRatio);
+      for (const fill of [visual.alertFill, visual.criticalFill]) {
+        fill.setLocalScale(width, 0.13, 0.065);
+        fill.setLocalPosition(-1.09 + width * 0.5, 0, 0.06);
+      }
+      visual.alertFill.enabled = tier < 2;
+      visual.criticalFill.enabled = tier >= 2;
+
+      if (visual.smoke.enabled) {
+        const smokePulse = this._reducedMotion ? 0 : Math.sin(t * 1.25 + structure.x * 0.17) * 0.22;
+        visual.smoke.setLocalPosition(
+          structure.x,
+          visual.smoke._villageSmokeBaseY + smokePulse * 1.3,
+          visual.smoke._villageSmokeBaseZ,
+        );
+        const smokeScale = 0.72 + (1 - targetRatio) * 0.85 + smokePulse * 0.08;
+        visual.smoke.setLocalScale(smokeScale, smokeScale * 1.45, smokeScale);
+      }
+      if (visual.fire.enabled) {
+        const firePulse = this._reducedMotion ? 1 : 0.88 + Math.sin(t * 7 + structure.z) * 0.12;
+        visual.fire.setLocalScale(1, 0.9 + firePulse * 0.18, 1);
+      }
+      if (underAttack) {
+        const pulse = this._reducedMotion ? 1 : 0.92 + Math.sin(t * 6.4) * 0.08;
+        const ringSize = Math.max(structure.sx, structure.sz) * 0.68 * pulse;
+        visual.attackRing.setLocalScale(ringSize, 0.025, ringSize);
+        visual.beacon.setLocalScale(0.18 * pulse, 0.18 * pulse, 0.18 * pulse);
+        const playerDx = this.state.player.x - structure.x;
+        const playerDz = this.state.player.z - structure.z;
+        const playerDistance = Math.max(0.001, Math.hypot(playerDx, playerDz));
+        const markerOffset = Math.max(structure.sx, structure.sz) * 0.56;
+        visual.alertRoot.setLocalPosition(
+          structure.x + (playerDx / playerDistance) * markerOffset,
+          structure.sy + 1.2,
+          structure.z + (playerDz / playerDistance) * markerOffset,
+        );
+        visual.alertRoot.setLocalEulerAngles(0, Math.atan2(playerDx, playerDz) * pc.math.RAD_TO_DEG, 0);
+        activeAlerts.push(structure);
+      }
+      visual.lastTier = tier;
+    }
+
+    activeAlerts.sort((a, b) =>
+      b.attackerCount - a.attackerCount ||
+      a.healthRatio - b.healthRatio ||
+      a.id.localeCompare(b.id)
+    );
+    const primary = activeAlerts[0] ?? null;
+    if (this.structureAlert) this.structureAlert.hidden = !primary;
+    this.root.classList.toggle("has-structure-alert", Boolean(primary));
+    if (primary) {
+      if (this.structureAlertLabel) this.structureAlertLabel.textContent = primary.label;
+      if (this.structureAlertHealth) this.structureAlertHealth.textContent = `${Math.ceil(primary.healthRatio * 100)}%`;
+    }
+    this._activeStructureAlertId = primary?.id ?? null;
+  }
+
   // ── Village-distress system ──────────────────────────────────────────────────
   // Max pooled smoke columns; kept small for mobile.
   static get DISTRESS_SMOKE_CAP() { return 5; }
@@ -4482,7 +5028,7 @@ export class PlayCanvasZombieSlice {
       if (entity.render) {
         entity.render.material = mat;
       }
-      this._windowGlowMats.push({ entity, mat });
+      this._windowGlowMats.push({ entity, mat, structureId: entity._villageStructureId ?? null });
     }
 
     // ── 2. Smoke column pool ─────────────────────────────────────────────────
@@ -4502,8 +5048,8 @@ export class PlayCanvasZombieSlice {
     for (let i = 0; i < cap; i += 1) {
       const off = smokeOffsets[i] ?? [0, 0, 0];
       const vz = SLICE_WORLD.villageZ;
-      // Smoke is a translucent dark-grey sphere that drifts upward via scale
-      // and opacity modulation each frame.
+      // Smoke is a small translucent puff that drifts upward via scale and
+      // opacity modulation each frame.
       const smoke = new pc.Entity(`distress-smoke-${i}`);
       smoke.addComponent("render", {
         type: "sphere",
@@ -4518,7 +5064,7 @@ export class PlayCanvasZombieSlice {
       smokeMat.opacity = 0;
       smokeMat.blendType = pc.BLEND_NORMAL;
       smokeMat.depthWrite = false;
-      smokeMat.useFog = false; // don't let scene fog wash out the smoke read
+      smokeMat.useFog = true;
       smokeMat.update();
       smoke.render.material = smokeMat;
       smoke.setLocalPosition(off[0], off[1], vz + off[2]);
@@ -4592,27 +5138,38 @@ export class PlayCanvasZombieSlice {
     const WG_BASE_B = 0.28;
 
     for (let i = 0; i < this._windowGlowMats.length; i += 1) {
-      const { entity, mat } = this._windowGlowMats[i];
+      const { entity, mat, structureId } = this._windowGlowMats[i];
       const phase = i * 1.57 + 0.4; // unique phase per window
+      const windowRatio = structureId
+        ? (this.villageStructureVisuals.get(structureId)?.displayRatio ?? r)
+        : r;
 
       let intensity;
-      if (r >= 0.82) {
+      if (windowRatio >= 0.82) {
         intensity = 1.0;
-      } else if (r >= 0.35) {
+      } else if (windowRatio >= 0.35) {
         // Aggressive dim: 1.0 at r=0.82 → 0.12 at r=0.35
-        const band = (r - 0.35) / (0.82 - 0.35); // 0 at r=0.35, 1 at r=0.82
+        const band = (windowRatio - 0.35) / (0.82 - 0.35); // 0 at r=0.35, 1 at r=0.82
         const flickerAmt = (1 - band) * 0.25;
         const flicker = this._reducedMotion ? 0 : Math.sin(t * 4.8 + phase) * flickerAmt;
         intensity = 0.12 + band * 0.88 + flicker;
       } else {
         // Critical guttering: 0.12 at r=0.35 → 0.05 at r=0
-        const band = r / 0.35; // 0 at r=0, 1 at r=0.35
+        const band = windowRatio / 0.35; // 0 at r=0, 1 at r=0.35
         const flicker = this._reducedMotion ? 0 : Math.sin(t * 8.2 + phase) * 0.06 * band;
         intensity = 0.05 + band * 0.07 + flicker;
       }
 
       // Never fully zero — avoids a pitch-black square artifact.
       intensity = Math.max(0.05, intensity);
+
+      // material.update() re-uploads shader params — skip it when this frame's
+      // intensity is unchanged (the common case: healthy village, no flicker).
+      if (Math.abs((mat._lastGlowIntensity ?? -1) - intensity) < 0.004) {
+        void entity;
+        continue;
+      }
+      mat._lastGlowIntensity = intensity;
 
       mat.emissive.set(WG_BASE_R * intensity, WG_BASE_G * intensity, WG_BASE_B * intensity);
       // Diffuse also shifts cooler/darker as windows go out.
@@ -4625,10 +5182,9 @@ export class PlayCanvasZombieSlice {
 
     // ── 2. Smoke columns ─────────────────────────────────────────────────────
     // Smoke starts below r=0.72; scales to full 5 columns at r=0.
-    // Opacity is kept high enough (≥0.20 when active) so it reads clearly.
     const cap = PlayCanvasZombieSlice.DISTRESS_SMOKE_CAP;
     let targetSmokeCount = 0;
-    if (r < 0.72) {
+    if (this.villageStructureVisuals.size === 0 && r < 0.72) {
       const smokeT = Math.max(0, (0.72 - r) / 0.72); // 0→1 as r drops 0.72→0
       targetSmokeCount = Math.min(cap, Math.ceil(smokeT * cap));
     }
@@ -4649,21 +5205,20 @@ export class PlayCanvasZombieSlice {
 
       // Deeper damage → higher opacity, more opaque smoke.
       const distressDepth = Math.max(0, (0.72 - r) / 0.72); // 0→1
-      const baseOpacity = this._reducedMotion ? 0.12 : 0.30;
-      const maxOpacity  = this._reducedMotion ? 0.24 : 0.62;
+      const baseOpacity = this._reducedMotion ? 0.08 : 0.12;
+      const maxOpacity  = this._reducedMotion ? 0.16 : 0.28;
       const opacity = (baseOpacity + distressDepth * (maxOpacity - baseOpacity)) * fadeFrac;
 
-      // Scale: large puff that grows as it rises — must be big enough to read
-      // at the 15–30u viewing distance (houses are at x≈±10–14, z≈villageZ–10).
-      // baseScale starts at 2.5 and scales up with distress depth.
-      const baseScale = 2.5 + distressDepth * 2.5;
-      const scaleX = baseScale * (1 + riseFrac * 0.5);
-      const scaleY = baseScale * (0.55 + riseFrac * 1.8); // stretch tall as it rises
-      const scaleZ = baseScale * (1 + riseFrac * 0.5);
+      // Keep each puff subordinate to the buildings; the previous 5-12u
+      // ellipsoids read as floating opaque balloons at mid village damage.
+      const baseScale = 0.9 + distressDepth * 0.9;
+      const scaleX = baseScale * (1 + riseFrac * 0.25);
+      const scaleY = baseScale * (0.75 + riseFrac * 0.8);
+      const scaleZ = baseScale * (1 + riseFrac * 0.25);
 
-      // Position: start at roof height (~4u), rise to ~10u so it clears the roofline.
-      const baseY = 4.0;
-      const riseY = riseFrac * 6.0;
+      // Rise just above the roofline instead of crossing the entire skyline.
+      const baseY = 3.8;
+      const riseY = riseFrac * 4.5;
       smoke.setLocalPosition(smoke._distressSmokeBaseX, baseY + riseY, smoke._distressSmokeBaseZ);
       smoke.setLocalScale(scaleX, scaleY, scaleZ);
 
@@ -4811,167 +5366,15 @@ export class PlayCanvasZombieSlice {
     if (!this.minimapOpen || !this.minimapCtx || !this.minimapCanvas) {
       return;
     }
-    const ctx = this.minimapCtx;
-    const size = this.minimapCanvas.width;
-    const pad = MINIMAP_PADDING_PX;
-    const drawSize = size - pad * 2;
-    const snapshot = getPlayCanvasMiniMapSnapshot(this.state);
-    const toMap = (point) =>
-      worldToMiniMapPoint({
-        x: point.x,
-        z: point.z,
-        worldHalfExtent: snapshot.worldHalfExtent,
-        mapSizePx: size,
-        paddingPx: pad,
-      });
-
-    ctx.clearRect(0, 0, size, size);
-    // Lazy-cache the background gradient — args are constant (size never changes).
-    if (!this._minimapBgGradient || this._minimapBgGradientSize !== size) {
-      const bg = ctx.createLinearGradient(0, 0, 0, size);
-      bg.addColorStop(0, "rgba(9,23,27,0.94)");
-      bg.addColorStop(1, "rgba(5,10,16,0.96)");
-      this._minimapBgGradient = bg;
-      this._minimapBgGradientSize = size;
-    }
-    ctx.fillStyle = this._minimapBgGradient;
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.strokeStyle = "rgba(216,255,125,0.26)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(pad, pad, drawSize, drawSize);
-
-    for (const building of snapshot.buildings) {
-      const point = toMap(building.exteriorDoor);
-      ctx.fillStyle = building.opened ? "rgba(216,255,125,0.86)" : "rgba(188,235,135,0.58)";
-      ctx.fillRect(point.x - 2, point.y - 2, 4, 4);
-    }
-
-    ctx.fillStyle = "rgba(93,108,121,0.58)";
-    ctx.strokeStyle = "rgba(216,255,125,0.16)";
-    for (const structure of this.minimapStructures) {
-      const center = toMap(structure);
-      const halfW = worldRadiusToMiniMapPx({
-        radius: structure.sx * 0.5,
-        worldHalfExtent: snapshot.worldHalfExtent,
-        mapSizePx: size,
-        paddingPx: pad,
-        minPx: 2,
-        maxPx: 20,
-      });
-      const halfH = worldRadiusToMiniMapPx({
-        radius: structure.sz * 0.5,
-        worldHalfExtent: snapshot.worldHalfExtent,
-        mapSizePx: size,
-        paddingPx: pad,
-        minPx: 2,
-        maxPx: 20,
-      });
-      ctx.fillRect(center.x - halfW, center.y - halfH, halfW * 2, halfH * 2);
-      ctx.strokeRect(center.x - halfW, center.y - halfH, halfW * 2, halfH * 2);
-    }
-
-    const villagePoint = toMap(snapshot.village);
-    const villageRadius = worldRadiusToMiniMapPx({
-      radius: snapshot.village.radius,
-      worldHalfExtent: snapshot.worldHalfExtent,
-      mapSizePx: size,
-      paddingPx: pad,
-      minPx: 5,
-      maxPx: 24,
+    // Rendering lives in minimapRenderer.js (pure, unit-tested); this wrapper
+    // just feeds it the live snapshot and the persistent gradient cache.
+    if (!this._minimapGradientCache) this._minimapGradientCache = {};
+    renderMiniMap(this.minimapCtx, {
+      size: this.minimapCanvas.width,
+      snapshot: getPlayCanvasMiniMapSnapshot(this.state),
+      structures: this.minimapStructures,
+      gradientCache: this._minimapGradientCache,
     });
-    ctx.fillStyle = "rgba(255,216,112,0.16)";
-    ctx.beginPath();
-    ctx.arc(villagePoint.x, villagePoint.y, villageRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,216,112,0.72)";
-    ctx.beginPath();
-    ctx.arc(villagePoint.x, villagePoint.y, villageRadius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    for (const patch of snapshot.activeFirePatches) {
-      const point = toMap(patch);
-      const radiusPx = worldRadiusToMiniMapPx({
-        radius: patch.radius,
-        worldHalfExtent: snapshot.worldHalfExtent,
-        mapSizePx: size,
-        paddingPx: pad,
-        minPx: 3,
-        maxPx: 16,
-      });
-      ctx.fillStyle = "rgba(255,128,48,0.2)";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, radiusPx, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,178,99,0.95)";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    for (const villager of snapshot.villagers) {
-      if (villager.state !== "idle" && villager.state !== "escorting") {
-        continue;
-      }
-      const point = toMap(villager);
-      ctx.fillStyle = villager.state === "escorting" ? "rgba(104,187,255,0.98)" : "rgba(74,171,255,0.9)";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, villager.state === "escorting" ? 2.8 : 2.1, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    if (snapshot.escortDropoff) {
-      const dropoffPoint = toMap(snapshot.escortDropoff);
-      const dropoffRadius = worldRadiusToMiniMapPx({
-        radius: snapshot.escortDropoff.radius,
-        worldHalfExtent: snapshot.worldHalfExtent,
-        mapSizePx: size,
-        paddingPx: pad,
-        minPx: 4,
-        maxPx: 18,
-      });
-      const escort = snapshot.villagers.find((villager) => villager.state === "escorting");
-      if (escort) {
-        const escortPoint = toMap(escort);
-        ctx.strokeStyle = "rgba(104,187,255,0.48)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(escortPoint.x, escortPoint.y);
-        ctx.lineTo(dropoffPoint.x, dropoffPoint.y);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = "rgba(255,216,112,0.86)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(dropoffPoint.x, dropoffPoint.y, dropoffRadius, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "rgba(255,216,112,0.96)";
-      ctx.beginPath();
-      ctx.arc(dropoffPoint.x, dropoffPoint.y, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    for (const zombie of snapshot.liveZombies) {
-      const point = toMap(zombie);
-      const isHeavy = zombie.type === "mega_zombie" || zombie.type === "secret_boss" || zombie.type === "mini_boss" || zombie.type === "juggernaut";
-      ctx.fillStyle = isHeavy ? "rgba(255,116,76,0.96)" : "rgba(118,227,96,0.9)";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, isHeavy ? 3.2 : 2.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    const playerPoint = toMap(snapshot.player);
-    ctx.save();
-    ctx.translate(playerPoint.x, playerPoint.y);
-    ctx.rotate(-snapshot.player.yaw);
-    ctx.fillStyle = "rgba(104,187,255,0.98)";
-    ctx.beginPath();
-    ctx.moveTo(0, -5.2);
-    ctx.lineTo(3.6, 4.4);
-    ctx.lineTo(-3.6, 4.4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
   }
 
   createFirePatchEntity(patch) {
@@ -5102,9 +5505,29 @@ export class PlayCanvasZombieSlice {
       } else {
         entity._sliceTtl = (entity._sliceTtl ?? 0) - dt;
 
+        // Ground decals: hold position/scale, fade opacity over the last 30%.
+        if (entity._sfxIsDecal) {
+          if (entity._sliceTtl <= 0) {
+            this._retireFxEntity(entity);
+            keep = false;
+          } else {
+            const norm = entity._sliceTtl / Math.max(0.001, entity._sliceMaxTtl ?? 1);
+            if (norm < 0.3) {
+              const mat = entity.render?.meshInstances?.[0]?.material;
+              if (mat) {
+                mat.opacity = (entity._sfxDecalOpacity ?? 0.8) * (norm / 0.3);
+                mat.update();
+              }
+            }
+            keep = true;
+          }
+          if (keep) { this.fx[_fxW++] = entity; }
+          continue;
+        }
+
         // Shell casings: arc through world space with gravity then shrink/fade out.
         if (entity._sfxIsShell) {
-          if (entity._sliceTtl <= 0) { entity.destroy(); keep = false; }
+          if (entity._sliceTtl <= 0) { this._retireFxEntity(entity); keep = false; }
           else {
             const vel = entity._sfxVelocity;
             if (vel) {
@@ -5152,7 +5575,7 @@ export class PlayCanvasZombieSlice {
           if (entity._sliceTtl > 0) {
             keep = true;
           } else {
-            entity.destroy();
+            this._retireFxEntity(entity);
             keep = false;
           }
         }
@@ -5166,11 +5589,16 @@ export class PlayCanvasZombieSlice {
     if (this.lastRenderedPhase !== this.state.phase) {
       this.lastRenderedPhase = this.state.phase;
     }
-    const live = this.state.zombies.filter((zombie) => !zombie.dead).length;
+    // Count cached by updateZombies (runs earlier each frame) — avoids a fresh
+    // filter() array allocation per frame in this hot path.
+    const live = this._liveZombieCount ?? this.state.zombies.filter((zombie) => !zombie.dead).length;
+    const vRatio = clamp(this.state.villageHp / Math.max(1, this.state.maxVillageHp), 0, 1);
+    const structureCount = this.state.villageStructures?.length ?? 0;
+    const survivingStructures = this.state.villageStructures?.reduce((count, structure) => count + (structure.hp > 0 ? 1 : 0), 0) ?? 0;
     this.fields.phase.textContent = this.state.phase.toUpperCase();
     this.fields.message.textContent = this.state.lastMessage;
     this.fields.wave.textContent = this.state.waveNumber;
-    this.fields.village.textContent = `${Math.ceil(this.state.villageHp)}/${this.state.maxVillageHp}`;
+    this.fields.village.textContent = `${Math.ceil(vRatio * 100)}% · ${survivingStructures}/${structureCount}`;
     this.fields.player.textContent = Math.ceil(this.state.playerHp);
     const weaponDef = this.state.equippedWeaponId ? getWeaponDef(this.state.equippedWeaponId) : null;
     if (weaponDef && weaponDef.magSize > 0) {
@@ -5203,7 +5631,6 @@ export class PlayCanvasZombieSlice {
     this.fields.kills.textContent = this.state.kills;
     this.fields.live.textContent = live;
     // ── Bar fills ──────────────────────────────────────────────────────────
-    const vRatio = clamp(this.state.villageHp / Math.max(1, this.state.maxVillageHp), 0, 1);
     if (this.bars.village) {
       this.bars.village.style.width = (vRatio * 100) + '%';
       this.bars.village.style.backgroundColor =
@@ -5244,6 +5671,13 @@ export class PlayCanvasZombieSlice {
     if (this.actionButtons.haptics) {
       this.actionButtons.haptics.textContent = this.hapticsEnabled ? "Haptics On" : "Haptics Off";
       this.actionButtons.haptics.classList.toggle("is-active", this.hapticsEnabled);
+    }
+    if (this.actionButtons.fullscreen) {
+      // Reflect real state like its sibling toggles (it used to sit at the
+      // static label "Toggle" forever).
+      const fullscreenOn = typeof document !== "undefined" && Boolean(document.fullscreenElement);
+      this.actionButtons.fullscreen.textContent = fullscreenOn ? "Fullscreen On" : "Fullscreen Off";
+      this.actionButtons.fullscreen.classList.toggle("is-active", fullscreenOn);
     }
     if (this.state.phase === "secret_boss" || this.state.phase === "lost" || this.state.phase === "won") {
       this.shopOpen = false;
@@ -5553,7 +5987,7 @@ export class PlayCanvasZombieSlice {
     const STREAK_MILESTONES = [3, 5, 7, 10];
     for (const milestone of STREAK_MILESTONES) {
       if (prevCount < milestone && this._streakCount >= milestone) {
-        this._sfxStreak(milestone);
+        this.sfxCues.streak(milestone);
         break; // only fire the highest newly-crossed milestone per update
       }
     }
@@ -5625,200 +6059,7 @@ export class PlayCanvasZombieSlice {
     this._shakeTrauma = Math.min(1, this._shakeTrauma + amount);
   }
 
-  // ── Procedural SFX cues ───────────────────────────────────────────────────
-  // All cues: early-return when sfxEnabled=false AND when AudioContext is not
-  // yet unlocked (ctx===null) to ensure zero-throw behaviour before first click.
-
-  /** Cue 1: Hit confirm — crisp high tick on flesh hit (non-kill) */
-  _sfxHitConfirm() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.hitConfirm++;
-    if (!this.audio.ctx) return;
-    // Sample: flesh hit; synth fallback if not loaded
-    const usedSample = this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.45, pitchVariance: 2, gainVariance: 0.1,
-    });
-    if (!usedSample) {
-      // Short high-pitched triangle blip — distinct from the flesh impact boom
-      this.audio.playTone({ freq: 1850, freqEnd: 1380, duration: 0.04, gain: 0.024, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
-    }
-  }
-
-  /** Cue 2: Kill — satisfying pitch-drop thud */
-  _sfxKill() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.kill++;
-    if (!this.audio.ctx) return;
-    // Sample: heavy flesh impact for kill confirmation; synth fallback if not loaded
-    const usedSample = this.samples.playSample("impact-flesh", this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.85, pitchVariance: 1.5, gainVariance: 0.12,
-    });
-    if (!usedSample) {
-      // Low descending thud
-      this.audio.playTone({ freq: 320, freqEnd: 88, duration: 0.14, gain: 0.045, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
-      // Sub punch layer
-      this.audio.playTone({ freq: 110, freqEnd: 55, duration: 0.11, gain: 0.022, gainEnd: 0.0002, type: "sine", attack: 0.002, channel: "sfx" });
-    }
-  }
-
-  /** Cue 3: Headshot ding — bright overtone layered on kill */
-  _sfxHeadshot() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.headshot++;
-    if (!this.audio.ctx) return;
-    // Bright sine chime, decays fast
-    this.audio.playTone({ freq: 1320, freqEnd: 1100, duration: 0.18, gain: 0.022, gainEnd: 0.0002, type: "sine", attack: 0.002, channel: "sfx" });
-    this.audio.playTone({ freq: 2200, freqEnd: 1760, duration: 0.09, gain: 0.008, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
-  }
-
-  /** Cue 4: Kill streak arpeggio — escalates with tier (x3/x5/x7/x10) */
-  _sfxStreak(count) {
-    if (this.state.sfxEnabled === false) return;
-    if (count < 3) return;
-    this._sfxCallCounts.streak++;
-    if (!this.audio.ctx) return;
-    // Each tier: higher root, brighter chord
-    const tier = count >= 10 ? 3 : count >= 7 ? 2 : count >= 5 ? 1 : 0;
-    const roots = [220, 277.18, 329.63, 415.30];
-    const root = roots[tier];
-    const arpeggioNotes = [
-      root,
-      root * 1.2599, // minor third ≈ ×2^(3/12)
-      root * 1.4983, // perfect fifth ≈ ×2^(7/12)
-      root * 1.7818, // minor seventh ≈ ×2^(10/12)
-    ];
-    const delayMs = [0, 55, 110, 165];
-    for (let i = 0; i <= tier + 1 && i < arpeggioNotes.length; i++) {
-      const noteFreq = arpeggioNotes[i];
-      const delay = delayMs[i];
-      if (delay === 0) {
-        this.audio.playTone({ freq: noteFreq, freqEnd: noteFreq * 0.97, duration: 0.22, gain: 0.018, gainEnd: 0.0002, type: "triangle", attack: 0.005, channel: "sfx" });
-      } else {
-        setTimeout(() => {
-          if (this.state.sfxEnabled === false || !this.audio.ctx) return;
-          this.audio.playTone({ freq: noteFreq, freqEnd: noteFreq * 0.97, duration: 0.22, gain: 0.018, gainEnd: 0.0002, type: "triangle", attack: 0.005, channel: "sfx" });
-        }, delay);
-      }
-    }
-  }
-
-  /** Cue 5a: Reload start — mechanical click-clack */
-  _sfxReloadStart() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.reloadStart++;
-    if (!this.audio.ctx) return;
-    // Sample: mechanical switch click; synth fallback if not loaded
-    const usedSample = this.samples.playSample("reload", this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.7, pitchVariance: 1, gainVariance: 0.08,
-    });
-    if (!usedSample) {
-      // Noisy low-mid click
-      this.audio.playTone({ freq: 180, freqEnd: 120, duration: 0.038, gain: 0.032, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
-      this.audio.playTone({ freq: 340, freqEnd: 200, duration: 0.022, gain: 0.014, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
-    }
-  }
-
-  /** Cue 5b: Reload finish — satisfying seating click */
-  _sfxReloadFinish() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.reloadFinish++;
-    if (!this.audio.ctx) return;
-    // Sample: slightly higher-pitched click for "mag seated"; synth fallback if not loaded
-    const usedSample = this.samples.playSample("reload", this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.85, pitchVariance: 1.5, gainVariance: 0.08,
-    });
-    if (!usedSample) {
-      // Crisper, slightly higher than start
-      this.audio.playTone({ freq: 260, freqEnd: 160, duration: 0.032, gain: 0.036, gainEnd: 0.0002, type: "sawtooth", attack: 0.001, channel: "sfx" });
-      this.audio.playTone({ freq: 520, freqEnd: 280, duration: 0.018, gain: 0.012, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
-    }
-  }
-
-  /** Cue 5c: Empty-mag click — dry single tick */
-  _sfxEmpty() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.empty++;
-    if (!this.audio.ctx) return;
-    // Sample: dry click for empty mag; synth fallback if not loaded
-    const usedSample = this.samples.playSample("empty", this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.6, pitchVariance: 0.5, gainVariance: 0.06,
-    });
-    if (!usedSample) {
-      this.audio.playTone({ freq: 280, freqEnd: 220, duration: 0.018, gain: 0.024, gainEnd: 0.0001, type: "square", attack: 0.001, channel: "sfx" });
-    }
-  }
-
-  /** Cue 6: Coin pickup ching — light bright ring */
-  _sfxCoin() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.coin++;
-    if (!this.audio.ctx) return;
-    // Sample: coin ching; synth fallback if not loaded
-    const usedSample = this.samples.playSample("coin", this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.65, pitchVariance: 2, gainVariance: 0.1,
-    });
-    if (!usedSample) {
-      this.audio.playTone({ freq: 1560, freqEnd: 1040, duration: 0.12, gain: 0.014, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
-      this.audio.playTone({ freq: 2080, freqEnd: 1560, duration: 0.07, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.001, channel: "sfx" });
-    }
-  }
-
-  /** Cue 7: Player damage — zombie groan + thud on bite */
-  _sfxPlayerDamage() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.playerDamage++;
-    if (!this.audio.ctx) return;
-    // Sample: zombie groan on player bite — pick randomly from 3 variants
-    const groanId = `zombie-groan-${1 + Math.floor(Math.random() * 3)}`;
-    const usedSample = this.samples.playSample(groanId, this.audio.ctx, this.audio.ctx.destination, {
-      gainScale: 0.48, pitchVariance: 1.5, gainVariance: 0.12,
-    });
-    if (!usedSample) {
-      // Body-hit thud
-      this.audio.playTone({ freq: 88, freqEnd: 52, duration: 0.14, gain: 0.055, gainEnd: 0.0002, type: "triangle", attack: 0.003, channel: "sfx" });
-      // High distress overtone
-      this.audio.playTone({ freq: 420, freqEnd: 180, duration: 0.08, gain: 0.018, gainEnd: 0.0001, type: "sawtooth", attack: 0.002, channel: "sfx" });
-    }
-  }
-
-  /** Cue 8: Low-health heartbeat — two soft low thumps; called from update loop.
-   *  dt: frame delta in seconds */
-  _sfxHeartbeatTick(dt) {
-    if (this.state.sfxEnabled === false) return;
-    // Heartbeat period scales with HP severity: lower HP = faster beat
-    const severity = Math.max(0, Math.min(1, 1 - this.state.playerHp / 25));
-    const period = 1.8 - severity * 0.9; // 1.8s at 25%HP, 0.9s at 0%HP
-    this._heartbeatPhaseSec = (this._heartbeatPhaseSec ?? 0) + dt;
-    if (this._heartbeatPhaseSec >= period) {
-      this._heartbeatPhaseSec = 0;
-      this._sfxCallCounts.heartbeat++;
-      if (!this.audio.ctx) return;
-      // First thump
-      this.audio.playTone({ freq: 62, freqEnd: 44, duration: 0.12, gain: 0.038, gainEnd: 0.0002, type: "sine", attack: 0.004, channel: "sfx" });
-      // Second thump (70ms later)
-      setTimeout(() => {
-        if (this.state.sfxEnabled === false || !this.audio.ctx) return;
-        this.audio.playTone({ freq: 54, freqEnd: 40, duration: 0.10, gain: 0.028, gainEnd: 0.0002, type: "sine", attack: 0.003, channel: "sfx" });
-      }, 70);
-    }
-  }
-
-  /** Cue 9: UI click — soft subtle click for primary button presses */
-  _sfxUiClick() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.uiClick++;
-    if (!this.audio.ctx) return;
-    this.audio.playTone({ freq: 620, freqEnd: 440, duration: 0.022, gain: 0.012, gainEnd: 0.0001, type: "triangle", attack: 0.001, channel: "sfx" });
-  }
-
-  /** Cue 9b: UI shop-buy confirm — slightly richer */
-  _sfxShopBuy() {
-    if (this.state.sfxEnabled === false) return;
-    this._sfxCallCounts.uiClick++;
-    if (!this.audio.ctx) return;
-    this.audio.playTone({ freq: 880, freqEnd: 660, duration: 0.06, gain: 0.014, gainEnd: 0.0001, type: "triangle", attack: 0.003, channel: "sfx" });
-    this.audio.playTone({ freq: 1320, freqEnd: 880, duration: 0.04, gain: 0.007, gainEnd: 0.0001, type: "sine", attack: 0.002, channel: "sfx" });
-  }
+  // ── Procedural SFX cues live in sfxCues.js (this.sfxCues) ────────────────
 
   /** Cue 10: Ambient night bed — crickets loop (real sample) or synth pad fallback.
    *  The real sample plays on the music channel destination (ctx.destination, gated by
@@ -5828,7 +6069,6 @@ export class PlayCanvasZombieSlice {
     if (this.state.sfxEnabled === false) return;
     this._nightBedRunning = true;
     this._nightBedPhase = 0;
-    this._sfxCallCounts.nightBedStart++;
     // Try real sample first
     if (this.audio.ctx && this.samples.isReady("ambient-night")) {
       this.samples.startNightBed(this.audio.ctx, this.audio.ctx.destination, 0.14);
@@ -5878,10 +6118,13 @@ export class PlayCanvasZombieSlice {
       const live = this.state.zombies.filter((zombie) => !zombie.dead).length;
       const miniMap = getPlayCanvasMiniMapSnapshot(this.state);
       const buildings = getPlayCanvasBuildingSnapshot(this.state);
+      const villageStructures = buildings.defenseStructures ?? [];
       const villagers = getPlayCanvasVillagerSnapshot(this.state);
       const boss = getPlayCanvasBossSnapshot(this.state);
       const impact = getPlayCanvasImpactSnapshot(this.state);
       const weaponState = getPlayCanvasWeaponSnapshot(this.state);
+      const weaponModel = this.weaponModels?.get(weaponState.viewModel);
+      const weaponViewYawDeg = Number(weaponModel?._rootEuler?.[1] ?? -6).toFixed(1);
       const guidance = getPlayCanvasGuidanceSnapshot(this.state);
       const rewarded = getPlayCanvasRewardedAdSnapshot(this.state);
       const perf = this.performanceTelemetry;
@@ -5909,6 +6152,12 @@ export class PlayCanvasZombieSlice {
         `playerGrounded=${Boolean(this.state.player?.onGround)}`,
         `villageHp=${Math.ceil(this.state.villageHp)}`,
         `maxVillageHp=${this.state.maxVillageHp}`,
+        `villageStructures=${villageStructures.length}`,
+        `survivingStructures=${villageStructures.filter((structure) => !structure.destroyed).length}`,
+        `destroyedStructures=${villageStructures.filter((structure) => structure.destroyed).map((structure) => structure.id).join(",") || "none"}`,
+        `underAttackStructures=${villageStructures.filter((structure) => structure.underAttackSec > 0).map((structure) => structure.id).join(",") || "none"}`,
+        `activeStructureAlert=${this._activeStructureAlertId ?? "none"}`,
+        `structureHealth=${villageStructures.map((structure) => `${structure.id}:${Math.ceil(structure.hp)}/${Math.ceil(structure.maxHp)}:t${structure.damageTier}`).join("|")}`,
         `playerHp=${Math.ceil(this.state.playerHp)}`,
         `ammo=${this.state.ammo}`,
         `ammoMode=infinite`,
@@ -5917,6 +6166,7 @@ export class PlayCanvasZombieSlice {
         `weapon=${this.state.equippedWeaponId}`,
         `weaponFamily=${weaponState.family}`,
         `weaponViewModel=${weaponState.viewModel}`,
+        `weaponViewYawDeg=${weaponViewYawDeg}`,
         `weaponReticle=${weaponState.reticle}`,
         `weaponMuzzleFx=${weaponState.muzzleFx}`,
         `weaponShotFx=${weaponState.shotFx}`,

@@ -1,11 +1,5 @@
 :root {
   color-scheme: dark;
-  --pc-ink: #edf7ef;
-  --pc-dim: #a9b8ad;
-  --pc-accent: #7cff4f;
-  --pc-warm: #ffb263;
-  --pc-panel: rgba(7, 12, 13, 0.76);
-  --pc-line: rgba(124, 255, 79, 0.24);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
 
   /* ── ZI Design Tokens ──────────────────────────────────────────────────── */
@@ -34,6 +28,8 @@
   --zi-village: #f0a838;
   --zi-danger: #e8503a;
   --zi-coin: #f5c542;
+  --zi-accent-bright: #b0e860; /* hover state of accent-filled controls */
+  --zi-on-accent: #0d1208;     /* text on accent-filled controls */
 
   /* Geometry — chunkier rounded corners. */
   --zi-radius: 16px;
@@ -50,7 +46,7 @@ body {
   margin: 0;
   overflow: hidden;
   background: #050809;
-  color: var(--pc-ink);
+  color: #edf7ef; /* was --pc-ink */
 }
 
 #app {
@@ -59,7 +55,7 @@ body {
   margin: 0;
   overflow: hidden;
   background: #050809;
-  color: var(--pc-ink);
+  color: #edf7ef; /* was --pc-ink */
 }
 
 button,
@@ -70,6 +66,13 @@ a {
 /* Ensure [hidden] always wins — needed because some rules set display explicitly */
 [hidden] {
   display: none !important;
+}
+
+/* Keyboard focus ring for all interactive elements. Shop cards are <article>
+   with tabindex and keep their own matching :focus-visible rule further down. */
+.pc-slice :is(button, a, select, input, summary):focus-visible {
+  outline: 2px solid var(--zi-accent);
+  outline-offset: 2px;
 }
 
 .pc-slice {
@@ -197,6 +200,62 @@ body.viewport-resizing .pc-slice-canvas {
   font-weight: 700;
 }
 
+.zi-structure-alert {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: min(230px, calc(100vw - 28px));
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border-left: 3px solid #ff5a38;
+  background: rgba(43, 13, 10, 0.88);
+  box-shadow: 0 0 0 1px rgba(255, 102, 63, 0.24), 0 6px 18px rgba(0, 0, 0, 0.26);
+}
+
+.zi-structure-alert[hidden] {
+  display: none;
+}
+
+.zi-structure-alert-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #180705;
+  background: #ff6342;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.zi-structure-alert > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.zi-structure-alert small {
+  color: #ff8f76;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.zi-structure-alert b {
+  overflow: hidden;
+  color: #fff4ec;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zi-structure-alert strong {
+  color: #ffb09d;
+  font-size: 0.74rem;
+}
+
 /* ── TOP-RIGHT: meta cluster ───────────────────────────────────────────────── */
 .zi-hud-meta {
   top: calc(env(safe-area-inset-top, 0px) + 14px);
@@ -240,17 +299,25 @@ body.viewport-resizing .pc-slice-canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
   background: rgba(124, 255, 79, 0.08);
-  color: var(--zi-text-dim);
+  color: var(--zi-text);
   font-size: 0.95rem;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   pointer-events: auto;
+}
+
+/* Touch devices: meet the 44px minimum tap target */
+@media (pointer: coarse) {
+  .zi-settings-btn {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 .zi-settings-btn:hover {
@@ -393,16 +460,16 @@ body.viewport-resizing .pc-slice-canvas {
   backdrop-filter: blur(10px);
   font-family: var(--zi-font);
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
   pointer-events: none;
-  max-width: min(400px, max(140px, calc(100vw - 380px)));
+  max-width: min(560px, max(240px, calc(100vw - 500px)));
 }
 
 .zi-toast span {
   color: var(--zi-accent);
-  font-size: 0.62rem;
+  font-size: 0.66rem;
   font-weight: 800;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -411,9 +478,10 @@ body.viewport-resizing .pc-slice-canvas {
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
   max-width: 100%;
 }
 
@@ -709,9 +777,9 @@ body.viewport-resizing .pc-slice-canvas {
 /* 3-item mini legend (no door/fire/villager) */
 .pc-minimap-legend-mini {
   display: flex;
-  gap: 6px;
+  gap: 4px; /* tightened so the larger type still fits the panel width */
   margin-top: 4px;
-  font-size: 0.56rem;
+  font-size: 0.66rem;
   color: var(--zi-text-dim);
   flex-wrap: nowrap;
   overflow: hidden;
@@ -722,15 +790,15 @@ body.viewport-resizing .pc-slice-canvas {
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-right: 3px;
+  margin-right: 2px;
   border-radius: 999px;
   background: currentColor;
   vertical-align: middle;
 }
 
-.pc-minimap-legend-mini .player { color: #68bbff; }
-.pc-minimap-legend-mini .enemy  { color: #76e360; }
-.pc-minimap-legend-mini .village { color: #ffd870; }
+.pc-minimap-legend-mini .player { color: var(--zi-stamina); }
+.pc-minimap-legend-mini .enemy  { color: var(--zi-accent); }
+.pc-minimap-legend-mini .village { color: var(--zi-village); }
 
 /* ── Flow / campaign modal ─────────────────────────────────────────────────── */
 .pc-flow-panel {
@@ -832,7 +900,7 @@ body.viewport-resizing .pc-slice-canvas {
   border-radius: var(--zi-radius-sm);
   background: rgba(124, 255, 79, 0.05);
   color: var(--zi-text-dim);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -858,13 +926,13 @@ body.viewport-resizing .pc-slice-canvas {
 
 /* Ghost base — secondary buttons share a row */
 .pc-flow-actions button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 14px;
   flex: 1 1 auto;
   border: 1px solid var(--zi-border);
   border-radius: var(--zi-radius-sm);
   background: rgba(150, 180, 160, 0.06);
-  color: var(--zi-text-dim);
+  color: var(--zi-text);
   font-family: var(--zi-font);
   font-size: 0.8rem;
   font-weight: 600;
@@ -885,16 +953,16 @@ body.viewport-resizing .pc-slice-canvas {
   min-height: 48px;
   background: var(--zi-accent);
   border-color: var(--zi-accent);
-  color: #0d1208;
+  color: var(--zi-on-accent);
   font-size: 0.94rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .pc-flow-actions button[data-flow-action="primary"]:hover:not(:disabled) {
-  background: #b0e860;
-  border-color: #b0e860;
-  color: #0d1208;
+  background: var(--zi-accent-bright);
+  border-color: var(--zi-accent-bright);
+  color: var(--zi-on-accent);
 }
 
 /* REVIVE — amber outline, solo row */
@@ -917,6 +985,7 @@ body.viewport-resizing .pc-slice-canvas {
 .pc-flow-actions button:disabled {
   cursor: default;
   opacity: 0.38;
+  color: var(--zi-text-dim);
 }
 
 /* ── Mobile controls shell ─────────────────────────────────────────────────── */
@@ -1012,7 +1081,7 @@ body.viewport-resizing .pc-slice-canvas {
   border: 1.5px solid rgba(124, 255, 79, 0.34);
   border-radius: 50%;
   background: rgba(13, 18, 24, 0.80);
-  color: var(--pc-ink);
+  color: #edf7ef; /* was --pc-ink */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(10px);
   touch-action: none;
@@ -1199,7 +1268,7 @@ body.viewport-resizing .pc-slice-canvas {
   border: 1px solid rgba(255, 178, 99, 0.6);
   border-radius: var(--zi-radius-sm);
   background: rgba(255, 178, 99, 0.14);
-  color: var(--pc-warm);
+  color: #ffb263; /* was --pc-warm */
   font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1476,21 +1545,23 @@ body.viewport-resizing .pc-slice-canvas {
   .zi-toast {
     top: calc(env(safe-area-inset-top, 0px) + 10px);
     /* Center column between objective (~155px left) and meta (~120px right).
-       Keep it narrow; single-line messages only — overflow hidden. */
-    max-width: min(160px, calc(100vw - 280px));
+       Keep it narrow, but allow two-line messages instead of hiding copy. */
+    max-width: min(230px, max(150px, calc(100vw - 180px)));
     padding: 3px 7px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .zi-toast span {
-    font-size: 0.54rem;
+    font-size: 0.66rem;
+    letter-spacing: 0.1em; /* tighter tracking so the larger type fits the narrow column */
   }
 
   .zi-toast strong {
-    font-size: 0.68rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 0.7rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
     max-width: 100%;
   }
 
@@ -1504,6 +1575,75 @@ body.viewport-resizing .pc-slice-canvas {
   .pc-minimap-canvas {
     width: 116px;
     height: 116px;
+  }
+}
+
+/* Portrait phones: reserve the right rail for meta/minimap and stack transient
+   copy in the left rail so the upper play lane stays clear. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .zi-structure-alert {
+    grid-template-columns: 17px minmax(0, 1fr) auto;
+    gap: 4px;
+    width: 140px;
+    padding: 5px 6px;
+  }
+
+  .zi-structure-alert-icon {
+    width: 16px;
+    height: 16px;
+    font-size: 0.62rem;
+  }
+
+  .zi-structure-alert small {
+    font-size: 0.46rem;
+  }
+
+  .zi-structure-alert b,
+  .zi-structure-alert strong {
+    font-size: 0.62rem;
+  }
+
+  .zi-structure-alert b {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.05;
+  }
+
+  .zi-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 112px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    width: calc(100vw - 158px);
+    max-width: none;
+    box-sizing: border-box;
+    transform: none;
+  }
+
+  .pc-guidance-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 184px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    width: calc(100vw - 158px);
+    transform: none;
+    overflow: visible;
+  }
+
+  .pc-guidance-toast p {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+  }
+
+  .has-structure-alert .zi-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 142px);
+  }
+
+  .has-structure-alert .pc-guidance-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 206px);
+    padding: 7px 9px;
+  }
+
+  .has-structure-alert .pc-guidance-toast p {
+    display: none;
   }
 }
 
@@ -1548,7 +1688,7 @@ body.viewport-resizing .pc-slice-canvas {
 
   .pc-flow-actions button:not([data-flow-action="primary"]):not([data-flow-action="revive"]) {
     font-size: 0.78rem;
-    min-height: 34px;
+    min-height: 44px;
     padding: 0 10px;
     flex: 1 1 auto;
     text-align: center;
@@ -2429,7 +2569,7 @@ body.viewport-resizing .pc-slice-canvas {
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
   background: var(--zi-accent);
-  color: #0d1218;
+  color: var(--zi-on-accent);
   font-size: 0.96rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -2439,7 +2579,7 @@ body.viewport-resizing .pc-slice-canvas {
 }
 
 .zi-onboarding-btn:hover {
-  background: #b5e85e;
+  background: var(--zi-accent-bright);
 }
 
 .zi-onboarding-btn:active {
@@ -2463,5 +2603,16 @@ body.viewport-resizing .pc-slice-canvas {
   .zi-onboarding-btn {
     min-height: 52px;
     font-size: 1rem;
+  }
+}
+
+/* ── Reduced motion — collapse decorative animation/transitions ───────────── */
+@media (prefers-reduced-motion: reduce) {
+  .pc-slice *,
+  .pc-slice *::before,
+  .pc-slice *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }

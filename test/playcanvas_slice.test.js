@@ -9,6 +9,7 @@ import {
   buyOrEquipWeapon,
   buyVillageUpgrade,
   createSliceState,
+  damageVillageStructure,
   cycleOrdnance,
   cycleOwnedWeapon,
   equipOwnedWeapon,
@@ -19,6 +20,8 @@ import {
   getPlayCanvasGuidanceSnapshot,
   getPlayCanvasImpactSnapshot,
   getPlayCanvasMiniMapSnapshot,
+  getPlayCanvasVillageStructureSnapshot,
+  getPlayCanvasTargetFov,
   getPlayCanvasWeaponSnapshot,
   getPlayCanvasVillagerSnapshot,
   getPlayCanvasOrdnanceProjectiles,
@@ -29,7 +32,9 @@ import {
   PLAYCANVAS_SAVE_KEY,
   loadPlayCanvasSave,
   persistPlayCanvasSave,
+  sanitizePlayCanvasSave,
   setPlayCanvasAudioSettings,
+  setVillageStructureHealthRatio,
   startSlice,
   stepSlice,
   useOrdnance,
@@ -46,6 +51,7 @@ import {
 import weaponsConfig from "../src/fps/config/weapons_fps.json";
 import buildingsConfig from "../src/fps/config/buildings_fps.json";
 import enemiesConfig from "../src/fps/config/enemies_fps.json";
+import { VILLAGE_STRUCTURE_DEFS } from "../src/playcanvas/villageStructures";
 
 describe("PlayCanvas campaign simulation", () => {
   beforeEach(() => {
@@ -299,13 +305,13 @@ describe("PlayCanvas campaign simulation", () => {
     stepSlice(playerLost, idleInput(), 0.1);
 
     const villageLost = startSlice(createSliceState());
-    villageLost.villageHp = 0;
+    setVillageStructureHealthRatio(villageLost, 0);
     stepSlice(villageLost, idleInput(), 0.1);
 
     expect(playerLost.phase).toBe("lost");
     expect(playerLost.lastMessage).toContain("overrun");
     expect(villageLost.phase).toBe("lost");
-    expect(villageLost.lastMessage).toContain("bell tower");
+    expect(villageLost.lastMessage).toContain("village was destroyed");
   });
 
   it("keeps PlayCanvas campaign guns firing with infinite ammo and no reload block", () => {
@@ -525,11 +531,11 @@ describe("PlayCanvas campaign simulation", () => {
     state.player.x = 0;
     state.player.z = 12;
     const beforePlayerDamage = state.lifetimeStats.damageTaken;
-    stepSlice(state, idleInput(), 0.5);
+    advanceSec(state, 0.5);
     expect(state.lifetimeStats.playSeconds).toBeGreaterThan(0);
     expect(state.lifetimeStats.damageTaken).toBeGreaterThan(beforePlayerDamage);
 
-    state.zombies = [{ ...nearbyZombie(), x: 0, z: -12.2 }];
+    state.zombies = [{ ...nearbyZombie(), x: -6.7, z: -22, speedMps: 0 }];
     state.player.x = 30;
     state.player.z = 30;
     const beforeVillageDamage = state.lifetimeStats.villageDamageTaken;
@@ -572,13 +578,13 @@ describe("PlayCanvas campaign simulation", () => {
     const unarmored = startSlice(createSliceState());
     unarmored.waveGraceSec = 0;
     unarmored.zombies = [nearbyZombie()];
-    stepSlice(unarmored, idleInput(), 1);
+    advanceSec(unarmored, 1);
 
     const armored = startSlice(createSliceState({ coins: 500 }));
     armored.waveGraceSec = 0;
     expect(buyOrEquipArmor(armored, "kevlar")).toEqual({ ok: true });
     armored.zombies = [nearbyZombie()];
-    stepSlice(armored, idleInput(), 1);
+    advanceSec(armored, 1);
 
     expect(armored.equippedArmorId).toBe("kevlar");
     expect(armored.playerHp).toBeGreaterThan(unarmored.playerHp);
@@ -594,15 +600,19 @@ describe("PlayCanvas campaign simulation", () => {
     expect(state.coins).toBe(30);
   });
 
-  it("upgrades town defenses and raises village max hp", () => {
+  it("upgrades town defenses, raises capacity, and rebuilds destroyed structures", () => {
     const state = createSliceState({ coins: 200 });
-    state.villageHp = 50;
+    const previousMaxHp = state.maxVillageHp;
+    damageVillageStructure(state, "north_lodge", 35, "test");
+    damageVillageStructure(state, "safe_house", 999, "test");
+    expect(state.villageStructures.find((structure) => structure.id === "safe_house").hp).toBe(0);
 
     expect(buyVillageUpgrade(state)).toEqual({ ok: true });
 
     expect(state.villageLevel).toBe(2);
-    expect(state.maxVillageHp).toBeGreaterThan(100);
+    expect(state.maxVillageHp).toBeGreaterThan(previousMaxHp);
     expect(state.villageHp).toBe(state.maxVillageHp);
+    expect(state.villageStructures.every((structure) => structure.hp === structure.maxHp)).toBe(true);
     expect(state.coins).toBe(20);
   });
 
@@ -909,11 +919,11 @@ describe("PlayCanvas campaign simulation", () => {
     const chapelPerk = startSlice(createSliceState({ rescuedVillagers: ["villager_chapel"] }));
     chapelPerk.waveGraceSec = 0;
     chapelPerk.zombies = [nearbyZombie()];
-    stepSlice(chapelPerk, idleInput(), 1);
+    advanceSec(chapelPerk, 1);
     const noPerk = startSlice(createSliceState());
     noPerk.waveGraceSec = 0;
     noPerk.zombies = [nearbyZombie()];
-    stepSlice(noPerk, idleInput(), 1);
+    advanceSec(noPerk, 1);
     expect(chapelPerk.playerHp).toBeGreaterThan(noPerk.playerHp);
 
     const barnPerk = startSlice(createSliceState({ rescuedVillagers: ["villager_barn"], c4Count: 1, activeOrdnanceId: "c4" }));
@@ -1010,9 +1020,36 @@ describe("PlayCanvas campaign simulation", () => {
     state.spawnTimerSec = -999;
     state.waveGraceSec = 0;
 
-    stepSlice(state, idleInput(), 0.05);
+    while (state.spawnedThisWave < 16) {
+      state.spawnTimerSec = 0;
+      stepSlice(state, idleInput(), 0.05);
+    }
 
     expect(state.zombies.filter((zombie) => zombie.type === "mega_zombie")).toHaveLength(3);
+  });
+
+  it("caps the opening at two, pauses, and accelerates the late wave", () => {
+    const opening = startSlice(createSliceState());
+    opening.waveGraceSec = 0;
+    stepSlice(opening, idleInput(), 0.05);
+    expect(opening.spawnedThisWave).toBe(2);
+    expect(opening.spawnTimerSec).toBeGreaterThan(4);
+    advanceSec(opening, 3);
+    expect(opening.spawnedThisWave).toBe(2);
+
+    const cadence = startSlice(createSliceState());
+    cadence.waveIndex = 4;
+    cadence.waveNumber = 5;
+    cadence.waveGraceSec = 0;
+    cadence.zombies = [];
+    cadence.spawnedThisWave = 4;
+    cadence.spawnTimerSec = 0;
+    stepSlice(cadence, idleInput(), 0.05);
+    const sustainDelay = cadence.spawnTimerSec;
+    cadence.spawnedThisWave = 12;
+    cadence.spawnTimerSec = 0;
+    stepSlice(cadence, idleInput(), 0.05);
+    expect(cadence.spawnTimerSec).toBeLessThan(sustainDelay);
   });
 
   it("spawns exactly one mini boss on wave 3", () => {
@@ -1026,7 +1063,10 @@ describe("PlayCanvas campaign simulation", () => {
     state.spawnTimerSec = -999;
     state.waveGraceSec = 0;
 
-    stepSlice(state, idleInput(), 0.05);
+    while (state.spawnedThisWave < 12) {
+      state.spawnTimerSec = 0;
+      stepSlice(state, idleInput(), 0.05);
+    }
 
     expect(state.zombies.filter((zombie) => zombie.type === "mini_boss")).toHaveLength(1);
     expect(state.zombies.filter((zombie) => zombie.type === "mega_zombie")).toHaveLength(0);
@@ -1045,7 +1085,10 @@ describe("PlayCanvas campaign simulation", () => {
     state.spawnTimerSec = -999;
     state.waveGraceSec = 0;
 
-    stepSlice(state, idleInput(), 0.05);
+    while (state.spawnedThisWave < 18) {
+      state.spawnTimerSec = 0;
+      stepSlice(state, idleInput(), 0.05);
+    }
     const bossSnapshot = getPlayCanvasBossSnapshot(state);
 
     expect(state.zombies.filter((zombie) => zombie.type === "mega_zombie")).toHaveLength(3);
@@ -1197,6 +1240,29 @@ describe("PlayCanvas campaign simulation", () => {
     const hpAfterExtra = state.playerHp;
     stepSlice(state, idleInput(), 0.05);
     expect(boss.slamHitFired).toBe(true); // not reset until next telegraph
+  });
+
+  it("locks pounce and slam targets when their windups begin", () => {
+    const leaperState = startSlice(createSliceState());
+    leaperState.waveGraceSec = 0;
+    const leaper = makeLeaper({ x: 0, z: -5, jumpCooldownSec: 0 });
+    leaperState.zombies = [leaper];
+    stepSlice(leaperState, idleInput(), 0.05);
+    const pounceTarget = [leaper.pounceTargetX, leaper.pounceTargetZ];
+    leaperState.player.x += 4;
+    leaperState.player.z += 3;
+    advanceSec(leaperState, 0.45);
+    expect([leaper.pounceTargetX, leaper.pounceTargetZ]).toEqual(pounceTarget);
+
+    const slamState = startSlice(createSliceState());
+    slamState.waveGraceSec = 0;
+    const boss = makeBoss({ x: 0, z: -6, slamCooldownSec: 0 });
+    slamState.zombies = [boss];
+    stepSlice(slamState, idleInput(), 0.05);
+    const slamTarget = [boss.pounceTargetX, boss.pounceTargetZ];
+    slamState.player.x += 4;
+    advanceSec(slamState, 0.75);
+    expect([boss.pounceTargetX, boss.pounceTargetZ]).toEqual(slamTarget);
   });
 
   it("starts a secret boss phase after final wave and wins only after the boss is defeated", () => {
@@ -1534,6 +1600,152 @@ describe("PlayCanvas campaign simulation", () => {
   });
 });
 
+describe("persistent multi-building village defense", () => {
+  beforeEach(() => localStorage.clear());
+
+  function structureAttackState(overrides = {}) {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.spawnedThisWave = 9999;
+    state.player.x = 30;
+    state.player.z = 30;
+    state.zombies = [{
+      ...nearbyZombie(),
+      id: "structure-attacker",
+      x: -6.7,
+      z: -22,
+      speedMps: 0,
+      attackDps: 7,
+      ...overrides,
+    }];
+    return state;
+  }
+
+  it("derives aggregate village health from every rendered structure", () => {
+    const state = createSliceState();
+    const structures = getPlayCanvasVillageStructureSnapshot(state);
+    expect(structures).toHaveLength(VILLAGE_STRUCTURE_DEFS.length);
+    expect(structures.reduce((total, structure) => total + structure.hp, 0)).toBe(state.villageHp);
+    expect(structures.reduce((total, structure) => total + structure.maxHp, 0)).toBe(state.maxVillageHp);
+    expect(structures.every((structure) => structure.damageTier === 0 && !structure.destroyed)).toBe(true);
+  });
+
+  it("damages only the nearest live building and exposes an active alert", () => {
+    const state = structureAttackState();
+    const before = Object.fromEntries(state.villageStructures.map((structure) => [structure.id, structure.hp]));
+
+    advanceSec(state, 0.5);
+
+    const northLodge = state.villageStructures.find((structure) => structure.id === "north_lodge");
+    expect(northLodge.hp).toBeLessThan(before.north_lodge);
+    expect(northLodge.underAttackSec).toBeGreaterThan(0);
+    expect(northLodge.attackerCount).toBe(1);
+    expect(state.zombies[0].targetStructureId).toBe("north_lodge");
+    expect(state.villageStructures
+      .filter((structure) => structure.id !== "north_lodge")
+      .every((structure) => structure.hp === before[structure.id])).toBe(true);
+  });
+
+  it("applies diminishing damage when a swarm crowds one building", () => {
+    const single = structureAttackState();
+    const swarm = structureAttackState();
+    swarm.zombies = Array.from({ length: 4 }, (_, index) => ({
+      ...swarm.zombies[0],
+      id: `structure-attacker-${index + 1}`,
+    }));
+    const singleTarget = single.villageStructures.find((structure) => structure.id === "north_lodge");
+    const swarmTarget = swarm.villageStructures.find((structure) => structure.id === "north_lodge");
+
+    advanceSec(single, 0.5);
+    advanceSec(swarm, 0.5);
+
+    const singleDamage = singleTarget.maxHp - singleTarget.hp;
+    const swarmDamage = swarmTarget.maxHp - swarmTarget.hp;
+    expect(swarmTarget.attackerCount).toBe(4);
+    expect(swarmDamage).toBeGreaterThan(singleDamage * 1.9);
+    expect(swarmDamage).toBeLessThan(singleDamage * 2.2);
+  });
+
+  it("retargets the nearest surviving building immediately after one falls", () => {
+    const state = structureAttackState();
+    const northLodge = state.villageStructures.find((structure) => structure.id === "north_lodge");
+    northLodge.hp = 0.05;
+
+    stepSlice(state, idleInput(), 0.05);
+    expect(northLodge.hp).toBe(0);
+    expect(state.lastVillageDamageEvent).toMatchObject({ structureId: "north_lodge", destroyed: true });
+
+    stepSlice(state, idleInput(), 0.05);
+    expect(state.zombies[0].targetStructureId).toBe("bell_tower");
+    expect(state.lastMessage).toContain("North Lodge destroyed");
+  });
+
+  it("keeps damage cumulative across waves without automatic healing", () => {
+    const state = startSlice(createSliceState());
+    damageVillageStructure(state, "safe_house", 37, "test");
+    const damagedHp = state.villageStructures.find((structure) => structure.id === "safe_house").hp;
+    const aggregateHp = state.villageHp;
+    state.phase = "intermission";
+
+    startSlice(state);
+
+    expect(state.waveNumber).toBe(2);
+    expect(state.villageStructures.find((structure) => structure.id === "safe_house").hp).toBeCloseTo(damagedHp, 6);
+    expect(state.villageHp).toBeCloseTo(aggregateHp, 6);
+  });
+
+  it("does not let a lone learning-wave walker erase the village in thirty seconds", () => {
+    const state = structureAttackState();
+    const before = state.villageHp;
+
+    advanceSec(state, 30);
+
+    expect(state.villageHp).toBeLessThan(before);
+    expect(state.villageHp).toBeGreaterThan(state.maxVillageHp * 0.9);
+    expect(state.phase).toBe("running");
+    expect(getPlayCanvasVillageStructureSnapshot(state).filter((structure) => structure.destroyed)).toHaveLength(0);
+  });
+
+  it("ends the campaign only when the health sum of all structures reaches zero", () => {
+    const state = startSlice(createSliceState());
+    for (const structure of state.villageStructures.slice(0, -1)) {
+      damageVillageStructure(state, structure.id, structure.maxHp, "test");
+    }
+    expect(state.villageHp).toBeGreaterThan(0);
+
+    const finalStructure = state.villageStructures.at(-1);
+    damageVillageStructure(state, finalStructure.id, finalStructure.maxHp, "test");
+    stepSlice(state, idleInput(), 0.05);
+
+    expect(state.villageHp).toBe(0);
+    expect(state.phase).toBe("lost");
+  });
+
+  it("persists building damage and destruction across a save/load round trip", () => {
+    const state = startSlice(createSliceState());
+    damageVillageStructure(state, "north_lodge", 37, "test");
+    const safeHouse = state.villageStructures.find((structure) => structure.id === "safe_house");
+    damageVillageStructure(state, safeHouse.id, safeHouse.maxHp, "test");
+    const northRatio = state.villageStructures.find((structure) => structure.id === "north_lodge").hp
+      / state.villageStructures.find((structure) => structure.id === "north_lodge").maxHp;
+
+    persistPlayCanvasSave(state);
+    const restored = createSliceState(loadPlayCanvasSave());
+    const restoredNorth = restored.villageStructures.find((structure) => structure.id === "north_lodge");
+    const restoredSafeHouse = restored.villageStructures.find((structure) => structure.id === "safe_house");
+
+    expect(restoredNorth.hp / restoredNorth.maxHp).toBeCloseTo(northRatio, 5);
+    expect(restoredNorth.underAttackSec).toBe(0);
+    expect(restoredSafeHouse.hp).toBe(0);
+    expect(restoredSafeHouse.destroyedAtWave).toBe(1);
+    expect(restoredSafeHouse.attackerCount).toBe(0);
+    expect(restored.villageHp).toBeCloseTo(
+      restored.villageStructures.reduce((total, structure) => total + structure.hp, 0),
+      6,
+    );
+  });
+});
+
 describe("zombie fence collision", () => {
   beforeEach(() => localStorage.clear());
 
@@ -1544,12 +1756,12 @@ describe("zombie fence collision", () => {
     state.waveGraceSec = 0;
     state.spawnedThisWave = 9999; // suppress the wave spawner during the test
     state.player.x = 15;
-    state.player.z = 0;
+    state.player.z = 8;
     state.zombies = [
       {
         ...nearbyZombie(),
         x: 5,
-        z: 0,
+        z: 8,
         y: 0,
         speedMps: 4,
         aggroPlayerSec: 60,
@@ -1587,6 +1799,14 @@ describe("zombie fence collision", () => {
 
   it("lets a flyer fly over a fence", () => {
     const z = runChase(chaseState({ type: "flyer", movementMode: "flyer", canClimb: false, hoverHeight: 1.45 }));
+    expect(z.x).toBeGreaterThan(7.4);
+  });
+
+  it("lets a ground zombie pass through an authored village gate", () => {
+    const state = chaseState({ type: "walker", movementMode: "ground", canClimb: false });
+    state.player.z = 0;
+    state.zombies[0].z = 0;
+    const z = runChase(state);
     expect(z.x).toBeGreaterThan(7.4);
   });
 
@@ -1729,6 +1949,576 @@ describe("revive + invulnerability", () => {
   });
 });
 
+describe("PlayCanvas player collision and village drain ramp", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("ejects the player from a fence they walk into", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    state.player.x = 7.1; // inside the right fence AABB (7.04..7.36)
+    state.player.z = 8;
+    state.player.y = 0;
+
+    stepSlice(state, idleInput(), 0.016);
+
+    // Pushed back to the lane side of the fence (minX - playerRadius).
+    expect(state.player.x).toBeLessThanOrEqual(7.04 - 0.55 + 0.01);
+  });
+
+  it("lets the player rotate through an authored village gate", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    state.player.x = 7.1;
+    state.player.z = 0;
+    state.player.y = 0;
+
+    stepSlice(state, idleInput(), 0.016);
+
+    expect(state.player.x).toBeCloseTo(7.1, 3);
+  });
+
+  it("ejects the player from a house wall at ground level", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    // house-0 footprint: x in [-13.21, -5.79], z in [-25.36, -18.64]
+    state.player.x = -9.5;
+    state.player.z = -18.8; // just inside the near wall
+    state.player.y = 0;
+
+    stepSlice(state, idleInput(), 0.016);
+
+    expect(state.player.z).toBeGreaterThanOrEqual(-18.64 + 0.55 - 0.01);
+  });
+
+  it("does not eject the player standing on a rooftop above the same walls", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    state.player.x = -9.5;
+    state.player.z = -22; // center of house-0
+    state.player.y = 4.02; // its roof height (sy 3.2 + 0.82)
+    state.player.yVelocity = 0;
+    state.player.onGround = true;
+    state.player.supportSurfaceId = "house-0-roof";
+
+    stepSlice(state, idleInput(), 0.016);
+
+    expect(state.player.x).toBeCloseTo(-9.5, 1);
+    expect(state.player.z).toBeCloseTo(-22, 1);
+    expect(state.player.supportSurfaceId).toBe("house-0-roof");
+  });
+
+  it("removes invisible wall collision after a structure collapses", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    const northLodge = state.villageStructures.find((structure) => structure.id === "north_lodge");
+    damageVillageStructure(state, northLodge.id, northLodge.maxHp, "test");
+    state.player.x = -9.5;
+    state.player.z = -18.8;
+    state.player.y = 0;
+
+    stepSlice(state, idleInput(), 0.016);
+
+    expect(state.player.x).toBeCloseTo(-9.5, 3);
+    expect(state.player.z).toBeCloseTo(-18.8, 3);
+  });
+
+  it("lets an airborne player clear the fence line (jump forgiveness)", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+    state.player.x = 7.2; // over the fence line
+    state.player.z = 8;
+    state.player.y = 1.2; // single-jump crossing height (fence 1.35 - 0.25 clearance)
+    state.player.yVelocity = 2;
+    state.player.onGround = false;
+
+    stepSlice(state, idleInput(), 0.016);
+
+    // Not ejected — still over the fence footprint mid-jump.
+    expect(Math.abs(state.player.x - 7.2)).toBeLessThan(0.05);
+  });
+
+  it("keeps every building door reachable: spawn is standable and enter/exit still work", () => {
+    for (const building of buildingsConfig) {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 999;
+      state.player.x = building.exteriorSpawn.x;
+      state.player.z = building.exteriorSpawn.z;
+      state.player.y = 0;
+
+      stepSlice(state, idleInput(), 0.016);
+      // Some spawn pads sit centimeters inside a wall footprint; a small
+      // settle-push is fine as long as the door stays in interact range
+      // (2.45m) — which the enter assertion below proves.
+      const pushed = Math.hypot(
+        state.player.x - building.exteriorSpawn.x,
+        state.player.z - building.exteriorSpawn.z,
+      );
+      expect(pushed).toBeLessThan(0.6);
+
+      const entered = interactWithPlayCanvasWorld(state);
+      expect(entered).toMatchObject({ ok: true, action: "enter_building", buildingId: building.id });
+
+      state.player.x = building.interior.doorInside.x;
+      state.player.z = building.interior.doorInside.z;
+      const exited = interactWithPlayCanvasWorld(state);
+      expect(exited).toMatchObject({ ok: true, action: "exit_building", buildingId: building.id });
+
+      stepSlice(state, idleInput(), 0.016);
+      expect(Math.hypot(
+        state.player.x - building.exteriorSpawn.x,
+        state.player.z - building.exteriorSpawn.z,
+      )).toBeLessThan(0.6);
+    }
+  });
+
+  it("keeps house walls transparent to zombies (fences-only, unchanged)", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.zombies = [
+      // Inside house-0's footprint — must NOT be ejected.
+      { ...nearbyZombie(), id: "in-house", x: -9.5, z: -22, speedMps: 0 },
+      // Inside the right fence — MUST be ejected (existing behavior).
+      { ...nearbyZombie(), id: "in-fence", x: 7.2, z: 8, speedMps: 0 },
+    ];
+
+    stepSlice(state, idleInput(), 0.016);
+
+    const inHouse = state.zombies.find((z) => z.id === "in-house");
+    const inFence = state.zombies.find((z) => z.id === "in-fence");
+    expect(Math.hypot(inHouse.x + 9.5, inHouse.z + 22)).toBeLessThan(0.05);
+    expect(inFence.x < 7.04 || inFence.x > 7.36).toBe(true);
+  });
+
+  it("drains the village slower on learning waves than on wave 5+", () => {
+    const drainOverHalfSecond = (waveIndex) => {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 0;
+      state.waveIndex = waveIndex;
+      state.player.x = 30; // far away — zombie targets the village
+      state.player.z = 30;
+      state.zombies = [{ ...nearbyZombie(), x: -6.7, z: -22, speedMps: 0, attackDps: 20 }];
+      const before = state.villageHp;
+      for (let i = 0; i < 10; i += 1) {
+        stepSlice(state, idleInput(), 0.05);
+      }
+      return before - state.villageHp;
+    };
+
+    const waveOne = drainOverHalfSecond(0);
+    const waveFive = drainOverHalfSecond(4);
+    expect(waveOne).toBeGreaterThan(0); // still dangerous, just softened
+    expect(waveOne).toBeLessThan(waveFive * 0.65);
+  });
+});
+
+describe("PlayCanvas save sanitization", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("returns null for missing or non-object saves and survives corrupted JSON", () => {
+    expect(sanitizePlayCanvasSave(null)).toBeNull();
+    expect(sanitizePlayCanvasSave("coins:900")).toBeNull();
+    expect(sanitizePlayCanvasSave(42)).toBeNull();
+
+    localStorage.setItem(PLAYCANVAS_SAVE_KEY, "{not valid json!!");
+    expect(loadPlayCanvasSave()).toBeNull();
+    // A corrupted save must not brick a fresh boot either.
+    expect(() => startSlice(createSliceState())).not.toThrow();
+  });
+
+  it("clamps out-of-range numeric fields instead of trusting them", () => {
+    const safe = sanitizePlayCanvasSave({ coins: -500.7, bestWave: -3, c4Count: -2, nukeCount: 1.6 });
+    expect(safe.coins).toBe(0);
+    expect(safe.bestWave).toBe(1);
+    expect(safe.c4Count).toBe(0);
+    expect(safe.nukeCount).toBe(2);
+  });
+
+  it("falls back to starting equipment when the equipped ids are unknown or unowned", () => {
+    const safe = sanitizePlayCanvasSave({
+      ownedWeapons: ["pistol", "shotgun", "totally_fake_gun"],
+      equippedWeaponId: "totally_fake_gun",
+      equippedArmorId: "dragon_scale",
+    });
+    expect(safe.equippedWeaponId).toBe("pistol");
+    expect(safe.equippedArmorId).toBe("cloth");
+    expect(safe.ownedWeapons).not.toContain("totally_fake_gun");
+  });
+
+  it("honors legacy field aliases from older saves", () => {
+    const safe = sanitizePlayCanvasSave({
+      unlockedWeapons: ["pistol", "shotgun"],
+      c4Charges: 3,
+      nukes: 2,
+    });
+    expect(safe.ownedWeapons).toContain("shotgun");
+    expect(safe.c4Count).toBe(3);
+    expect(safe.nukeCount).toBe(2);
+  });
+
+  it("resolves conflicting villager lists (rescued wins) and drops unknown ids", () => {
+    const raw = sanitizePlayCanvasSave({
+      rescuedVillagers: ["villager_house_a"],
+      deadVillagers: ["villager_house_a", "villager_blacksmith", "not_a_real_villager"],
+    });
+    expect(raw.rescuedVillagers).toContain("villager_house_a");
+    expect(raw.deadVillagers).not.toContain("villager_house_a");
+    expect(raw.deadVillagers).toContain("villager_blacksmith");
+    expect(raw.deadVillagers).not.toContain("not_a_real_villager");
+  });
+
+  it("folds legacy totalKills into lifetime kill stats", () => {
+    const safe = sanitizePlayCanvasSave({ totalKills: 250, lifetimeStats: { kills: 40 } });
+    expect(safe.lifetimeStats.kills).toBe(250);
+  });
+
+  it("sanitizes saved structure health by stable id and ignores corrupt records", () => {
+    const safe = sanitizePlayCanvasSave({
+      villageStructures: [
+        { id: "north_lodge", healthRatio: 0.42, destroyedAtWave: 9 },
+        { id: "safe_house", hp: 0, maxHp: 98, destroyedAtWave: 4 },
+        { id: "barn", healthRatio: 9 },
+        { id: "east_homestead", healthRatio: "not-a-number" },
+        { id: "unknown_building", healthRatio: 0 },
+      ],
+    });
+
+    expect(safe.villageStructures).toEqual([
+      { id: "north_lodge", healthRatio: 0.42, destroyedAtWave: null },
+      { id: "safe_house", healthRatio: 0, destroyedAtWave: 4 },
+      { id: "barn", healthRatio: 1, destroyedAtWave: null },
+    ]);
+  });
+});
+
+describe("PlayCanvas hit physics and game feel", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("tracks real sprinting (sprint key + movement) on the player state", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+
+    stepSlice(state, { ...idleInput(), forward: 1, sprint: true }, 0.05);
+    expect(state.player.sprinting).toBe(true);
+
+    // Sprint key held while standing still is not sprinting.
+    stepSlice(state, { ...idleInput(), sprint: true }, 0.05);
+    expect(state.player.sprinting).toBe(false);
+
+    stepSlice(state, { ...idleInput(), forward: 1 }, 0.05);
+    expect(state.player.sprinting).toBe(false);
+  });
+
+  it("accelerates, brakes, and respects walk/crouch/sprint speed caps", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 999;
+
+    stepSlice(state, { ...idleInput(), forward: 1 }, 0.05);
+    expect(Math.hypot(state.player.vx, state.player.vz)).toBeCloseTo(1.5, 5);
+    advanceSecWithInput(state, 1, { ...idleInput(), forward: 1 });
+    expect(Math.hypot(state.player.vx, state.player.vz)).toBeLessThanOrEqual(4.2);
+
+    stepSlice(state, idleInput(), 0.05);
+    expect(Math.hypot(state.player.vx, state.player.vz)).toBeCloseTo(2, 5);
+    stepSlice(state, idleInput(), 0.05);
+    expect(Math.hypot(state.player.vx, state.player.vz)).toBe(0);
+
+    advanceSecWithInput(state, 1, { ...idleInput(), forward: 1, crouch: true });
+    expect(Math.hypot(state.player.vx, state.player.vz)).toBeCloseTo(2.2, 5);
+    advanceSecWithInput(state, 1, { ...idleInput(), forward: 1, sprint: true });
+    expect(Math.hypot(state.player.vx, state.player.vz)).toBeCloseTo(6, 5);
+  });
+
+  it("does not drain sprint stamina while stationary or airborne", () => {
+    const stationary = startSlice(createSliceState());
+    stationary.waveGraceSec = 999;
+    stationary.stamina = 80;
+    stepSlice(stationary, { ...idleInput(), sprint: true }, 0.15);
+    expect(stationary.stamina).toBeGreaterThan(80);
+    expect(stationary.player.sprinting).toBe(false);
+
+    const airborne = startSlice(createSliceState());
+    airborne.waveGraceSec = 999;
+    airborne.stamina = 80;
+    airborne.player.y = 2;
+    airborne.player.onGround = false;
+    airborne.player.yVelocity = 0;
+    stepSlice(airborne, { ...idleInput(), forward: 1, sprint: true }, 0.15);
+    expect(airborne.stamina).toBeGreaterThan(80);
+    expect(airborne.player.sprinting).toBe(false);
+    expect(Math.hypot(airborne.player.vx, airborne.player.vz)).toBeLessThanOrEqual(1.2 + 1e-8);
+  });
+
+  it("matches three fixed steps with one batched render delta", () => {
+    const fixed = startSlice(createSliceState());
+    const batched = startSlice(createSliceState());
+    fixed.waveGraceSec = 999;
+    batched.waveGraceSec = 999;
+    const input = { ...idleInput(), forward: 1, right: 0.35 };
+
+    for (let i = 0; i < 3; i += 1) stepSlice(fixed, input, 0.05);
+    stepSlice(batched, input, 0.15);
+
+    expect(batched.elapsedSec).toBeCloseTo(fixed.elapsedSec, 8);
+    expect(batched.player.x).toBeCloseTo(fixed.player.x, 8);
+    expect(batched.player.z).toBeCloseTo(fixed.player.z, 8);
+    expect(batched.player.vx).toBeCloseTo(fixed.player.vx, 8);
+    expect(batched.player.vz).toBeCloseTo(fixed.player.vz, 8);
+    expect(batched.stamina).toBeCloseTo(fixed.stamina, 8);
+  });
+
+  it("gates ground bites by vertical separation", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = -9.5;
+    state.player.z = -22;
+    state.player.y = 4.02;
+    state.player.onGround = true;
+    state.player.supportSurfaceId = "house-0-roof";
+    state.zombies = [{ ...nearbyZombie(), x: state.player.x, z: state.player.z, y: 0 }];
+    const hp = state.playerHp;
+
+    advanceSec(state, 1);
+
+    expect(state.playerHp).toBe(hp);
+    expect(state.zombies[0].bitePhase ?? "none").toBe("none");
+  });
+
+  it("uses each enemy's configured attack range", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.zombies = [
+      { ...nearbyZombie(), id: "short-range", x: state.player.x, z: state.player.z + 1.4, attackRange: 1.2 },
+      { ...nearbyZombie(), id: "long-range", x: state.player.x, z: state.player.z + 1.4, attackRange: 1.6 },
+    ];
+
+    stepSlice(state, idleInput(), 0.05);
+
+    expect(state.zombies.find((z) => z.id === "short-range").bitePhase ?? "none").toBe("none");
+    expect(state.zombies.find((z) => z.id === "long-range").bitePhase).toBe("windup");
+  });
+
+  it("winds up an ordinary bite, hits once, then recovers", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.zombies = [{ ...nearbyZombie(), x: state.player.x, z: state.player.z + 0.8 }];
+    const hp = state.playerHp;
+
+    stepSlice(state, idleInput(), 0.05);
+    expect(state.playerHp).toBe(hp);
+    expect(state.zombies[0]).toMatchObject({ bitePhase: "windup", telegraphType: "bite" });
+    advanceSec(state, 0.25);
+    expect(state.playerHp).toBeLessThan(hp);
+    const hpAfterStrike = state.playerHp;
+    expect(state.zombies[0].bitePhase).toBe("recovery");
+    stepSlice(state, idleInput(), 0.5);
+    expect(state.playerHp).toBe(hpAfterStrike);
+  });
+
+  it("uses type-sensitive bite timings with legacy and custom fallbacks", () => {
+    for (const [type, windupSec, recoverySec] of [
+      ["runner", 0.16, 0.4],
+      ["walker", 0.24, 0.55],
+      ["brute", 0.38, 0.72],
+    ]) {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 0;
+      state.zombies = [{ ...nearbyZombie(), type, x: state.player.x, z: state.player.z + 0.8 }];
+      stepSlice(state, idleInput(), 0.05);
+      expect(state.zombies[0].biteTimerSec).toBeCloseTo(windupSec, 6);
+      advanceSec(state, windupSec + 0.05);
+      expect(state.zombies[0].bitePhase).toBe("recovery");
+      expect(state.zombies[0].biteTimerSec).toBeGreaterThanOrEqual(recoverySec - 0.05 - 1e-8);
+      expect(state.zombies[0].biteTimerSec).toBeLessThanOrEqual(recoverySec);
+    }
+
+    const custom = startSlice(createSliceState());
+    custom.waveGraceSec = 0;
+    custom.zombies = [{ ...nearbyZombie(), type: "custom", x: custom.player.x, z: custom.player.z + 0.8, biteWindupSec: 0.31 }];
+    stepSlice(custom, idleInput(), 0.05);
+    expect(custom.zombies[0].biteTimerSec).toBeCloseTo(0.31, 6);
+  });
+
+  it("cancels an escaped bite and permits only one hit during recovery", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.zombies = [{ ...nearbyZombie(), x: state.player.x, z: state.player.z + 0.8 }];
+    stepSlice(state, idleInput(), 0.05);
+    state.player.z += 5;
+    stepSlice(state, idleInput(), 0.05);
+    expect(state.zombies[0]).toMatchObject({ bitePhase: "none", telegraphType: "none", biteTimerSec: 0 });
+    state.player.z = state.zombies[0].z - 0.8;
+    advanceSec(state, 0.3);
+    const hpAfterStrike = state.playerHp;
+    expect(hpAfterStrike).toBeLessThan(state.maxPlayerHp);
+    advanceSec(state, 0.4);
+    expect(state.playerHp).toBe(hpAfterStrike);
+  });
+
+  it("penalizes sprint fire with the sprint spread, not grounded standing fire", () => {
+    // Aim so the target is inside the aim window when standing still but
+    // outside it once the sprint penalty shrinks the forgiveness margin.
+    const makeState = (sprinting) => {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 0;
+      state.player.x = 0;
+      state.player.z = 8;
+      state.player.yaw = Math.PI;
+      state.player.onGround = true;
+      state.player.sprinting = sprinting;
+      // Walker body radius 0.5 + pistol forgiveness ~0.2 → hits at ≤0.7m
+      // off-line when steady, only ≤0.6m while sprinting (forgiveness halved).
+      state.zombies = [{ ...nearbyZombie(), x: 0.65, z: 28, hp: 100, maxHp: 100 }];
+      return state;
+    };
+
+    expect(fireSliceWeapon(makeState(false)).hit).toBe(true);
+    expect(fireSliceWeapon(makeState(true)).hit).toBe(false);
+  });
+
+  it("knocks a zombie back along the shot direction and briefly staggers it", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // fire +Z
+    state.player.onGround = true;
+    state.zombies = [{ ...nearbyZombie(), x: 0, z: 14, hp: 500, maxHp: 500, speedMps: 2 }];
+
+    const result = fireSliceWeapon(state);
+    expect(result.hit).toBe(true);
+    const zombie = state.zombies[0];
+    expect(zombie.knockVz).toBeGreaterThan(0); // shoved away from the player
+    expect(zombie.hitStunSec).toBeGreaterThan(0);
+
+    const zBefore = zombie.z;
+    stepSlice(state, idleInput(), 0.05);
+    // Stagger + knockback: the zombie moves away instead of approaching.
+    expect(zombie.z).toBeGreaterThan(zBefore);
+    expect(Number.isFinite(zombie.x)).toBe(true);
+    expect(Number.isFinite(zombie.z)).toBe(true);
+
+    // The shove decays back to zero rather than sliding forever.
+    for (let i = 0; i < 60; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+    expect(Math.hypot(zombie.knockVx ?? 0, zombie.knockVz ?? 0)).toBeLessThan(0.05);
+  });
+
+  it("moves heavy stagger-resistant enemies far less than walkers under equal damage", () => {
+    const makeState = (type) => {
+      const state = startSlice(createSliceState());
+      state.waveGraceSec = 999;
+      state.player.x = 0;
+      state.player.z = 8;
+      state.player.yaw = Math.PI; // fire +Z
+      state.player.onGround = true;
+      state.zombies = [{
+        ...nearbyZombie(),
+        type,
+        x: 0,
+        z: 14,
+        hp: 5000,
+        maxHp: 5000,
+      }];
+      return state;
+    };
+
+    const walkerState = makeState("walker");
+    // Juggernaut: 240kg + staggerResistance 0.5 → mass and resistance both damp the shove.
+    const heavyState = makeState("juggernaut");
+    // Same raw damage through the same code path as weapon fire.
+    const walkerResult = fireSliceWeapon(walkerState);
+    const heavyResult = fireSliceWeapon(heavyState);
+    expect(walkerResult.hit).toBe(true);
+    expect(heavyResult.hit).toBe(true);
+
+    const walkerKnock = Math.hypot(walkerState.zombies[0].knockVx, walkerState.zombies[0].knockVz);
+    const heavyKnock = Math.hypot(heavyState.zombies[0].knockVx, heavyState.zombies[0].knockVz);
+    expect(walkerKnock).toBeGreaterThan(0);
+    expect(heavyKnock).toBeLessThan(walkerKnock * 0.5);
+  });
+
+  it("separates overlapping zombies so a horde does not collapse into one point", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.player.x = 0;
+    state.player.z = 20; // far away — zombies head for the village, not the player
+    state.zombies = [
+      { ...nearbyZombie(), id: "sep-a", x: 3, z: -5, speedMps: 0 },
+      { ...nearbyZombie(), id: "sep-b", x: 3, z: -5, speedMps: 0 },
+    ];
+
+    for (let i = 0; i < 12; i += 1) {
+      stepSlice(state, idleInput(), 0.05);
+    }
+
+    const [a, b] = state.zombies;
+    expect(Number.isFinite(a.x) && Number.isFinite(b.x)).toBe(true);
+    const gap = Math.hypot(a.x - b.x, a.z - b.z);
+    // Walker body radius 0.5 × separation scale 0.85 → resting gap ≈ 0.85m.
+    expect(gap).toBeGreaterThan(0.6);
+  });
+
+  it("bounces a lobbed grenade once before detonating near the aim point", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+    state.activeOrdnanceId = "frag";
+    state.grenadeInventory.frag = 3;
+    state.player.x = 0;
+    state.player.z = 8;
+    state.player.yaw = Math.PI; // throw +Z over open ground
+    state.player.pitch = 0;
+    state.zombies = [];
+
+    expect(useOrdnance(state).ok).toBe(true);
+
+    let bounced = false;
+    let detonations = [];
+    let previousY = null;
+    let previousDy = 0;
+    for (let i = 0; i < 200 && detonations.length === 0; i += 1) {
+      const projectile = getPlayCanvasOrdnanceProjectiles(state)[0];
+      if (projectile) {
+        if (previousY !== null) {
+          const dy = projectile.y - previousY;
+          // Height rising again after falling near the ground = a bounce.
+          if (previousDy < 0 && dy > 0 && previousY < 1) {
+            bounced = true;
+          }
+          previousDy = dy;
+        }
+        previousY = projectile.y;
+      }
+      stepSlice(state, idleInput(), 0.05);
+      detonations = detonations.concat(consumePlayCanvasOrdnanceDetonations(state));
+    }
+
+    expect(bounced).toBe(true);
+    expect(detonations.length).toBeGreaterThan(0);
+    expect(getPlayCanvasOrdnanceProjectiles(state)).toHaveLength(0);
+  });
+
+  it("reports stance-driven camera FOV targets", () => {
+    const state = startSlice(createSliceState());
+    state.player.ads = false;
+    state.player.sprinting = false;
+    state.player.onGround = true;
+    expect(getPlayCanvasTargetFov(state)).toBe(68);
+
+    state.player.sprinting = true;
+    expect(getPlayCanvasTargetFov(state)).toBeGreaterThan(68);
+
+    state.player.ads = true; // ADS wins over sprint
+    expect(getPlayCanvasTargetFov(state)).toBeLessThan(68);
+  });
+});
+
 function idleInput() {
   return {
     forward: 0,
@@ -1768,6 +2558,12 @@ function advanceSec(state, sec) {
   for (let i = 0; i < n; i++) {
     stepSlice(state, idleInput(), STEP);
   }
+}
+
+function advanceSecWithInput(state, sec, input) {
+  const STEP = 0.05;
+  const n = Math.ceil(sec / STEP);
+  for (let i = 0; i < n; i++) stepSlice(state, input, STEP);
 }
 
 function _baseZombie(overrides = {}) {

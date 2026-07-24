@@ -26,6 +26,7 @@ try {
     await waitForServer(targetUrl);
   }
   await mkdir("output", { recursive: true });
+  await mkdir("output/village-defense", { recursive: true });
 
   browser = await chromium.launch({
     headless: true,
@@ -81,6 +82,22 @@ try {
   });
   await page.evaluate(() => window.advanceTime?.(6200)); // 5.5s grace + buffer for spawns
   const preBlastScreenshot = await page.screenshot({ path: screenshotPath, fullPage: false });
+  const topToastMessage = await page.evaluate(() => {
+    const el = document.querySelector(".zi-toast strong");
+    if (!el) {
+      return { exists: false };
+    }
+    const style = window.getComputedStyle(el);
+    return {
+      exists: true,
+      text: el.textContent ?? "",
+      clientWidth: el.clientWidth,
+      scrollWidth: el.scrollWidth,
+      whiteSpace: style.whiteSpace,
+      overflow: style.overflow,
+      textOverflow: style.textOverflow,
+    };
+  });
   await page.keyboard.press("KeyG");
   const ordnanceText = await page.evaluate(() => window.render_playcanvas_game_to_text?.() ?? "");
   const advanced = await page.evaluate(() => {
@@ -173,6 +190,158 @@ try {
       clientHeight: canvas.clientHeight,
     })),
   }));
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const villageAttackProof = await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    if (!game?.state?.villageStructures?.length || !game.state.zombies?.length) return { ok: false };
+    game.state.phase = "running";
+    game.state.waveGraceSec = 0;
+    game.state.spawnedThisWave = 9999;
+    game.state.player.x = 30;
+    game.state.player.z = 30;
+    for (const structure of game.state.villageStructures) {
+      structure.hp = structure.maxHp;
+      structure.underAttackSec = 0;
+      structure.attackerCount = 0;
+      structure.destroyedAtWave = null;
+    }
+    const attacker = game.state.zombies.find((zombie) => !zombie.dead) ?? game.state.zombies[0];
+    for (const zombie of game.state.zombies) zombie.dead = zombie !== attacker;
+    Object.assign(attacker, {
+      dead: false,
+      hp: Math.max(1, attacker.maxHp ?? 100),
+      x: -6.7,
+      z: -22,
+      y: 0,
+      speedMps: 0,
+      attackDps: 7,
+      movementMode: "ground",
+      aggroPlayerSec: 0,
+      targetStructureId: null,
+      biteCooldownSec: 0,
+      bitePhase: "none",
+      biteTimerSec: 0,
+      telegraphType: "none",
+      telegraphSec: 0,
+      pounceSec: 0,
+      hitStunSec: 0,
+      knockVx: 0,
+      knockVz: 0,
+    });
+    const target = game.state.villageStructures.find((structure) => structure.id === "north_lodge");
+    const before = target.hp;
+    window.advanceTime?.(700);
+    const visual = game.villageStructureVisuals.get("north_lodge");
+    return {
+      ok: true,
+      before,
+      after: target.hp,
+      targetStructureId: attacker.targetStructureId,
+      underAttackSec: target.underAttackSec,
+      alertVisible: !document.querySelector("[data-structure-alert]")?.hidden,
+      alertLabel: document.querySelector("[data-structure-alert-label]")?.textContent ?? "",
+      ringVisible: Boolean(visual?.attackRing?.enabled),
+      healthBarVisible: Boolean(visual?.alertRoot?.enabled),
+      beaconStemVisible: Boolean(visual?.beaconStem?.enabled),
+      text: window.render_playcanvas_game_to_text?.() ?? "",
+    };
+  });
+  await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    if (!game) return;
+    const target = { x: -9.5, z: -22 };
+    game.state.waveGraceSec = 0;
+    game.state.player.x = 2;
+    game.state.player.z = -16;
+    game.state.player.y = 0;
+    game.state.player.yVelocity = 0;
+    game.yaw = Math.atan2(-(target.x - game.state.player.x), -(target.z - game.state.player.z));
+    game.pitch = -4;
+    game.state.player.yaw = game.yaw;
+    game.updateCamera(0);
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: "output/village-defense/under-attack.png", fullPage: false });
+
+  const criticalStructureProof = await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    const structure = game?.state?.villageStructures?.find((entry) => entry.id === "north_lodge");
+    if (!game || !structure) return { ok: false };
+    game.state.waveGraceSec = 0;
+    structure.hp = structure.maxHp * 0.15;
+    structure.underAttackSec = 2;
+    game.update(0.016);
+    const visual = game.villageStructureVisuals.get(structure.id);
+    return {
+      ok: true,
+      intact: Boolean(visual?.intactRoot?.enabled),
+      cracks: Boolean(visual?.cracks?.enabled),
+      critical: Boolean(visual?.critical?.enabled),
+      fire: Boolean(visual?.fire?.enabled),
+      smoke: Boolean(visual?.smoke?.enabled),
+      rubble: Boolean(visual?.rubble?.enabled),
+      text: window.render_playcanvas_game_to_text?.() ?? "",
+    };
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: "output/village-defense/critical-building.png", fullPage: false });
+
+  const destroyedStructureProof = await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    const structure = game?.state?.villageStructures?.find((entry) => entry.id === "north_lodge");
+    if (!game || !structure) return { ok: false };
+    structure.hp = 0;
+    structure.underAttackSec = 0;
+    game.update(0.016);
+    const visual = game.villageStructureVisuals.get(structure.id);
+    return {
+      ok: true,
+      intact: Boolean(visual?.intactRoot?.enabled),
+      rubble: Boolean(visual?.rubble?.enabled),
+      smoke: Boolean(visual?.smoke?.enabled),
+      alertVisible: !document.querySelector("[data-structure-alert]")?.hidden,
+      text: window.render_playcanvas_game_to_text?.() ?? "",
+    };
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: "output/village-defense/destroyed-building.png", fullPage: false });
+
+  await page.setViewportSize({ width: 390, height: 760 });
+  const mobileStructureAlertLayout = await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    const structure = game?.state?.villageStructures?.find((entry) => entry.id === "safe_house");
+    if (!game || !structure) return { ok: false, overlaps: [] };
+    structure.hp = structure.maxHp * 0.35;
+    structure.underAttackSec = 2;
+    game.update(0.016);
+    const selectors = {
+      alert: "[data-structure-alert]",
+      toast: ".zi-toast",
+      guidance: ".pc-guidance-toast",
+      meta: ".zi-hud-meta",
+      minimap: ".pc-minimap-panel",
+    };
+    const rects = Object.fromEntries(Object.entries(selectors).map(([key, selector]) => {
+      const element = document.querySelector(selector);
+      const rect = element?.getBoundingClientRect();
+      return [key, rect ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height } : null];
+    }));
+    const intersects = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+    const overlaps = ["toast", "guidance", "meta", "minimap"].filter((key) => intersects(rects.alert, rects[key]));
+    const guidanceBody = document.querySelector(`${selectors.guidance} p`);
+    return {
+      ok: true,
+      overlaps,
+      rects,
+      alertVisible: !document.querySelector(selectors.alert)?.hidden,
+      guidanceBodyDisplay: guidanceBody ? getComputedStyle(guidanceBody).display : null,
+    };
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: "output/village-defense/mobile-alert.png", fullPage: false });
+  await page.setViewportSize({ width: 1280, height: 800 });
+
   const lifecycle = await page.evaluate(() => {
     const game = window.__playCanvasZombieGame;
     if (!game) {
@@ -211,7 +380,73 @@ try {
     };
   });
 
-  const blockingLogs = logs.filter((entry) => entry.type === "pageerror" || entry.type === "requestfailed" || entry.type === "error");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const telegraphProof = await page.evaluate(() => {
+    const game = window.__playCanvasZombieGame;
+    const zombie = game?.state?.zombies?.find((entry) => !entry.dead);
+    if (!game || !zombie) return { ok: false };
+
+    game.state.phase = "running";
+    game.state.waveGraceSec = 999;
+    game.yaw = 0;
+    game.pitch = -15;
+    game.state.player.yaw = 0;
+    zombie.x = game.state.player.x;
+    zombie.z = game.state.player.z - 4;
+    zombie.y = 0;
+    zombie.speedMps = 0;
+    zombie.bitePhase = "windup";
+    zombie.biteWindupSec = 0.24;
+    zombie.biteTimerSec = 0.2;
+    zombie.telegraphType = "bite";
+    zombie.telegraphSec = 0;
+    zombie.pounceSec = 0;
+    game.updateCamera(0.016);
+    game.updateZombies(0.016);
+
+    const entity = game.entitiesByZombie.get(zombie.id);
+    const ring = entity?._telegraphRing;
+    if (!ring) return { ok: false };
+    const bitePosition = ring.getLocalPosition().clone();
+    const biteEnabled = ring.enabled;
+    const biteError = Math.hypot(bitePosition.x - zombie.x, bitePosition.z - zombie.z);
+
+    zombie.bitePhase = "none";
+    zombie.telegraphType = "pounce";
+    zombie.telegraphSec = 0.2;
+    zombie.pounceSec = 0;
+    zombie.pounceTargetX = game.state.player.x + 1.25;
+    zombie.pounceTargetZ = game.state.player.z - 5;
+    zombie.x = game.state.player.x - 2;
+    zombie.z = game.state.player.z - 8;
+    game.updateZombies(0.016);
+    const targetPosition = ring.getLocalPosition().clone();
+
+    zombie.telegraphSec = 0;
+    zombie.pounceSec = 0.3;
+    zombie.x += 1;
+    zombie.z += 1;
+    game.updateZombies(0.016);
+    const committedPosition = ring.getLocalPosition().clone();
+    game.updateHud();
+
+    return {
+      ok: true,
+      biteEnabled,
+      biteError,
+      targetError: Math.hypot(targetPosition.x - zombie.pounceTargetX, targetPosition.z - zombie.pounceTargetZ),
+      lockDelta: Math.hypot(committedPosition.x - targetPosition.x, committedPosition.z - targetPosition.z),
+    };
+  });
+  await page.waitForTimeout(120);
+  await page.screenshot({ path: "output/holistic-graphics-pass/final-pounce-telegraph.png", fullPage: false });
+
+  const blockingLogs = logs.filter((entry) => {
+    if (entry.type === "requestfailed" && isBenignAudioAbort(entry.text)) {
+      return false;
+    }
+    return entry.type === "pageerror" || entry.type === "requestfailed" || entry.type === "error";
+  });
   assert(readyText.includes("phase=ready"), "default route did not start in ready phase");
   assert(readyText.includes("flowPanel=ready"), "ready campaign flow panel missing");
   assert(readyText.includes("tutorialStage=ready"), "ready tutorial guidance stage missing");
@@ -225,8 +460,18 @@ try {
   assert(state.text.includes("phase=running"), "slice did not enter running phase");
   assert(state.text.includes("saveVersion=2"), "PlayCanvas save telemetry did not report v2 save version");
   assert(state.text.includes("profileType=playcanvas_village_v2"), "PlayCanvas save telemetry did not report PlayCanvas profile type");
+  assert(state.text.includes("maxVillageHp=700"), "PlayCanvas village did not start with the tuned 700 HP structure budget");
+  assert(state.text.includes("villageStructures=7"), "PlayCanvas village did not expose all seven defense structures");
+  assert(state.text.includes("survivingStructures=7"), "PlayCanvas village did not start with seven surviving structures");
+  assert(state.text.includes("destroyedStructures=none"), "PlayCanvas village reported a destroyed structure at baseline");
   assert(state.text.includes("tutorialStage=running"), "running tutorial guidance stage missing");
   assert(state.text.includes("flowPanel=hidden"), "campaign flow panel did not hide during running play");
+  assert(topToastMessage.exists, "top status toast message element missing");
+  assert(topToastMessage.text.includes("drag the mouse to look around"), "top status toast did not show pointer-lock fallback guidance");
+  assert(topToastMessage.whiteSpace !== "nowrap", "top status toast still forces single-line truncation");
+  assert(topToastMessage.overflow !== "hidden", "top status toast still hides overflowing text");
+  assert(topToastMessage.textOverflow !== "ellipsis", "top status toast still ellipsizes messages");
+  assert(topToastMessage.scrollWidth <= topToastMessage.clientWidth + 1, "top status toast message overflows its rendered box");
   assert(state.text.includes("miniMap=visible"), "PlayCanvas minimap did not render during running play");
   assert(/miniMapZombies=[1-9]/.test(state.text), "PlayCanvas minimap did not report live zombies");
   assert(/miniMapStructures=[1-9]/.test(state.text), "PlayCanvas minimap did not report village structures");
@@ -263,6 +508,7 @@ try {
   assert(state.text.includes("ammoMode=infinite"), "PlayCanvas smoke did not report infinite ammo");
   assert(state.text.includes("weaponFamily=sidearm"), "PlayCanvas weapon identity did not report sidearm family baseline");
   assert(state.text.includes("weaponViewModel=sidearm"), "PlayCanvas weapon identity did not report sidearm viewmodel baseline");
+  assert(state.text.includes("weaponViewYawDeg=-2.0"), "PlayCanvas sidearm viewmodel is not aimed nearly straight ahead");
   assert(state.text.includes("weaponReticle=sidearm"), "PlayCanvas weapon identity did not report sidearm reticle baseline");
   assert(state.text.includes("weaponShotFx=spark"), "PlayCanvas weapon identity did not report sidearm shot FX baseline");
   assert(state.text.includes('"ballistic"'), "PlayCanvas combat event did not expose ballistic telemetry");
@@ -330,6 +576,35 @@ try {
   assert(lifecycle.wonText.includes("flowPanel=won"), "victory flow panel missing");
   assert(lifecycle.wonTitle.includes("bell tower"), "victory flow title missing");
   assert(lifecycle.wonPrimary.includes("Play Again"), "victory primary action missing");
+  assert(telegraphProof.ok, "PlayCanvas game-feel telegraph proof could not access a live zombie ring");
+  assert(telegraphProof.biteEnabled, "ordinary bite windup did not enable its ground cue");
+  assert(telegraphProof.biteError < 0.05, `bite cue did not stay under its attacker (${telegraphProof.biteError})`);
+  assert(telegraphProof.targetError < 0.05, `pounce cue did not move to its locked target (${telegraphProof.targetError})`);
+  assert(telegraphProof.lockDelta < 0.001, `pounce cue moved after commitment (${telegraphProof.lockDelta})`);
+  assert(villageAttackProof.ok, "PlayCanvas village attack proof could not access the structure runtime");
+  assert(villageAttackProof.after < villageAttackProof.before, "A real zombie attack did not reduce its selected building health");
+  assert(villageAttackProof.targetStructureId === "north_lodge", `Zombie selected the wrong nearest building (${villageAttackProof.targetStructureId})`);
+  assert(villageAttackProof.underAttackSec > 0, "Building damage did not refresh its active alert lifetime");
+  assert(villageAttackProof.alertVisible, "Building damage did not show the HUD attack alert");
+  assert(villageAttackProof.alertLabel === "North Lodge", `HUD attack alert named the wrong building (${villageAttackProof.alertLabel})`);
+  assert(villageAttackProof.ringVisible, "Building damage did not show its world-space attack ring");
+  assert(villageAttackProof.healthBarVisible, "Building damage did not show its world-space health bar");
+  assert(villageAttackProof.beaconStemVisible, "Building damage did not show its world-space exclamation beacon");
+  assert(villageAttackProof.text.includes("underAttackStructures=north_lodge"), "Building attack was not exposed through browser telemetry");
+  assert(criticalStructureProof.ok, "Critical-building browser proof could not access the structure runtime");
+  assert(criticalStructureProof.intact, "Critical building disappeared before destruction");
+  assert(criticalStructureProof.cracks && criticalStructureProof.critical, "Critical building did not enable both staged damage overlays");
+  assert(criticalStructureProof.fire && criticalStructureProof.smoke, "Critical building did not enable fire and smoke feedback");
+  assert(!criticalStructureProof.rubble, "Critical building showed rubble before destruction");
+  assert(/north_lodge:\d+\/91:t3/.test(criticalStructureProof.text), "Critical building telemetry did not report damage tier 3");
+  assert(destroyedStructureProof.ok, "Destroyed-building browser proof could not access the structure runtime");
+  assert(!destroyedStructureProof.intact, "Destroyed building left its intact facade visible");
+  assert(destroyedStructureProof.rubble && destroyedStructureProof.smoke, "Destroyed building did not switch to rubble and lingering smoke");
+  assert(!destroyedStructureProof.alertVisible, "Destroyed building kept an active attack alert after falling");
+  assert(destroyedStructureProof.text.includes("destroyedStructures=north_lodge"), "Destroyed building was not exposed through browser telemetry");
+  assert(mobileStructureAlertLayout.ok && mobileStructureAlertLayout.alertVisible, "Mobile structure alert did not render");
+  assert(mobileStructureAlertLayout.overlaps.length === 0, `Mobile structure alert overlaps HUD regions: ${mobileStructureAlertLayout.overlaps.join(",")}`);
+  assert(mobileStructureAlertLayout.guidanceBodyDisplay === "none", "Mobile attack alert did not compact the guidance panel");
   assert(blockingLogs.length === 0, `browser smoke had blocking logs: ${JSON.stringify(blockingLogs, null, 2)}`);
 
   console.log(state.text);
@@ -379,6 +654,10 @@ function assert(condition, message) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBenignAudioAbort(text) {
+  return /\/audio\/music\/[^ ]+\.mp3/.test(text) && text.includes("net::ERR_ABORTED");
 }
 
 async function countNonBlackPixels(page, pngBuffer) {
