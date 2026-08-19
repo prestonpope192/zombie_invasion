@@ -6,6 +6,7 @@ import { findAvailablePort } from "./smoke-port.mjs";
 const host = "127.0.0.1";
 const preferredPort = Number(process.env.LEGACY_SMOKE_PORT || 5177);
 const screenshotPath = process.env.LEGACY_SMOKE_SCREENSHOT || "output/playwright/legacy-route.png";
+const externalTargetUrl = process.env.LEGACY_SMOKE_URL || "";
 
 let server = null;
 let browser = null;
@@ -30,14 +31,22 @@ async function waitForServer(url) {
 }
 
 try {
-  const port = await findAvailablePort(preferredPort, host);
-  const baseUrl = `http://${host}:${port}`;
-  server = spawn("npm", ["run", "dev", "--", "--host", host, "--port", String(port)], {
-    cwd: process.cwd(),
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-  });
-  await waitForServer(`${baseUrl}/?legacy=1`);
+  let targetUrl = externalTargetUrl;
+  if (targetUrl) {
+    const url = new URL(targetUrl);
+    url.searchParams.set("legacy", "1");
+    targetUrl = url.toString();
+  } else {
+    const port = await findAvailablePort(preferredPort, host);
+    const baseUrl = `http://${host}:${port}`;
+    targetUrl = `${baseUrl}/?legacy=1`;
+    server = spawn("npm", ["run", "dev", "--", "--host", host, "--port", String(port)], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
+    await waitForServer(targetUrl);
+  }
 
   await mkdir("output/playwright", { recursive: true });
   browser = await chromium.launch({
@@ -58,7 +67,7 @@ try {
     }
   });
 
-  await page.goto(`${baseUrl}/?legacy=1`, { waitUntil: "networkidle", timeout: 20000 });
+  await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 20000 });
   await page.waitForFunction(() => typeof window.render_game_to_text === "function", { timeout: 5000 });
   await page.waitForFunction(
     () => document.querySelector("#zi-boot")?.classList.contains("is-gone") === true,
@@ -87,6 +96,7 @@ try {
     startButton: state.startButton,
     canvas: state.canvas,
     bootOverlayGone: state.bootOverlayGone,
+    target: externalTargetUrl ? "hosted" : "local",
     screenshot: screenshotPath,
   }));
 } catch (error) {
