@@ -26,6 +26,8 @@ function validateSourceContracts() {
   const smoke = read("scripts/smoke-playcanvas-slice.mjs");
   assert(smoke.includes("findAvailablePort"), "smoke test does not resolve a collision-safe port");
 
+  const legacySmoke = read("scripts/smoke-legacy-route.mjs");
+  assert(legacySmoke.includes("LEGACY_SMOKE_URL"), "legacy smoke does not support hosted targets");
   const runtimeContract = read("docs/runtime-contract.md");
   assert(runtimeContract.includes("PlayCanvas"), "runtime contract does not name the primary route");
   assert(runtimeContract.includes("?legacy=1"), "runtime contract does not document the legacy route");
