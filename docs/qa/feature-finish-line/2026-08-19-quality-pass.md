@@ -91,4 +91,6 @@ No migrations, environment changes, provider setup, billing, webhooks,
 queues/jobs, seeds, backfills, deploys, or external communications were needed
 or performed. The existing Vite large-chunk warning remains; this pass reduces
 avoidable package and cold-start work without risky bundle surgery. The legacy
-route has source-contract coverage but no dedicated browser smoke in this pass.
+route now has both source-contract and local browser-smoke coverage. The smoke
+ignores only the expected metadata-audio `net::ERR_ABORTED` cancellation; other
+browser errors remain failures.

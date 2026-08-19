@@ -60,18 +60,24 @@ try {
 
   await page.goto(`${baseUrl}/?legacy=1`, { waitUntil: "networkidle", timeout: 20000 });
   await page.waitForFunction(() => typeof window.render_game_to_text === "function", { timeout: 5000 });
+  await page.waitForFunction(
+    () => document.querySelector("#zi-boot")?.classList.contains("is-gone") === true,
+    { timeout: 5000 },
+  );
 
   const state = await page.evaluate(() => ({
     url: window.location.href,
     text: window.render_game_to_text(),
     startButton: Boolean(document.querySelector('[data-action="start"]')),
     canvas: Boolean(document.querySelector("canvas")),
+    bootOverlayGone: document.querySelector("#zi-boot")?.classList.contains("is-gone") === true,
   }));
   const parsed = JSON.parse(state.text);
   assert(state.url.includes("legacy=1"), "legacy query flag was not preserved");
   assert(parsed.mode === "menu", `legacy runtime did not reach menu mode: ${state.text}`);
   assert(state.startButton, "legacy menu did not render the Start Mission button");
   assert(state.canvas, "legacy runtime did not render a canvas");
+  assert(state.bootOverlayGone, "legacy boot overlay remained over the ready menu");
   assert(errors.length === 0, `legacy browser errors: ${errors.join(" | ")}`);
   await page.screenshot({ path: screenshotPath, fullPage: false });
 
@@ -80,6 +86,7 @@ try {
     mode: parsed.mode,
     startButton: state.startButton,
     canvas: state.canvas,
+    bootOverlayGone: state.bootOverlayGone,
     screenshot: screenshotPath,
   }));
 } catch (error) {
