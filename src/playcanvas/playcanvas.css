@@ -1,55 +1,61 @@
 :root {
   color-scheme: dark;
-  --pc-ink: #edf7ef;
-  --pc-dim: #a9b8ad;
-  --pc-accent: #d8ff7d;
-  --pc-warm: #ffb263;
-  --pc-panel: rgba(7, 12, 13, 0.76);
-  --pc-line: rgba(216, 255, 125, 0.24);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
 
   /* ── ZI Design Tokens ──────────────────────────────────────────────────── */
   --zi-font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
 
-  /* Backgrounds */
-  --zi-bg: rgba(13, 18, 24, 0.72);
-  --zi-bg-raised: rgba(20, 28, 36, 0.92);
-  --zi-bg-solid: #0d1218;
+  /* Backgrounds — Bold Arcade: deeper purple-black for high contrast. */
+  --zi-bg: rgba(12, 10, 20, 0.78);
+  --zi-bg-raised: rgba(19, 16, 30, 0.94);
+  --zi-bg-solid: #0b0a13;
 
   /* Borders */
-  --zi-border: rgba(150, 180, 160, 0.16);
-  --zi-border-bright: rgba(155, 214, 74, 0.5);
+  --zi-border: rgba(158, 148, 200, 0.18);
+  --zi-border-bright: rgba(124, 255, 79, 0.55);
 
-  /* Text */
-  --zi-text: #eaf2ea;
-  --zi-text-dim: rgba(206, 220, 210, 0.6);
+  /* Text — pushed to full white for the high-contrast arcade read. */
+  --zi-text: #ffffff;
+  --zi-text-dim: rgba(206, 214, 230, 0.62);
 
   /* Semantic colours */
-  --zi-accent: #9bd64a;
+  --zi-accent: #7cff4f;        /* toxic green — primary */
+  --zi-accent-2: #ff4fa3;      /* hot pink — secondary accent */
+  --zi-accent-2-dim: rgba(255, 79, 163, 0.5);
   --zi-hp: #46d07f;
   --zi-hp-low: #e8503a;
   --zi-stamina: #4aa8e8;
   --zi-village: #f0a838;
   --zi-danger: #e8503a;
   --zi-coin: #f5c542;
+  --zi-accent-bright: #b0e860; /* hover state of accent-filled controls */
+  --zi-on-accent: #0d1208;     /* text on accent-filled controls */
 
-  /* Geometry */
-  --zi-radius: 12px;
-  --zi-radius-sm: 8px;
+  /* Geometry — chunkier rounded corners. */
+  --zi-radius: 16px;
+  --zi-radius-sm: 12px;
   --zi-gap: 8px;
   --zi-pad: 12px;
-  --zi-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --zi-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
 }
 
 html,
-body,
-#app {
+body {
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
   background: #050809;
-  color: var(--pc-ink);
+  color: #edf7ef; /* was --pc-ink */
+}
+
+#app {
+  width: var(--game-width, 100vw);
+  height: var(--game-height, 100dvh);
+  margin: 0;
+  overflow: hidden;
+  background: #050809;
+  color: #edf7ef; /* was --pc-ink */
 }
 
 button,
@@ -62,8 +68,15 @@ a {
   display: none !important;
 }
 
+/* Keyboard focus ring for all interactive elements. Shop cards are <article>
+   with tabindex and keep their own matching :focus-visible rule further down. */
+.pc-slice :is(button, a, select, input, summary):focus-visible {
+  outline: 2px solid var(--zi-accent);
+  outline-offset: 2px;
+}
+
 .pc-slice {
-  position: fixed;
+  position: absolute;
   inset: 0;
   overflow: hidden;
   background: #050809;
@@ -84,10 +97,22 @@ a {
 }
 
 .pc-slice-hud {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 5;
   pointer-events: none;
+}
+
+body.viewport-resizing #app *,
+body.viewport-resizing #app *::before,
+body.viewport-resizing #app *::after {
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.viewport-resizing .pc-slice-canvas {
+  filter: none !important;
 }
 
 /* When the full-cover flow modal is showing (ready/lost/won), suppress
@@ -175,6 +200,62 @@ a {
   font-weight: 700;
 }
 
+.zi-structure-alert {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: min(230px, calc(100vw - 28px));
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border-left: 3px solid #ff5a38;
+  background: rgba(43, 13, 10, 0.88);
+  box-shadow: 0 0 0 1px rgba(255, 102, 63, 0.24), 0 6px 18px rgba(0, 0, 0, 0.26);
+}
+
+.zi-structure-alert[hidden] {
+  display: none;
+}
+
+.zi-structure-alert-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #180705;
+  background: #ff6342;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.zi-structure-alert > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.zi-structure-alert small {
+  color: #ff8f76;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.zi-structure-alert b {
+  overflow: hidden;
+  color: #fff4ec;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zi-structure-alert strong {
+  color: #ffb09d;
+  font-size: 0.74rem;
+}
+
 /* ── TOP-RIGHT: meta cluster ───────────────────────────────────────────────── */
 .zi-hud-meta {
   top: calc(env(safe-area-inset-top, 0px) + 14px);
@@ -210,7 +291,7 @@ a {
 }
 
 .zi-glyph-skull {
-  color: var(--zi-text-dim);
+  color: var(--zi-accent-2);
   opacity: 1;
 }
 
@@ -218,21 +299,29 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
-  background: rgba(155, 214, 74, 0.08);
-  color: var(--zi-text-dim);
+  background: rgba(124, 255, 79, 0.08);
+  color: var(--zi-text);
   font-size: 0.95rem;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   pointer-events: auto;
 }
 
+/* Touch devices: meet the 44px minimum tap target */
+@media (pointer: coarse) {
+  .zi-settings-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 .zi-settings-btn:hover {
-  background: rgba(155, 214, 74, 0.18);
+  background: rgba(124, 255, 79, 0.18);
   color: var(--zi-text);
 }
 
@@ -371,16 +460,16 @@ a {
   backdrop-filter: blur(10px);
   font-family: var(--zi-font);
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
   pointer-events: none;
-  max-width: min(400px, calc(100vw - 380px));
+  max-width: min(560px, max(240px, calc(100vw - 500px)));
 }
 
 .zi-toast span {
   color: var(--zi-accent);
-  font-size: 0.62rem;
+  font-size: 0.66rem;
   font-weight: 800;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -389,9 +478,10 @@ a {
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
   max-width: 100%;
 }
 
@@ -423,7 +513,7 @@ a {
   content: "";
   position: absolute;
   background: rgba(237, 247, 239, 0.86);
-  box-shadow: 0 0 10px rgba(216, 255, 125, 0.42);
+  box-shadow: 0 0 10px rgba(124, 255, 79, 0.42);
 }
 
 .pc-slice-reticle::before {
@@ -515,17 +605,17 @@ a {
 .pc-slice-reticle[data-reticle="automatic"]::after,
 .pc-slice-reticle[data-reticle="heavy"]::before,
 .pc-slice-reticle[data-reticle="heavy"]::after {
-  background: rgba(216, 255, 125, 0.92);
+  background: rgba(124, 255, 79, 0.92);
 }
 
 .pc-slice-reticle[data-reticle="automatic"] {
-  box-shadow: 0 0 16px rgba(216, 255, 125, 0.2);
+  box-shadow: 0 0 16px rgba(124, 255, 79, 0.2);
 }
 
 .pc-slice-reticle[data-reticle="heavy"] {
   width: 26px;
   height: 26px;
-  border: 1px solid rgba(216, 255, 125, 0.34);
+  border: 1px solid rgba(124, 255, 79, 0.34);
 }
 
 .pc-slice-reticle[data-reticle="heavy"]::before {
@@ -591,7 +681,7 @@ a {
   width: min(360px, 70vw);
   padding: 6px 12px;
   box-sizing: border-box;
-  border: 1px solid rgba(155, 214, 74, 0.28);
+  border: 1px solid rgba(124, 255, 79, 0.28);
   border-radius: var(--zi-radius-sm);
   background: rgba(13, 18, 24, 0.88);
   box-shadow: var(--zi-shadow);
@@ -687,10 +777,10 @@ a {
 /* 3-item mini legend (no door/fire/villager) */
 .pc-minimap-legend-mini {
   display: flex;
-  gap: 6px;
+  gap: 4px; /* tightened so the larger type still fits the panel width */
   margin-top: 4px;
-  font-size: 0.56rem;
-  color: var(--pc-dim);
+  font-size: 0.66rem;
+  color: var(--zi-text-dim);
   flex-wrap: nowrap;
   overflow: hidden;
 }
@@ -700,15 +790,15 @@ a {
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-right: 3px;
+  margin-right: 2px;
   border-radius: 999px;
   background: currentColor;
   vertical-align: middle;
 }
 
-.pc-minimap-legend-mini .player { color: #68bbff; }
-.pc-minimap-legend-mini .enemy  { color: #76e360; }
-.pc-minimap-legend-mini .village { color: #ffd870; }
+.pc-minimap-legend-mini .player { color: var(--zi-stamina); }
+.pc-minimap-legend-mini .enemy  { color: var(--zi-accent); }
+.pc-minimap-legend-mini .village { color: var(--zi-village); }
 
 /* ── Flow / campaign modal ─────────────────────────────────────────────────── */
 .pc-flow-panel {
@@ -727,7 +817,7 @@ a {
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius);
   background: var(--zi-bg-raised);
-  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.06);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(124, 255, 79, 0.06);
   backdrop-filter: blur(14px) saturate(1.5);
 }
 
@@ -740,7 +830,7 @@ a {
 /* Victory: accent border */
 .pc-flow-panel[data-phase="won"] {
   border-color: var(--zi-border-bright);
-  box-shadow: var(--zi-shadow), 0 0 24px rgba(155, 214, 74, 0.12);
+  box-shadow: var(--zi-shadow), 0 0 24px rgba(124, 255, 79, 0.12);
 }
 
 .pc-flow-panel[hidden] {
@@ -808,9 +898,9 @@ a {
   padding: 8px 10px;
   border: 1px solid var(--zi-border);
   border-radius: var(--zi-radius-sm);
-  background: rgba(155, 214, 74, 0.05);
+  background: rgba(124, 255, 79, 0.05);
   color: var(--zi-text-dim);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -836,13 +926,13 @@ a {
 
 /* Ghost base — secondary buttons share a row */
 .pc-flow-actions button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 14px;
   flex: 1 1 auto;
   border: 1px solid var(--zi-border);
   border-radius: var(--zi-radius-sm);
   background: rgba(150, 180, 160, 0.06);
-  color: var(--zi-text-dim);
+  color: var(--zi-text);
   font-family: var(--zi-font);
   font-size: 0.8rem;
   font-weight: 600;
@@ -863,16 +953,16 @@ a {
   min-height: 48px;
   background: var(--zi-accent);
   border-color: var(--zi-accent);
-  color: #0d1208;
+  color: var(--zi-on-accent);
   font-size: 0.94rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .pc-flow-actions button[data-flow-action="primary"]:hover:not(:disabled) {
-  background: #b0e860;
-  border-color: #b0e860;
-  color: #0d1208;
+  background: var(--zi-accent-bright);
+  border-color: var(--zi-accent-bright);
+  color: var(--zi-on-accent);
 }
 
 /* REVIVE — amber outline, solo row */
@@ -895,6 +985,7 @@ a {
 .pc-flow-actions button:disabled {
   cursor: default;
   opacity: 0.38;
+  color: var(--zi-text-dim);
 }
 
 /* ── Mobile controls shell ─────────────────────────────────────────────────── */
@@ -924,6 +1015,7 @@ a {
   width: 45%;
   height: 55%;
   pointer-events: auto;
+  touch-action: none;
 }
 
 /* ── Virtual joystick base + knob (JS-positioned on touch start) ─────────── */
@@ -936,8 +1028,8 @@ a {
   margin-left: -50px;
   margin-top: -50px;
   border-radius: 50%;
-  border: 2px solid rgba(216, 255, 125, 0.22);
-  background: rgba(216, 255, 125, 0.05);
+  border: 2px solid rgba(124, 255, 79, 0.22);
+  background: rgba(124, 255, 79, 0.05);
   pointer-events: none;
   z-index: 24;
   opacity: 0;
@@ -957,8 +1049,8 @@ a {
   margin-left: -20px;
   margin-top: -20px;
   border-radius: 50%;
-  border: 2px solid rgba(216, 255, 125, 0.5);
-  background: rgba(216, 255, 125, 0.16);
+  border: 2px solid rgba(124, 255, 79, 0.5);
+  background: rgba(124, 255, 79, 0.16);
   transform: translate(-50%, -50%);
 }
 
@@ -986,10 +1078,10 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid rgba(216, 255, 125, 0.34);
+  border: 1.5px solid rgba(124, 255, 79, 0.34);
   border-radius: 50%;
   background: rgba(13, 18, 24, 0.80);
-  color: var(--pc-ink);
+  color: #edf7ef; /* was --pc-ink */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(10px);
   touch-action: none;
@@ -1016,8 +1108,8 @@ a {
   font-weight: 900 !important;
   letter-spacing: 0.12em;
   color: var(--zi-text) !important;
-  border-color: rgba(155, 214, 74, 0.4) !important;
-  background: rgba(155, 214, 74, 0.06) !important;
+  border-color: rgba(124, 255, 79, 0.4) !important;
+  background: rgba(124, 255, 79, 0.06) !important;
 }
 
 /* Large FIRE button: 76px, warm accent */
@@ -1106,7 +1198,7 @@ a {
   background: var(--zi-bg-raised);
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius);
-  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.08);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(124, 255, 79, 0.08);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1139,11 +1231,11 @@ a {
 
 .zi-settings-row button,
 .zi-settings-row a {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
-  background: rgba(155, 214, 74, 0.08);
+  background: rgba(124, 255, 79, 0.08);
   color: var(--zi-text);
   cursor: pointer;
   text-decoration: none;
@@ -1156,7 +1248,13 @@ a {
 
 .zi-settings-row button:hover,
 .zi-settings-row a:hover {
-  background: rgba(155, 214, 74, 0.18);
+  background: rgba(124, 255, 79, 0.18);
+}
+
+.zi-settings-row button.is-active {
+  background: rgba(124, 255, 79, 0.18);
+  color: var(--zi-accent);
+  border-color: rgba(124, 255, 79, 0.5);
 }
 
 .zi-settings-divider {
@@ -1170,7 +1268,7 @@ a {
   border: 1px solid rgba(255, 178, 99, 0.6);
   border-radius: var(--zi-radius-sm);
   background: rgba(255, 178, 99, 0.14);
-  color: var(--pc-warm);
+  color: #ffb263; /* was --pc-warm */
   font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1197,10 +1295,11 @@ a {
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius);
   background: var(--zi-bg-solid);
-  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.06);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(124, 255, 79, 0.06);
   backdrop-filter: blur(14px);
   padding: 14px;
   box-sizing: border-box;
+  touch-action: pan-y;
 }
 
 .pc-shop-panel[hidden] {
@@ -1228,10 +1327,13 @@ a {
 
 .pc-shop-close {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 6px 16px;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
-  background: rgba(155, 214, 74, 0.1);
+  background: rgba(124, 255, 79, 0.1);
   color: var(--zi-text);
   font-size: 0.78rem;
   font-weight: 700;
@@ -1241,7 +1343,7 @@ a {
 }
 
 .pc-shop-close:hover {
-  background: rgba(155, 214, 74, 0.22);
+  background: rgba(124, 255, 79, 0.22);
 }
 
 /* Eyebrow: "FIELD SHOP" */
@@ -1283,12 +1385,32 @@ a {
   border-radius: var(--zi-radius-sm);
   background: rgba(150, 180, 160, 0.04);
   transition: border-color 0.12s, background 0.12s;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Keyboard focus ring — shop cards (incl. disabled/locked) are tabbable so
+   keyboard users can read their state; give that focus a visible indicator. */
+.pc-shop-card:focus-visible {
+  outline: 2px solid var(--zi-accent);
+  outline-offset: 2px;
+}
+
+.pc-shop-card.is-actionable {
+  cursor: pointer;
+}
+
+.pc-shop-card.is-actionable:active {
+  border-color: var(--zi-accent);
+  background: rgba(124, 255, 79, 0.14);
 }
 
 /* OWNED / EQUIPPED — accent border + subtle fill */
 .pc-shop-card.is-equipped {
   border-color: var(--zi-accent);
-  background: rgba(155, 214, 74, 0.1);
+  background: rgba(124, 255, 79, 0.1);
 }
 
 /* RECOMMENDED — warm amber highlight */
@@ -1348,12 +1470,12 @@ a {
 
 /* Buy / state button — at bottom of card */
 .pc-shop-card button {
-  min-height: 30px;
+  min-height: 44px;
   margin-top: auto;
   padding: 0 10px;
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
-  background: rgba(155, 214, 74, 0.1);
+  background: rgba(124, 255, 79, 0.1);
   color: var(--zi-accent);
   font-family: var(--zi-font);
   font-size: 0.76rem;
@@ -1361,16 +1483,18 @@ a {
   letter-spacing: 0.04em;
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .pc-shop-card button:hover:not(:disabled) {
-  background: rgba(155, 214, 74, 0.22);
+  background: rgba(124, 255, 79, 0.22);
   border-color: var(--zi-accent);
 }
 
 /* Equipped / locked state */
 .pc-shop-card.is-equipped button {
-  border-color: rgba(155, 214, 74, 0.3);
+  border-color: rgba(124, 255, 79, 0.3);
   background: transparent;
   color: var(--zi-text-dim);
   cursor: default;
@@ -1380,6 +1504,7 @@ a {
 .pc-shop-card button:disabled {
   cursor: default;
   opacity: 0.45;
+  pointer-events: none;
 }
 
 /* pc-slice-actions removed (Pass 2) — stub so the no-op !important rule wins */
@@ -1420,21 +1545,23 @@ a {
   .zi-toast {
     top: calc(env(safe-area-inset-top, 0px) + 10px);
     /* Center column between objective (~155px left) and meta (~120px right).
-       Keep it narrow; single-line messages only — overflow hidden. */
-    max-width: min(160px, calc(100vw - 280px));
+       Keep it narrow, but allow two-line messages instead of hiding copy. */
+    max-width: min(230px, max(150px, calc(100vw - 180px)));
     padding: 3px 7px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .zi-toast span {
-    font-size: 0.54rem;
+    font-size: 0.66rem;
+    letter-spacing: 0.1em; /* tighter tracking so the larger type fits the narrow column */
   }
 
   .zi-toast strong {
-    font-size: 0.68rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 0.7rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
     max-width: 100%;
   }
 
@@ -1448,6 +1575,75 @@ a {
   .pc-minimap-canvas {
     width: 116px;
     height: 116px;
+  }
+}
+
+/* Portrait phones: reserve the right rail for meta/minimap and stack transient
+   copy in the left rail so the upper play lane stays clear. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .zi-structure-alert {
+    grid-template-columns: 17px minmax(0, 1fr) auto;
+    gap: 4px;
+    width: 140px;
+    padding: 5px 6px;
+  }
+
+  .zi-structure-alert-icon {
+    width: 16px;
+    height: 16px;
+    font-size: 0.62rem;
+  }
+
+  .zi-structure-alert small {
+    font-size: 0.46rem;
+  }
+
+  .zi-structure-alert b,
+  .zi-structure-alert strong {
+    font-size: 0.62rem;
+  }
+
+  .zi-structure-alert b {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.05;
+  }
+
+  .zi-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 112px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    width: calc(100vw - 158px);
+    max-width: none;
+    box-sizing: border-box;
+    transform: none;
+  }
+
+  .pc-guidance-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 184px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    width: calc(100vw - 158px);
+    transform: none;
+    overflow: visible;
+  }
+
+  .pc-guidance-toast p {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+  }
+
+  .has-structure-alert .zi-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 142px);
+  }
+
+  .has-structure-alert .pc-guidance-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 206px);
+    padding: 7px 9px;
+  }
+
+  .has-structure-alert .pc-guidance-toast p {
+    display: none;
   }
 }
 
@@ -1492,7 +1688,7 @@ a {
 
   .pc-flow-actions button:not([data-flow-action="primary"]):not([data-flow-action="revive"]) {
     font-size: 0.78rem;
-    min-height: 34px;
+    min-height: 44px;
     padding: 0 10px;
     flex: 1 1 auto;
     text-align: center;
@@ -1551,38 +1747,63 @@ a {
 }
 
 /* ── Grace period countdown overlay ──────────────────────────────────────── */
+/* Pre-wave "brace" countdown. Lives in the clear play-area band — well below
+   the top toast row (phase toast + guidance toast) so it never collides with
+   them, and above the crosshair. A label makes it read as an intentional beat
+   rather than a stray number. */
 .pc-grace-overlay {
   position: fixed;
-  top: 10%;
+  top: clamp(280px, 42vh, 360px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 22;
   font-family: var(--zi-font);
-  background: rgba(13, 18, 24, 0.80);
+  background: rgba(13, 18, 24, 0.72);
   border: 1px solid var(--zi-border);
-  border-radius: var(--zi-radius-sm);
-  padding: 8px 20px;
-  color: var(--zi-text-dim);
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  border-radius: var(--zi-radius);
+  padding: 10px 24px;
   text-align: center;
   pointer-events: none;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 1px;
   backdrop-filter: blur(8px);
   box-shadow: var(--zi-shadow);
 }
 
-/* The big countdown number — accented + subtle pulse */
+.pc-grace-label {
+  color: var(--zi-accent-2);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.pc-grace-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  line-height: 1;
+}
+
+/* The big countdown number — accented + subtle pulse. Oversized for the
+   Bold Arcade read. */
 .pc-grace-overlay [data-grace-countdown] {
   color: var(--zi-accent);
-  font-size: 1.6rem;
+  font-size: 2.35rem;
   font-weight: 800;
   animation: pc-grace-pulse 1s ease-in-out infinite;
   display: inline-block;
   line-height: 1;
+}
+
+.pc-grace-count i {
+  font-style: normal;
+  color: var(--zi-accent);
+  font-size: 0.9rem;
+  font-weight: 700;
+  opacity: 0.75;
 }
 
 @keyframes pc-grace-pulse {
@@ -1609,7 +1830,7 @@ a {
   text-align: center;
   min-width: 240px;
   pointer-events: none;
-  box-shadow: var(--zi-shadow), 0 0 32px rgba(155, 214, 74, 0.1);
+  box-shadow: var(--zi-shadow), 0 0 32px rgba(124, 255, 79, 0.1);
   backdrop-filter: blur(14px);
   animation: pc-summary-in 0.28s cubic-bezier(0.2, 0, 0.3, 1);
 }
@@ -1655,7 +1876,7 @@ a {
   padding: 7px 12px;
   border: 1px solid var(--zi-border);
   border-radius: var(--zi-radius-sm);
-  background: rgba(155, 214, 74, 0.05);
+  background: rgba(124, 255, 79, 0.05);
   color: var(--zi-text-dim);
   font-size: 0.72rem;
   font-weight: 600;
@@ -1786,8 +2007,8 @@ a {
   margin-left: -40px;
   margin-top: -40px;
   border-radius: 50%;
-  border: 1.5px solid rgba(216, 255, 125, 0.22);
-  background: rgba(216, 255, 125, 0.05);
+  border: 1.5px solid rgba(124, 255, 79, 0.22);
+  background: rgba(124, 255, 79, 0.05);
   pointer-events: none;
   z-index: 25;
   transition: opacity 0.12s ease-out;
@@ -1807,8 +2028,8 @@ a {
   margin-left: -14px;
   margin-top: -14px;
   border-radius: 50%;
-  border: 1.5px solid rgba(216, 255, 125, 0.44);
-  background: rgba(216, 255, 125, 0.12);
+  border: 1.5px solid rgba(124, 255, 79, 0.44);
+  background: rgba(124, 255, 79, 0.12);
   /* no CSS transition — JS sets transform directly each frame for zero lag */
   transform: translate(-50%, -50%);
 }
@@ -2247,7 +2468,7 @@ a {
   background: var(--zi-bg-raised);
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius);
-  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(155, 214, 74, 0.08), 0 0 40px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--zi-shadow), 0 0 0 1px rgba(124, 255, 79, 0.08), 0 0 40px rgba(0, 0, 0, 0.6);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2302,7 +2523,7 @@ a {
   padding: 3px 8px;
   border: 1px solid var(--zi-border-bright);
   border-radius: 6px;
-  background: rgba(155, 214, 74, 0.07);
+  background: rgba(124, 255, 79, 0.07);
   color: var(--zi-accent);
   font-size: 0.76rem;
   font-weight: 700;
@@ -2348,7 +2569,7 @@ a {
   border: 1px solid var(--zi-border-bright);
   border-radius: var(--zi-radius-sm);
   background: var(--zi-accent);
-  color: #0d1218;
+  color: var(--zi-on-accent);
   font-size: 0.96rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -2358,7 +2579,7 @@ a {
 }
 
 .zi-onboarding-btn:hover {
-  background: #b5e85e;
+  background: var(--zi-accent-bright);
 }
 
 .zi-onboarding-btn:active {
@@ -2382,5 +2603,16 @@ a {
   .zi-onboarding-btn {
     min-height: 52px;
     font-size: 1rem;
+  }
+}
+
+/* ── Reduced motion — collapse decorative animation/transitions ───────────── */
+@media (prefers-reduced-motion: reduce) {
+  .pc-slice *,
+  .pc-slice *::before,
+  .pc-slice *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }

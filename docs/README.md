@@ -11,8 +11,16 @@ it up without re-reading long session logs.
   and what is still uncertain or in progress.
 - [Architecture](./architecture.md): how the app is split across PlayCanvas,
   legacy Three.js FPS code, configs, tests, and deployment files.
+- [Runtime Contract](./runtime-contract.md): which route is primary and how
+  the legacy route should be used.
 - [Continuation Guide](./continuation-guide.md): safe next steps, operating
   constraints, and verification commands for future work.
+- [Suno Soundtrack Prompt Plan](./suno-soundtrack-prompt-plan.md): paste-ready
+  generated-music prompts for the Zombie Invasion soundtrack direction.
+- [Soundtrack Listening Checklist](./soundtrack-listening-checklist.md):
+  runtime cue order, reference-only files, and ear-review pass criteria.
+- [Persistent Village Defense Finish Line](./qa/feature-finish-line/2026-07-13-persistent-village-defense.md):
+  acceptance criteria, regression ledger, browser evidence, and local release package.
 
 ## Existing Deep-Dive Docs
 

@@ -51,7 +51,7 @@ export function loadZombieGlbContainer(app) {
             const names = (asset.resource?.animations ?? []).map(
               (a) => a.resource?.name ?? a.name ?? "?"
             );
-            console.log("[zombieGlb] Loaded. Animations:", names.join(", "));
+            console.debug("[zombieGlb] Loaded. Animations:", names.join(", "));
             resolve(asset);
           }
         }
@@ -663,8 +663,8 @@ export function createZombieGlbEntity(app, zombie, container) {
     root._glb.loggedNodes = true;
     const allNodes = [];
     modelEntity.forEach((e) => allNodes.push(e.name));
-    console.log("[zombieGlb] Skeleton nodes (first zombie):", allNodes.slice(0, 30).join(", "));
-    console.log("[zombieGlb] AnimMap keys:", [...animMap.keys()].join(", "));
+    console.debug("[zombieGlb] Skeleton nodes (first zombie):", allNodes.slice(0, 30).join(", "));
+    console.debug("[zombieGlb] AnimMap keys:", [...animMap.keys()].join(", "));
   }
 
   return root;

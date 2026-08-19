@@ -1,6 +1,21 @@
 # Current State
 
-**As of 2026-06-13** | Vitest: 169 pass (36 files) | Smoke: green
+## 2026-08-19 Quality Pass
+
+- The default PlayCanvas route remains the primary product experience; the
+  `?legacy=1` Three.js route is explicitly maintained as a parity/reference
+  runtime. See [Runtime Contract](./runtime-contract.md).
+- Canonical verification is now `npm run verify`, which runs project-contract
+  validation, Vitest, the production build, dist-contract checks, and the
+  PlayCanvas browser smoke.
+- Smoke tests resolve an available localhost port instead of assuming port
+  `5176`, so parallel local runs no longer collide by default.
+- Animal GLBs load on demand when animal enemies first appear, and music cues
+  use metadata-only preload to reduce cold-start network work. Local build
+  output still has large JavaScript chunks; the two reference-only soundtrack
+  renders are now retained in source but omitted from the production package.
+
+**Historical baseline (2026-07-13)** | Village-defense focus: 130 pass (3 files) | Build: green | Browser smoke: green
 
 ---
 
@@ -30,22 +45,32 @@ system modules under `src/fps/systems/`.
   - Boss (mini_boss / mega_zombie / secret_boss by id): 0.7 s red charge-slam telegraph,
     1.8× speed charge, one-shot bonus hit capped at `min(9, attackDps×0.4)` on land
     within 2 m, 3.5 s cooldown; `slamHitFired` prevents double-trigger
-  - Ground / crawler / walker / runner / zigzag: prior behavior unchanged
-- Weapons: all 14 from `weapons_fps.json`; mag reload, ADS spread, headshot (2.2× at pitch <−8°)
+  - Ground / crawler / walker / runner / skitter: config-driven movement, including
+    per-type `zigzagStrength` for runner/skitter strafing
+- Weapons: all 14 from `weapons_fps.json`; infinite-ammo firing, ADS spread, headshot (3.25× at pitch <−8°)
 - Ordnance: frag/thermo/breacher/EMP grenades, C4, nuke (all types from `economy_fps.json`)
 - Armor: cloth/kevlar/ceramic tiers; damage reduction applied per hit
 - Gear: flashlight (visual), flint & steel (fire patches with TTL, DPS, merge, cap=3)
 - Shop economy: weapon buy/equip, armor, gear, village upgrade, med kit, ordnance packs
-- Village: HP with max determined by village level and villager perk modifiers
-- Village bite: `VILLAGE_BITE_MULTIPLIER = 0.34`, cap 3.4; `PLAYER_AGGRO_RADIUS = 13`;
-  aggro-on-hit (4 s window)
+- Village: seven independently destructible structures whose summed health is
+  the village health; damage persists across waves and capacity changes retain
+  each building's health ratio
+- Village attack AI: unaggroed zombies retain the nearest live structure,
+  route through authored fence gates, attack its perimeter, and retarget only
+  when it falls
+- Village bite: `VILLAGE_BITE_MULTIPLIER = 0.22`; `PLAYER_AGGRO_RADIUS = 13`;
+  aggro-on-hit (4 s window), tuned so a lone wave-one walker removes less than
+  10% of the village in 30 seconds; concurrent attackers use diminishing
+  crowding returns, so four zombies deal about 2.1x one zombie's structure damage
 - Villager escort: enter buildings, locate villager, escort to Town Hall, perk awarded on rescue
 - Villager perks: shop discount, kill coin multiplier, damage reduction, HP bonus, grenade bonus
 - Door system: exterior/interior door interaction with range check
 - Breakable windows + structure impacts: material-specific particles, potential village damage tracked
 - Save/load: `zombie_invasion_playcanvas_save_v1` in localStorage; sanitizes legacy field aliases
+  and restores per-building health/collapse state by stable structure ID
 - Lifetime stats: kills, damage dealt/taken, village damage, waves cleared, play seconds
-- Adaptive music: `selectMusicCue` / `computeRaidThreatScore` from `musicDirector.js`
+- Adaptive music: `selectMusicCue` / `computeRaidThreatScore` from `musicDirector.js`;
+  runtime MP3 assets replaced with Preston-supplied generated soundtrack renders
 - First-session guidance: enemy intro messages, shop recommendations, wave threat briefs
 - **Rewarded ads — multi-offer system** (was MISSING; now implemented):
   - Wave-clear summary: DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES (per-wave claim keys)
@@ -54,6 +79,11 @@ system modules under `src/fps/systems/`.
     in `sliceSimulation.js`; claim keys in `state.claimedOfferKeys` (persisted, sanitized for
     old saves)
   - Ad shim flow (loading → grant → claimed) with cancel-safe re-enable; amber `--zi` styling
+  - Runtime ad telemetry in `state.rewardedRunState.telemetry` using the shared
+    `createRewardedRunState` shape; records `offer_clicked`, `ad_completed`, `ad_failed`,
+    `reward_granted`, and `reward_rejected`, capped at 80 events per run
+  - Browser dispatch parity: PlayCanvas emits `zombie_invasion_rewarded_ad` `CustomEvent`
+    with the recorded event detail; automation text exposes telemetry count/last-event fields
 - **Persistent goals / challenges** (6 GOAL_DEFS exported from `sliceSimulation.js`):
   - Wave Survivor (bestWave ≥ 5, +50 coins), Veteran Defender (bestWave ≥ 10, +100 coins),
     Exterminator (lifetime kills ≥ 500, +75 coins), Iron Endurance (wavesCleared ≥ 10, +60 coins),
@@ -88,9 +118,17 @@ system modules under `src/fps/systems/`.
 - 9 first-person weapon viewmodels: sidearm, compact, rifle, shotgun, precision, heavy,
   launcher, flamethrower, pipe — each with gloved hands/forearms and camera fill light
 - Shot FX pool: star muzzle flash (8 slots), muzzle light pulse, emissive tracers (8 slots),
-  material-tinted impact bursts (3 slots × 6 particles); zero per-shot allocations after warmup
+  material-tinted impact bursts (3 slots × 6 particles); ballistic shots apply subtle tracer
+  sag from `lastCombatEvent.ballistic.dropMeters`; zero per-shot allocations after warmup
 - Damage flash overlays: player (red radial), village (orange top)
-- Minimap: canvas 2D with zombie/villager/door/fire/building layers (top-right, 3-dot legend)
+- Minimap: canvas 2D with zombie/villager/door/fire/building layers plus
+  per-building damage colors, thick active attack rings with filled threat glyphs,
+  and destroyed-building X marks; marker line widths are isolated from the village ring
+- Building damage presentation: staged cracks/scorch, fallen beams, fire/smoke,
+  rubble replacement, a player-facing world health marker with an exclamation beacon,
+  HUD structure alert, and surviving-building count
+- Runtime performance telemetry: rolling FPS, frame time, slow-frame count, worst frame time,
+  quality profile, and render scale exposed through `render_game_to_text`
 - Shop: in-raid side panel (all item types)
 
 ### UI/UX — Design Token System and HUD
@@ -101,7 +139,7 @@ system modules under `src/fps/systems/`.
   - `.zi-hud-objective` (top-left): wave chip + village integrity bar
   - `.zi-hud-meta` (top-right): coins + kills + gear icon settings button
   - `.zi-hud-vitals` (bottom-left): health bar, stamina bar, weapon/ammo row
-  - Phase toast: compact wave-start / intermission overlay
+  - Phase toast: compact wave-start / intermission overlay; long status copy wraps instead of truncating
   - Bars driven by ratio with color thresholds (HP bar turns red when low)
 - In-game HUD clusters suppressed behind full-cover flow modals
 - Unified modal design language across menu / shop / game-over / victory panels
@@ -136,7 +174,19 @@ system modules under `src/fps/systems/`.
 - **Kill-streak badges**: badge shows at ≥ 3 kills within 3 s (COMBO / HOT STREAK / SLAYER /
   RAMPAGE milestones); pops in, auto-hides
 
-### Audio (Procedural Web Audio via audio3d.js Primitives)
+### Audio (Generated Music + Procedural Web Audio)
+
+Generated soundtrack MP3s live in `public/audio/music/` and are documented in
+`src/fps/assets/ASSETS.md`. Runtime cues keep the existing `MUSIC_CUES` filenames:
+menu, safe house, shop/intermission, raid low/mid/high, boss, victory, and
+game-over. `main_motif.mp3` and `shop_intermission_alt.mp3` are reference-only
+assets and are not wired to runtime music.
+
+`test/music_assets.test.js` verifies that every adaptive music cue has a real MP3
+asset, preserves the current pressure-band remap, and keeps reference renders out
+of the runtime cue map.
+
+### Procedural SFX (audio3d.js Primitives)
 
 All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was not modified.
 
@@ -157,64 +207,73 @@ All 10 cues gated by `sfxEnabled` / `musicEnabled`; `audio3d.js` (shared) was no
 Night ambient bed (`_startNightBed` / `_stopNightBed`): evolving slow pad on music channel;
 runs during `running` and `intermission` phases; gated by `musicEnabled`.
 
-### Verified Baseline (2026-06-13)
+### Verified Baseline (2026-07-08)
 
 | Check | Result |
 |---|---|
-| `npx vitest run` | 36 files, 169 tests, all pass |
+| `npm test` | 38 files, 204 tests, all pass |
 | `npm run build` | Pass (existing chunk-size warning only) |
 | `npm run smoke:playcanvas` | Pass, exit 0 |
+| Generated soundtrack assets | Confirmed by `test/music_assets.test.js`: MP3 files exist for all runtime cues; `raid_high` and boss share the requested render; motif/shop alternate stay reference-only |
+| Top status toast readability | Confirmed by smoke: pointer-lock fallback copy renders fully without nowrap/hidden overflow/ellipsis; screenshot `output/playcanvas-slice-smoke.png` |
 | GLB zombie pipeline (default) | Confirmed via smoke and harness shots |
 | GLB villager pipeline | Confirmed in source; async fallback to primitive rig |
 | Zombie facing (movement-based) | Confirmed via real-GPU test |
 | Weapon fire FX pool | Confirmed via `?fxslow=1` harness |
 | Leaper pounce + amber ring | Confirmed via live-GPU: `zombie.y ≈ 0.76` caught mid-arc, shadow grounded |
 | Flyer hover | Confirmed via live-GPU: entity floats at `hoverHeight` |
-| Rewarded-ad multi-offers | Confirmed: 11 new tests covering offer apply-once, medkit heal, grenades, goals, save round-trip |
+| Rewarded-ad multi-offers + telemetry | Confirmed: 13 focused tests covering offer apply-once, medkit heal, grenades, goals, save round-trip, run-state telemetry cap, and snapshot mirroring |
 | Virtual left joystick | Confirmed in source; `.pc-joystick-base` / `.pc-joystick-knob` wired |
 | Right-zone canvas look | Confirmed: dead-zone 0.24, exponent 1.75, gain 0.62 matching legacy right-stick |
 | Hitmarker / streak / floater DOM | Confirmed: element presence + worker inline capture |
 | Low-HP vignette | Confirmed: renders without obscuring view |
 | Settings sheet haptics toggle | Confirmed via live-GPU: toggle visible and functional |
+| PlayCanvas performance telemetry | Confirmed via smoke: `perfFpsAvg`, `perfFrameMsAvg`, `perfSlowFrames`, `perfWorstFrameMs`, `qualityProfile`, and `renderScale` exposed in `render_game_to_text` |
+| Ballistic tracer visual sag | Confirmed via smoke: `tracerDropVisual` reports positive sag after a ballistic shot |
+
+### Persistent Village Defense Finish Line (2026-07-13)
+
+| Check | Result |
+|---|---|
+| Focused deterministic tests | 3 files, 129 tests passed |
+| Production build | Passed; existing large-chunk warning only |
+| Browser gameplay smoke | Passed with real zombie-to-building damage, world/HUD/minimap alerts, critical and destroyed visual states, and mobile no-overlap assertions |
+| Pacing | A lone learning-wave walker cannot remove 10% of village health in 30 simulated seconds |
+| Persistence boundary | Structure damage survives wave transitions and save/load; no inter-wave auto-heal |
+| Release boundary | Local-only proof; no deployment or hosted verification performed |
+| Evidence | `output/village-defense/` and `docs/qa/feature-finish-line/2026-07-13-persistent-village-defense.md` |
 
 ---
 
 ## Parity Status — Honest Assessment
 
-A full requirement-by-requirement audit was completed on 2026-06-12 and updated on
-2026-06-13. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
+A full requirement-by-requirement audit was completed on 2026-06-12 and updated through
+2026-07-07. Full results are in [`docs/parity-audit.md`](./parity-audit.md). Summary:
 
 | Status | Count |
 |---|---|
-| FULL | 50 |
-| PARTIAL | 4 |
-| MISSING | 1 |
+| FULL | 54 |
+| PARTIAL | 1 |
+| MISSING | 0 |
 | N/A-BY-DESIGN | 5 |
 | **Total features audited** | **60** |
 
-*(One feature (zigzag-strength) was re-confirmed PARTIAL; enemy-variety and multi-offer
-features previously PARTIAL/MISSING were promoted to FULL.)*
+*(Boot loading, village damage feedback, crawler presentation, and per-type zigzag
+strength are now verified FULL in the PlayCanvas route.)*
 
 **Full parity is not yet achieved.** The PlayCanvas route is feature-rich and
-playable end-to-end, but has residual gaps versus the legacy Three.js FPS route.
+playable end-to-end, but has one residual partial gap versus the legacy Three.js FPS route.
 
 ### Remaining MISSING Feature
 
-- **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
-  `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
-  loss for ad effectiveness; no player-visible impact.
+- None currently identified.
 
-### Remaining PARTIAL Features (ranked by player impact)
+### Remaining PARTIAL Feature
 
-1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
-   (fire/smoke visual indicators as village HP drops) not used in PlayCanvas. Village HP
-   meter updates correctly; no visual state change.
-2. **Boot loading indicator** (item 42): Legacy shows a loading bar. PlayCanvas starts with
-   the scene already rendered; GLB loads async in background with no user-visible indicator.
-3. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
-   0.45 rather than per-type `zigzagStrength` scalar from config.
-4. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
-   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan.
+1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+   drop, drag, and penetration. PlayCanvas now records ballistic flight/drop metadata in
+   combat events using the legacy drop formula and renders tracer sag from that data, but still
+   resolves weapon hits instantly with distance-falloff hitscan.
 
 See [`docs/parity-audit.md`](./parity-audit.md) for the complete table with per-feature delta
 notes and legacy source citations.
@@ -231,8 +290,9 @@ These items are absent from the PlayCanvas route by explicit design decision
 - **Three.js render pipeline** — no bloom, DOF, or SSAO post-processing. PlayCanvas uses ACES
   tone mapping natively. Bloom is available behind `?bloom=1` via `pc.CameraFrame` but disabled
   by default (eye/muzzle corona spheres deliver the halo look in the normal pipeline).
-- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag replaced
-  by hitscan with distance falloff.
+- **3D ballistics** — `weaponBallistics.js` projectile travel, gravity drop, and drag are
+  represented in PlayCanvas combat telemetry, but gameplay still uses hitscan with distance
+  falloff instead of authoritative projectile travel.
 
 ---
 
@@ -246,10 +306,13 @@ major milestone.
 
 ### Local vs hosted
 
-Hosted proof on Vercel is not current. `progress.md` records that a prior Vercel preview was
-blocked by Vercel Authentication in Playwright. Local `npm run build` and `npm run preview`
-work; Docker `docker compose up --build -d` is configured. Treat hosted status as unverified
-unless re-tested.
+Hosted proof on Vercel is current as of 2026-07-08. Production deployment
+`dpl_2xG8dtRpfTir4WL7kvTkUnEoEZZc` is `Ready` at
+`https://zombie-invasion-alpha.vercel.app/` and immutable URL
+`https://zombie-invasion-6mghi0w8z-preston-popes-projects.vercel.app/`.
+HTTP checks for `/` and `/playcanvas` passed, hosted PlayCanvas smoke passed,
+and generated soundtrack MP3s returned HTTP 200 `audio/mpeg`. Docker
+`docker compose up --build -d` remains available for LAN play.
 
 ### Save key isolation
 

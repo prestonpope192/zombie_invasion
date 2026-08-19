@@ -440,6 +440,11 @@ export async function createFpsGame(root) {
   const game = new FpsGame(root);
   await game.start();
 
+  // The shared boot overlay is also used by the PlayCanvas route. Hide it as
+  // soon as the legacy/FPS menu is ready instead of waiting for the generic
+  // four-second safety timeout to expire over a usable game screen.
+  window.__ziBootHide?.();
+
   window.__fpsGame = game;
   window.render_game_to_text = () => game.renderGameToText();
   window.advanceTime = (ms) => game.advanceTime(ms);

@@ -27,6 +27,7 @@ For non-trivial changes, rerun the commands that match the surface you touched:
 npm test
 npm run build
 npm run smoke:playcanvas
+npm run test:legacy
 ```
 
 Use these when relevant:

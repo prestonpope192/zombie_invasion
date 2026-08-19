@@ -20,13 +20,17 @@ The repository currently contains two runtime paths.
   [`src/fps/app/FpsGame.js`](/Users/preston/Code/zombie_invasion/src/fps/app/FpsGame.js:1)
 - Holds the older but broader implementation surface for combat systems,
   scenes, progression, and save behavior
+- Serves as the parity and compatibility reference, not the default product
+  direction. See [Runtime Contract](./runtime-contract.md) before changing
+  shared behavior.
 
 ## Source Tree
 
 - [`src/main.js`](/Users/preston/Code/zombie_invasion/src/main.js:1):
   top-level route selection
 - [`src/playcanvas`](/Users/preston/Code/zombie_invasion/src/playcanvas):
-  PlayCanvas prototype/campaign slice and its DOM/UI integration
+  PlayCanvas campaign simulation, shared village-structure definitions,
+  deterministic minimap renderer, and DOM/UI integration
 - [`src/fps/app`](/Users/preston/Code/zombie_invasion/src/fps/app):
   legacy FPS application shell
 - [`src/fps/scenes`](/Users/preston/Code/zombie_invasion/src/fps/scenes):
@@ -45,11 +49,20 @@ The automated tests are concentrated under
 layer:
 
 - game contracts and mode flow
-- combat, rewards, waves, village damage, and progression
+- combat, rewards, waves, per-building village damage, and progression
 - mobile controls and UI scenes
 - PlayCanvas slice coverage
 
-Run the full suite with `npm test`.
+Run the canonical local verification with `npm run verify`.
+
+Village-defense behavior is split deliberately:
+
+- `villageStructures.js` owns authored structure footprints, health allocation,
+  damage tiers, nearest-live targeting, and gate-aware navigation targets.
+- `sliceSimulation.js` owns mutable structure state, zombie attacks, cumulative
+  wave damage, aggregate village health, collision removal, and upgrades.
+- `main.js` owns pooled world damage stages and HUD telemetry.
+- `minimapRenderer.js` owns deterministic health, attack, and destruction marks.
 
 ## Local Dev And Packaging
 
@@ -59,6 +72,7 @@ Run the full suite with `npm test`.
 - `npm run build`
 - `npm run preview`
 - `npm run smoke:playcanvas`
+- `npm run verify` — canonical local contracts, tests, build, and browser smoke
 
 ### Local phone/LAN play
 

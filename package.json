@@ -11,9 +11,18 @@
     "preview": "vite preview --host 0.0.0.0 --port 8080",
     "generate:music": "node scripts/generate-retro-music.mjs",
     "test": "vitest run",
+    "test:unit": "npm test",
+    "test:build": "npm run build",
+    "test:smoke": "npm run smoke:playcanvas",
+    "test:legacy": "npm run smoke:legacy",
+    "validate": "node scripts/validate-project.mjs",
+    "validate:dist": "node scripts/validate-project.mjs --dist",
+    "verify": "npm run validate && npm run test:unit && npm run test:build && npm run validate:dist && npm run test:smoke",
+    "test:full": "npm run verify",
     "test:watch": "vitest",
     "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250",
-    "smoke:playcanvas": "node scripts/smoke-playcanvas-slice.mjs"
+    "smoke:playcanvas": "node scripts/smoke-playcanvas-slice.mjs",
+    "smoke:legacy": "node scripts/smoke-legacy-route.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

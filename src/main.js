@@ -3,6 +3,44 @@ window.__zombieInvasionVersion = "v2026.06.03.playcanvas";
 const root = document.getElementById("app");
 const params = new URLSearchParams(window.location.search);
 
+// Mobile Safari can still trigger page zoom from rapid double taps or pinch
+// gestures even with a locked viewport. Block those browser gestures at the
+// document level so game controls cannot leave the player stuck zoomed in.
+(function installMobileZoomGuards() {
+  if (window.__ziMobileZoomGuardsInstalled) return;
+  window.__ziMobileZoomGuardsInstalled = true;
+
+  const preventZoomGesture = (event) => {
+    event.preventDefault();
+  };
+  let lastTouchEndAt = Number.NEGATIVE_INFINITY;
+
+  document.addEventListener("gesturestart", preventZoomGesture, { capture: true, passive: false });
+  document.addEventListener("gesturechange", preventZoomGesture, { capture: true, passive: false });
+  document.addEventListener("gestureend", preventZoomGesture, { capture: true, passive: false });
+  document.addEventListener("dblclick", preventZoomGesture, { capture: true, passive: false });
+  document.addEventListener(
+    "touchmove",
+    (event) => {
+      if ((event.touches?.length ?? 0) > 1) {
+        event.preventDefault();
+      }
+    },
+    { capture: true, passive: false },
+  );
+  document.addEventListener(
+    "touchend",
+    (event) => {
+      const now = performance.now();
+      if (now - lastTouchEndAt < 360) {
+        event.preventDefault();
+      }
+      lastTouchEndAt = now;
+    },
+    { capture: true, passive: false },
+  );
+})();
+
 // Boot overlay management — safety timeout always fires so the overlay never permanently
 // blocks either route. ?boothold=1 suppresses the hide for screenshot capture only.
 (function setupBootOverlay() {

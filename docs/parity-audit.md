@@ -1,8 +1,8 @@
 # PlayCanvas vs Legacy Three.js FPS — Feature Parity Audit
 
-**Audit date:** 2026-06-12 (updated 2026-06-13)  
-**Auditor:** Documentation agent (read-only inspection; no code changes)  
-**Verification baseline:** `npx vitest run` → 36 files, 169 tests, all pass  
+**Audit date:** 2026-06-12 (updated 2026-07-07)
+**Auditor:** Documentation agent (read-only inspection; no code changes)
+**Verification baseline:** `npm test` → 37 files, 201 tests, all pass; `npm run build` pass; `npm run smoke:playcanvas` pass
 **Method:** Static source inspection of `src/fps/` (legacy), `src/playcanvas/` (PlayCanvas),
 and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`,
 `src/fps/systems/`, `src/fps/scenes/`, and `src/fps/config/*.json`.
@@ -28,13 +28,13 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 1 | **Save / Load** | `saveFps.js`, `FpsGame.js` | `persistPlayCanvasSave` / `loadPlayCanvasSave` / `sanitizePlayCanvasSave` in `sliceSimulation.js` | FULL | Separate save key (`zombie_invasion_playcanvas_save_v1`). Sanitizes all legacy field aliases. |
 | 2 | **Wave director (budget, composition, timing)** | `waveDirector3D.js`, `waves_fps.json` | `spawnWaveZombies`, `pickWaveSpawnType`, `beginWave` in `sliceSimulation.js`; `wavesConfig` imported | FULL | PlayCanvas implements budget/composition inline rather than via `WaveDirector3D` class, but uses the same `waves_fps.json` config. |
 | 3 | **Enemy AI — ground movement** | `enemyAi3D.js` | `stepZombies` in `sliceSimulation.js` — 2D distance-check targeting, player-vs-village decision at 8 m | FULL | No Rapier physics; distance checks replace physics body movement. Behaviorally equivalent for players. |
-| 4 | **Enemy AI — zigzag (runner / skitter)** | `enemyAi3D.js` (`zigzagStrength`) | `sliceSimulation.js` line 715: `Math.sin(state.elapsedSec*3)*0.45` for runner/skitter | PARTIAL | Sine-wave zigzag present; legacy uses per-type `zigzagStrength` scalar, PlayCanvas uses a fixed amplitude. No gameplay regression; visual difference only at close range. |
+| 4 | **Enemy AI — zigzag (runner / skitter)** | `enemyAi3D.js` (`zigzagStrength`) | `spawnZombie` stores `def.zigzagStrength`; `stepZombies` applies target-relative sine strafing scaled by `zombie.zigzagStrength`; regression coverage in `test/playcanvas_slice.test.js` | FULL | Runner/skitter now use the same per-type config scalar as the legacy AI instead of a fixed amplitude. |
 | 5 | **Enemy AI — flyer / revenant (hover)** | `enemyAi3D.js` `movementMode=flyer` with `hoverHeight`, `hoverBobAmp` | `sliceSimulation.js` `stepZombies` mode=`flyer` branch: `zombie.y = hoverHeight + sin(elapsedSec*2+seq)*bobAmp`; straight approach; `zombie.y` drives entity Y in render | FULL | Flyers hover at `hoverHeight` with sine bob. GLB entity lift + grounded shadow counter-translation confirmed via live-GPU inspection. Jump/Jump_Idle clips play during hover. |
 | 6 | **Enemy AI — leaper / pouncer (jump)** | `enemyAi3D.js` `movementMode=leaper` with `jumpIntervalSec`, `jumpSpeed` | `sliceSimulation.js` `stepZombies` mode=`leaper` branch: 0.4 s amber telegraph → `POUNCE_DURATION_SEC=0.45` s parabolic arc at `jumpSpeed`, peak 1.1 m; amber ground ring + GLB Jump clip in render | FULL | Leaper pounce-attack fully implemented. `POUNCE_TELEGRAPH_SEC=0.4`, `POUNCE_PEAK_Y=1.1`, `slamHitFired`-gated. Confirmed: telegraph → airborne arc with `zombie.y≈0.76` mid-pounce, grounded shadow. Tests: +5 in playcanvas_slice.test.js. |
-| 7 | **Enemy AI — crawler (ground hug)** | `enemyAi3D.js` `movementMode=crawler` | `sliceSimulation.js`: stored and spawned; crawlers move at ground plane like walkers | PARTIAL | Crawler visual height offset (`visualYOffset=0.68`) not applied in 2D sim; GLB zombie uses Crawl animation clip when `type=crawler`. Movement mechanics identical to ground walker in sim. |
+| 7 | **Enemy AI — crawler (ground hug)** | `enemyAi3D.js` `movementMode=crawler` | `sliceSimulation.js`: crawler type stored/spawned; `zombieGlb.js` and `zombieRig.js` apply crawler scale/posture and Crawl animation | FULL | PlayCanvas achieves the player-facing crawler read through GLB/procedural visual scaling and Crawl animation. Movement remains ground-plane by design. |
 | 8 | **Enemy types — full roster** | `enemies_fps.json`: 17 types (crawler, walker, runner, leaper, brute, armored, flyer, skitter, pouncer, revenant, juggernaut, zombie_pig, zombie_horse, zombie_cow, zombie_chicken, mega_zombie, mini_boss) | `sliceSimulation.js` imports `enemies_fps.json`; all types spawn per wave composition | FULL | All 17 types spawn. Stat scaling (HP×waveScale, speedMps, coinReward) applied uniformly. |
 | 9 | **Headshot system** | `headshotRules.js`, `RaidScene3D.js` | `sliceSimulation.js` `fireSliceWeapon`: pitch < −8°, distance < 14, single target → 2.2× multiplier | FULL | PlayCanvas implements inline; same multiplier. |
-| 10 | **Weapon ballistics (projectile travel, drag, drop)** | `weaponBallistics.js` (3D physics projectile) | `sliceSimulation.js` `getWeaponAttackProfile`: per-weapon cone+range+falloff; distance falloff curve | PARTIAL | Legacy uses true 3D projectile with gravity drop and drag. PlayCanvas uses hitscan with distance falloff. Effective DPS and effective range match by design but trajectory and penetration through cover differ. |
+| 10 | **Weapon ballistics (projectile travel, drag, drop)** | `weaponBallistics.js` (3D physics projectile) | `sliceSimulation.js` `getWeaponAttackProfile`: per-weapon cone+range+falloff; distance falloff curve; `lastCombatEvent.ballistic` reports muzzle velocity, travel time, drop, drag, mass, and distance using the legacy drop helper; PlayCanvas tracer FX apply visual sag from ballistic drop | PARTIAL | Legacy uses true 3D projectile with gravity drop and drag. PlayCanvas now exposes shared ballistic flight/drop metadata for hits, misses, blasts, and structure impacts, and the tracer render has visible sag. Gameplay still uses hitscan with distance falloff. Projectile travel, penetration through cover, and drag-driven impact energy remain non-authoritative. |
 | 11 | **Weapon slots (1–0 hotkeys)** | `weaponSlots.js` | `WEAPON_SLOT_BINDINGS` in `main.js` + `setKey` handler | FULL | Same 14 slot bindings. |
 | 12 | **Weapon cycle (tab/O)** | `RaidScene3D.js` | `cycleOwnedWeapon` in `sliceSimulation.js`; O key in `main.js` | FULL | |
 | 13 | **Weapon equip from shop** | `ShopScene3D.js` | `buyOrEquipWeapon`, `equipOwnedWeapon` in `sliceSimulation.js` | FULL | |
@@ -52,7 +52,7 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 25 | **Village upgrade (levels, HP scaling, cost growth)** | `economy_fps.json`, `ShopScene3D.js` | `buyVillageUpgrade`, `getVillageUpgradeCost`, `getVillageMaxHp` | FULL | |
 | 26 | **Med kit** | `economy_fps.json`, `ShopScene3D.js` | `buyMedKit`, `getMedKitItem` | FULL | |
 | 27 | **Village damage rules (structure hits, material, friendly fire)** | `villageDamageRules.js` | `computeVillageStructureDamage` imported; `resolvePlayCanvasStructureShot`, `FRIENDLY_FIRE_VILLAGE_DAMAGE=false` | FULL | Friendly fire intentionally disabled in PlayCanvas (`FRIENDLY_FIRE_VILLAGE_DAMAGE=false`); legacy same default. |
-| 28 | **Village feedback (HP ratio, damage stage)** | `villageFeedback.js` | Not imported in `sliceSimulation.js` or `main.js` | PARTIAL | `villageFeedback.js` (damage stage thresholds, color cues) unused in PlayCanvas. Village HP is tracked and displayed but no visual "burning" damage-stage feedback equivalent. |
+| 28 | **Village feedback (HP ratio, damage stage)** | `villageFeedback.js` | `main.js` `updateVillageDistress(dt)` drives HP-ratio distress: dim/flickering windows, pooled smoke, ember glow, and low-HP danger light | FULL | PlayCanvas has an independent visual damage-stage implementation rather than importing the Three.js helper. |
 | 29 | **Breakable windows** | `villageDamageRules.js`, `RaidScene3D.js` | `BREAKABLE_WINDOW_DEFS`, `brokenWindowIds`, `entitiesByWindow` — window entities toggled off on break | FULL | |
 | 30 | **Structure impact FX (material particles)** | `RaidScene3D.js` | `STRUCTURE_IMPACT_DEFS`, `recordPlayCanvasStructureImpact`, `createImpactEntity`, material-tinted debris | FULL | |
 | 31 | **Villager escort system** | `villagerEscortRules.js`, `RaidScene3D.js` | `villagerEscortRules.js` imported; `stepVillagerEscort`, `interactWithPlayCanvasWorld`, `rescueVillager`, `killEscortedVillager` | FULL | |
@@ -70,7 +70,7 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 | 43 | **Shop scene (between waves)** | `ShopScene3D.js` | Shop panel toggled in `main.js`; `getShopItems` from `sliceSimulation.js` | FULL | Legacy shop is a separate full-screen scene; PlayCanvas shop is an in-raid side panel. Items and economy identical. |
 | 44 | **Rewarded ads — revive-on-death** | `rewardedAds.js`, `FpsGame.reviveFromRewardedAd` | `_triggerReviveAd` in `main.js` (CrazyGames / Poki / mock); `revivePlayer` in `sliceSimulation.js` | FULL | |
 | 45 | **Rewarded ads — multi-offer (summary / game-over)** | `rewardedAdOffers.js`, `SummaryScene3D.js`, `GameOverScene3D.js` | `getPlayCanvasSummaryOffers` / `getPlayCanvasGameOverOffers` / `applyPlayCanvasRewardedOffer` in `sliceSimulation.js`; imports `REWARDED_OFFER_IDS` + `getSummaryOfferClaimKey` from `rewardedAdOffers.js`; claim keys in `state.claimedOfferKeys` (persisted) | FULL | Summary offers DOUBLE_WAVE_COINS / FREE_MEDKIT / BONUS_GRENADES per wave. Game-over offers REVIVE (one-per-run) + bonus coins/grenades. Ad shim: loading→grant→claimed with cancel-safe re-enable. Amber styling. 11 new tests cover apply-once, re-claim-blocked, medkit heal, revive, offer filtering, save round-trip. |
-| 46 | **Rewarded ad telemetry / run-state** | `rewardedAdOffers.js` (`createRewardedRunState`, telemetry events) | Not present in PlayCanvas | MISSING | Legacy records per-run telemetry: offer_clicked, ad_completed, reward_granted, etc. PlayCanvas has no equivalent telemetry. |
+| 46 | **Rewarded ad telemetry / run-state** | `rewardedAdOffers.js` (`createRewardedRunState`, telemetry events) | `getPlayCanvasRewardedRunState`, `recordPlayCanvasRewardedAdEvent`, and `getPlayCanvasRewardedAdSnapshot` in `sliceSimulation.js`; `_recordRewardedAdEvent` dispatches `zombie_invasion_rewarded_ad` from `main.js`; automation text reports telemetry count/last event/provider | FULL | PlayCanvas now uses the shared run-state shape, records offer_clicked/ad_completed/ad_failed/reward_granted/reward_rejected, caps telemetry at 80 events, mirrors claim/revive state, and dispatches browser events for analytics listeners. |
 | 47 | **Audio — SFX (weapon, impact, explosion)** | `audio3d.js`, `RaidScene3D.js` | `Audio3D` imported in `main.js`; `playWeapon`, `playImpact`, `playExplosion` called on fire/ordnance | FULL | |
 | 48 | **Audio — adaptive music (musicDirector)** | `musicDirector.js`, `audio3d.js` | `selectMusicCue`, `computeRaidThreatScore` imported in `sliceSimulation.js`; `updateMusicState` called in `updateAudioState` in `main.js` | FULL | |
 | 49 | **Audio — settings (music/SFX on/off)** | `FpsGame.persistAudioSettings` | `setPlayCanvasAudioSettings`, menu checkboxes in `main.js` | FULL | |
@@ -101,48 +101,44 @@ and `test/` against the feature surface enumerated from `src/fps/app/FpsGame.js`
 
 | Status | Count | Change from 2026-06-12 |
 |--------|-------|------------------------|
-| FULL | 51 | +5 (items 5, 6, 40, 42 → from PARTIAL; item 45 → from MISSING) |
-| PARTIAL | 3 | −5 |
-| MISSING | 1 | −1 |
+| FULL | 54 | +9 (items 4, 5, 6, 7, 28, 40, 42 → from PARTIAL; items 45, 46 → from MISSING) |
+| PARTIAL | 1 | −7 |
+| MISSING | 0 | −2 |
 | N/A-BY-DESIGN | 5 | — |
-| **Total** | **60** | net: 6 flips reduce PARTIAL by 5 and MISSING by 1; audit table is 60 distinct features |
+| **Total** | **60** | net: 9 flips reduce PARTIAL by 7 and MISSING by 2; audit table is 60 distinct features |
 
-**Status flips (2026-06-13):**
+**Status flips (2026-06-13 through 2026-07-07):**
 
 | # | Feature | Old Status | New Status |
 |---|---|---|---|
+| 4 | Enemy zigzag strength | PARTIAL | FULL |
 | 5 | Flyer / revenant hover | PARTIAL | FULL |
 | 6 | Leaper / pouncer jump-pounce | PARTIAL | FULL |
+| 7 | Crawler ground-hug presentation | PARTIAL | FULL |
+| 28 | Village damage feedback stages | PARTIAL | FULL |
 | 40 | Game-over scene depth (stats + multi-offers) | PARTIAL | FULL |
 | 42 | Boot scene / loading screen | PARTIAL | FULL |
 | 45 | Rewarded ads — multi-offer (summary / game-over) | MISSING | FULL |
+| 46 | Rewarded ad telemetry / run-state | MISSING | FULL |
 | 52 | Mobile look — right-stick joystick | PARTIAL | FULL |
 
 ---
 
 ## MISSING Features (player-facing)
 
-1. **Rewarded ad telemetry / run-state** — `createRewardedRunState`, offer-tracking, and all
-   `zombie_invasion_rewarded_ad` custom events are absent from the PlayCanvas route. Analytics
-   loss for ad effectiveness; no player-visible impact.
+None currently identified.
 
-*(Rewarded ad multi-offers were MISSING as of 2026-06-12; promoted to FULL on 2026-06-13.)*
+*(Rewarded ad multi-offers were MISSING as of 2026-06-12; promoted to FULL on 2026-06-13. Rewarded ad telemetry/run-state was promoted to FULL on 2026-07-07.)*
 
 ---
 
 ## PARTIAL Features (player-facing, ranked by impact)
 
-1. **Village damage feedback stages** (item 28): `villageFeedback.js` stage thresholds
-   (fire/smoke visual indicators as village HP drops) not implemented in PlayCanvas. Village HP
-   meter updates correctly; no visual state change.
-
-2. **Enemy zigzag strength is fixed** (item 4): Runner/skitter zigzag uses constant amplitude
-   0.45 rather than per-type `zigzagStrength` scalar from config. No gameplay regression; visual
-   difference only at close range.
-
-3. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
-   drop, drag, and penetration. PlayCanvas uses distance-falloff hitscan. Transparent to most
-   players; hardcore players may notice sniper arcs vanish.
+1. **3D ballistics vs hitscan** (item 10): Legacy projectiles have muzzle velocity, gravity
+   drop, drag, and penetration. PlayCanvas now records muzzle velocity, travel time, drop,
+   drag, mass, and shot distance in combat telemetry, and renders subtle tracer sag from that
+   data, but still uses distance-falloff hitscan for gameplay. Transparent to most players;
+   hardcore players may notice sniper arcs vanish.
 
 *(Mobile right-stick look, flyer hover, leaper pounce, game-over scene depth, and the boot
 loading screen were PARTIAL as of 2026-06-12; all promoted to FULL on 2026-06-13.)*
@@ -151,10 +147,10 @@ loading screen were PARTIAL as of 2026-06-12; all promoted to FULL on 2026-06-13
 
 ## Notes on docs/current-state.md Alignment
 
-`current-state.md` was updated on 2026-06-13 in sync with this audit refresh. The prior
-version (2026-06-12) correctly stated full parity was not achieved. The 2026-06-13 update
-reflects the feature additions and the new counts above. Full parity remains not yet achieved:
-1 MISSING feature and 3 PARTIAL features remain open.
+`current-state.md` was updated on 2026-07-07 in sync with this audit refresh. The prior
+version correctly stated full parity was not achieved, but several rows were stale after
+subsequent implementation passes. Full parity remains not yet achieved:
+1 PARTIAL feature remains open; no MISSING features are currently identified.
 
 ---
 

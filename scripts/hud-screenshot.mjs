@@ -40,6 +40,7 @@ try {
 
     await page.goto(`${baseUrl}/`, { waitUntil: "networkidle", timeout: 25000 });
     await page.evaluate((k) => localStorage.removeItem(k), "zombie_invasion_playcanvas_save_v1");
+    await page.evaluate(() => localStorage.setItem("zi_onboarded", "1"));
     await page.reload({ waitUntil: "networkidle" });
 
     // Start campaign via flow panel primary button (action bar is hidden while modal is open)
