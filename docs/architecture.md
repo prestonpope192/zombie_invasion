@@ -20,6 +20,9 @@ The repository currently contains two runtime paths.
   [`src/fps/app/FpsGame.js`](/Users/preston/Code/zombie_invasion/src/fps/app/FpsGame.js:1)
 - Holds the older but broader implementation surface for combat systems,
   scenes, progression, and save behavior
+- Serves as the parity and compatibility reference, not the default product
+  direction. See [Runtime Contract](./runtime-contract.md) before changing
+  shared behavior.
 
 ## Source Tree
 
@@ -50,7 +53,7 @@ layer:
 - mobile controls and UI scenes
 - PlayCanvas slice coverage
 
-Run the full suite with `npm test`.
+Run the canonical local verification with `npm run verify`.
 
 Village-defense behavior is split deliberately:
 
@@ -69,6 +72,7 @@ Village-defense behavior is split deliberately:
 - `npm run build`
 - `npm run preview`
 - `npm run smoke:playcanvas`
+- `npm run verify` — canonical local contracts, tests, build, and browser smoke
 
 ### Local phone/LAN play
 

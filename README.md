@@ -14,6 +14,8 @@ Canonical repo entrypoints:
   implemented vs verified vs uncertain
 - [`docs/architecture.md`](/Users/preston/Code/zombie_invasion/docs/architecture.md):
   system map
+- [`docs/runtime-contract.md`](/Users/preston/Code/zombie_invasion/docs/runtime-contract.md):
+  primary PlayCanvas versus legacy reference-runtime rules
 - [`docs/continuation-guide.md`](/Users/preston/Code/zombie_invasion/docs/continuation-guide.md):
   safe next-step and verification guidance
 
@@ -72,7 +74,8 @@ Historical evidence and deeper references:
 - Legacy route:
   older Three.js FPS runtime behind `?legacy=1` from
   [`src/fps`](/Users/preston/Code/zombie_invasion/src/fps)
-- Test baseline: 197 Vitest tests pass; PlayCanvas smoke exit 0 (as of 2026-07-07)
+- Current local verification: `npm run verify` (contracts, 264 Vitest tests,
+  production build, dist-contract checks, and browser smoke)
 - Parity status: 54 of 60 audited features are FULL; 1 PARTIAL; 0 MISSING. Full
   parity not yet achieved because true 3D ballistics remain partial. See
   [`docs/parity-audit.md`](/Users/preston/Code/zombie_invasion/docs/parity-audit.md).
@@ -144,7 +147,7 @@ npm run dev -- --host 0.0.0.0 --port 5173
 ## Unit tests
 
 ```bash
-npm test
+npm run verify
 ```
 
 Current test coverage includes:

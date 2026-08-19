@@ -63,6 +63,13 @@ describe("active PlayCanvas game contract", () => {
     }
   });
 
+  it("keeps the PlayCanvas route primary and the legacy route reference-only", () => {
+    const contract = fs.readFileSync(path.join(repoRoot, "docs/runtime-contract.md"), "utf8");
+    expect(contract).toContain("default `/` route is the forward-looking product experience");
+    expect(contract).toContain("available at `/?legacy=1`");
+    expect(contract).toContain("not the default product direction");
+  });
+
   it("defines a complete gameplay inventory across weapons, enemies, grenades, buildings, gear, armor, and village upgrades", () => {
     expect(weapons.map((weapon) => weapon.id)).toEqual([
       "pipe",

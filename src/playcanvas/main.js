@@ -360,6 +360,7 @@ export class PlayCanvasZombieSlice {
     // createZombieEntity falls back to zombie GLB / procedural rig gracefully.
     /** @type {{cow: pc.Asset|null, pig: pc.Asset|null, horse: pc.Asset|null, chicken: pc.Asset|null}|null} */
     this.animalGlbContainers = null;
+    this.animalGlbLoadStarted = false;
 
     // ── Juice layer state ────────────────────────────────────────────────────
     // Screen shake — trauma^2 model, decays each frame
@@ -433,17 +434,6 @@ export class PlayCanvasZombieSlice {
         }
       });
 
-      // Animal GLB load — falls back per-type if a model is missing
-      loadAnimalGlbContainers(this.app).then((containers) => {
-        const anyLoaded = Object.values(containers).some(Boolean);
-        if (anyLoaded) {
-          this.animalGlbContainers = containers;
-          const loaded = Object.entries(containers).filter(([, v]) => v).map(([k]) => k);
-          console.debug("[PlayCanvas] Animal GLB containers ready:", loaded.join(", "));
-        } else {
-          console.warn("[PlayCanvas] All animal GLB loads failed — using zombie GLB fallback for animals.");
-        }
-      });
     }
 
     this.attachInput();
@@ -2049,6 +2039,19 @@ export class PlayCanvasZombieSlice {
     // Animal-type zombie: use dedicated animal GLB if the container is ready.
     // Falls through to zombie GLB / procedural rig on any failure or missing model.
     const ANIMAL_TYPES = new Set(["zombie_cow", "zombie_pig", "zombie_horse", "zombie_chicken"]);
+    if (ANIMAL_TYPES.has(zombie.type) && this.useGlbZombies && !this.animalGlbLoadStarted) {
+      this.animalGlbLoadStarted = true;
+      loadAnimalGlbContainers(this.app).then((containers) => {
+        const anyLoaded = Object.values(containers).some(Boolean);
+        if (anyLoaded) {
+          this.animalGlbContainers = containers;
+          const loaded = Object.entries(containers).filter(([, v]) => v).map(([k]) => k);
+          console.debug("[PlayCanvas] Deferred animal GLB containers ready:", loaded.join(", "));
+        } else {
+          console.warn("[PlayCanvas] Deferred animal GLB load failed — using zombie GLB fallback for animals.");
+        }
+      });
+    }
     if (ANIMAL_TYPES.has(zombie.type) && this.useGlbZombies && this.animalGlbContainers) {
       try {
         const animalRoot = createAnimalGlbEntity(this.app, zombie, this.animalGlbContainers);

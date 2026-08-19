@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
+import { findAvailablePort } from "./smoke-port.mjs";
 
-const port = Number(process.env.PLAYCANVAS_SMOKE_PORT || 5176);
 const host = "127.0.0.1";
-const baseUrl = `http://${host}:${port}`;
-const targetUrl = process.env.PLAYCANVAS_SMOKE_URL || `${baseUrl}/`;
+const preferredPort = Number(process.env.PLAYCANVAS_SMOKE_PORT || 5176);
+const externalTargetUrl = process.env.PLAYCANVAS_SMOKE_URL || "";
 const screenshotPath = process.env.PLAYCANVAS_SMOKE_SCREENSHOT || "output/playcanvas-slice-smoke.png";
 
 let server = null;
@@ -13,7 +13,13 @@ let browser = null;
 let exitCode = 0;
 
 try {
+  const port = externalTargetUrl ? null : await findAvailablePort(preferredPort, host);
+  const baseUrl = externalTargetUrl ? new URL(externalTargetUrl).origin : `http://${host}:${port}`;
+  const targetUrl = externalTargetUrl || `${baseUrl}/`;
   if (!process.env.PLAYCANVAS_SMOKE_URL) {
+    if (port !== preferredPort) {
+      console.log(`[smoke] preferred port ${preferredPort} is busy; using ${port}`);
+    }
     server = spawn("npm", ["run", "dev", "--", "--host", host, "--port", String(port)], {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "pipe"],
@@ -34,9 +40,15 @@ try {
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   const logs = [];
+  const animalModelRequests = [];
   page.on("console", (msg) => logs.push({ type: msg.type(), text: msg.text() }));
   page.on("pageerror", (err) => logs.push({ type: "pageerror", text: err.message }));
   page.on("requestfailed", (req) => logs.push({ type: "requestfailed", text: `${req.url()} ${req.failure()?.errorText}` }));
+  page.on("request", (req) => {
+    if (/\/models\/animal-(cow|pig|horse|chicken)\.glb$/.test(req.url())) {
+      animalModelRequests.push(req.url());
+    }
+  });
 
   await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 20000 });
   await page.evaluate((saveKey) => localStorage.removeItem(saveKey), "zombie_invasion_playcanvas_save_v1");
@@ -81,6 +93,7 @@ try {
     }
   });
   await page.evaluate(() => window.advanceTime?.(6200)); // 5.5s grace + buffer for spawns
+  assert(animalModelRequests.length === 0, `animal GLB loaded during the wave-1 cold start: ${animalModelRequests.join(", ")}`);
   const preBlastScreenshot = await page.screenshot({ path: screenshotPath, fullPage: false });
   const topToastMessage = await page.evaluate(() => {
     const el = document.querySelector(".zi-toast strong");

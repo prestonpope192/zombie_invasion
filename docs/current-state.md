@@ -1,6 +1,21 @@
 # Current State
 
-**As of 2026-07-13** | Village-defense focus: 130 pass (3 files) | Build: green | Browser smoke: green
+## 2026-08-19 Quality Pass
+
+- The default PlayCanvas route remains the primary product experience; the
+  `?legacy=1` Three.js route is explicitly maintained as a parity/reference
+  runtime. See [Runtime Contract](./runtime-contract.md).
+- Canonical verification is now `npm run verify`, which runs project-contract
+  validation, Vitest, the production build, dist-contract checks, and the
+  PlayCanvas browser smoke.
+- Smoke tests resolve an available localhost port instead of assuming port
+  `5176`, so parallel local runs no longer collide by default.
+- Animal GLBs load on demand when animal enemies first appear, and music cues
+  use metadata-only preload to reduce cold-start network work. Local build
+  output still has large JavaScript chunks; the two reference-only soundtrack
+  renders are now retained in source but omitted from the production package.
+
+**Historical baseline (2026-07-13)** | Village-defense focus: 130 pass (3 files) | Build: green | Browser smoke: green
 
 ---
 

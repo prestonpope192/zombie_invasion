@@ -541,7 +541,10 @@ export class Audio3D {
       return null;
     }
     const element = new Audio(cue.src);
-    element.preload = "auto";
+    // Do not download every multi-megabyte cue when the menu first mounts.
+    // The browser fetches the selected cue when playback starts, while later
+    // cues remain available through the existing element cache.
+    element.preload = "metadata";
     element.loop = Boolean(cue.loop);
     element.volume = 0;
     this.musicElements.set(cueId, element);
