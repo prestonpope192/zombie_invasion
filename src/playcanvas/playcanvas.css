@@ -103,6 +103,21 @@ a {
   pointer-events: none;
 }
 
+/* Clean capture surface for the authored hero frame. The automation text hook
+   remains available, while normal gameplay HUD/input behaviour is untouched. */
+.is-showcase .pc-slice-hud,
+.is-showcase .pc-mobile-controls,
+.is-showcase .pc-minimap-panel,
+.is-showcase .pc-slice-reticle,
+.is-showcase .pc-hp-vignette {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.is-showcase .pc-slice-canvas {
+  filter: saturate(1.08) contrast(1.04);
+}
+
 body.viewport-resizing #app *,
 body.viewport-resizing #app *::before,
 body.viewport-resizing #app *::after {

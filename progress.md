@@ -2850,3 +2850,10 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - Reviewed final desktop and portrait captures in `output/village-defense/under-attack.png` and
   `output/village-defense/mobile-alert.png`.
 - Release boundary remains local-only. No deployment or hosted validation was performed.
+
+## 2026-08-30 - RemakeBench visual showcase batch
+
+- Original prompt: improve Zombie Invasion using research from the RemakeBench/Claude game-building test, then implement the accepted visual uplift batch.
+- ZI-VIS-01 pass 1: added `?showcase=1` as a QA-only locked eye-level hero camera aimed down the village lane.
+- ZI-VIS-01 pass 2: added a clean capture surface that hides HUD/minimap/reticle clutter only in showcase mode.
+- ZI-VIS-01 pass 3: exposed `showcaseMode`, `showcaseTarget`, and `composition=hero-lane-locked` through the render-text hook for deterministic QA.

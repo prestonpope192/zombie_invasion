@@ -79,7 +79,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 ## Commits
 
 - Manifest commit: `52e7dde03c016df7e3b08da2eb5c46559d1c9304`
-- ZI-VIS-01: pending
+- ZI-VIS-01: `pending commit` (working tree; focused test passed)
 - ZI-VIS-02: pending
 - ZI-VIS-03: pending
 - ZI-VIS-04: pending
@@ -100,6 +100,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 - `npm run verify`: passed from this worktree; project validation, 42 test files / 265 tests, production build, dist validation, and PlayCanvas smoke all passed.
 - `PLAYCANVAS_SMOKE_URL=http://127.0.0.1:5191/ npm run smoke:playcanvas`: passed against this worktree; screenshot `output/playcanvas-slice-smoke.png` and render text captured.
 - `curl -I http://127.0.0.1:5191/`: HTTP 200.
+- ZI-VIS-01 browser evidence: `output/qa/zi-vis-01-webgame/shot-0.png` and `shot-1.png`; `state-0.json` / `state-1.json` reported the active PlayCanvas route and the capture run produced no `errors-*.json`.
 - Smoke performance baseline: `perfFpsAvg=26.4`, `perfFrameMsAvg=37.9`, `perfWorstFrameMs=100.0` under the SwiftShader harness.
 - Runtime dependency setup: ignored dependency symlink `node_modules -> /Users/preston/Code/zombie_invasion/node_modules`; no tracked source dependency changes.
 

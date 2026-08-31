@@ -341,6 +341,19 @@ export class PlayCanvasZombieSlice {
     this._viewportResizeSettledTimer = 0;
     this._viewportResizeObserver = null;
     this._lastViewportFrameKey = "";
+    // QA-only hero capture mode. It changes only the presentation camera and
+    // DOM clutter; simulation state, input bindings, and normal gameplay stay
+    // on their existing path.
+    const presentationParams = new URLSearchParams(globalThis.location?.search ?? "");
+    this.showcaseMode = presentationParams.get("showcase") === "1";
+    this.showcaseCamera = {
+      x: 0,
+      y: 1.68,
+      z: 16,
+      yaw: 0,
+      pitch: -6,
+      target: "bell-tower",
+    };
 
     // GLB zombie flag — GLB is the DEFAULT.  Pass ?glb=0 to opt out to the procedural rig.
     // Until the container finishes loading (or if it fails), zombies use the procedural rig
@@ -405,6 +418,7 @@ export class PlayCanvasZombieSlice {
     this._distressEmberLight = null;
 
     this.buildDom();
+    this.root.classList.toggle("is-showcase", this.showcaseMode);
     this.createApp();
     this.createMaterials();
     this.createScene();
@@ -4422,6 +4436,12 @@ export class PlayCanvasZombieSlice {
 
   updateCamera(dt = 0) {
     const player = this.state.player;
+    if (this.showcaseMode) {
+      const pose = this.showcaseCamera;
+      this.camera.setLocalPosition(pose.x, pose.y, pose.z);
+      this.camera.setEulerAngles(pose.pitch, pose.yaw * pc.math.RAD_TO_DEG, 0);
+      return;
+    }
     const eyeHeight = player.crouching ? 1.3 : 1.62;
     const jumpY = player.y ?? 0;
 
@@ -6144,7 +6164,9 @@ export class PlayCanvasZombieSlice {
       return [
         `mode=playcanvas-game`,
         `style=cinematic-low-poly-survival`,
-        `composition=target-village-street`,
+        `composition=${this.showcaseMode ? "hero-lane-locked" : "target-village-street"}`,
+        `showcaseMode=${this.showcaseMode}`,
+        `showcaseTarget=${this.showcaseCamera.target}`,
         `mood=tense-not-too-scary`,
         `phase=${this.state.phase}`,
         `saveVersion=${this.state.version ?? 1}`,
