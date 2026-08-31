@@ -98,6 +98,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 ## Validation evidence
 
 - `npm run verify`: passed from this worktree; project validation, 42 test files / 265 tests, production build, dist validation, and PlayCanvas smoke all passed.
+- Final `npm run verify`: passed; project validation, 43 test files / 267 tests, production build, dist validation, and PlayCanvas smoke all passed.
 - `PLAYCANVAS_SMOKE_URL=http://127.0.0.1:5191/ npm run smoke:playcanvas`: passed against this worktree; screenshot `output/playcanvas-slice-smoke.png` and render text captured.
 - `curl -I http://127.0.0.1:5191/`: HTTP 200.
 - ZI-VIS-01 browser evidence: `output/qa/zi-vis-01-webgame/shot-0.png` and `shot-1.png`; `state-0.json` / `state-1.json` reported the active PlayCanvas route and the capture run produced no `errors-*.json`.
@@ -108,6 +109,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 - ZI-VIS-06 browser evidence: `output/qa/zi-vis-06-webgame/shot-0.png` and `shot-1.png`; inspected capture shows distinct runner/brute silhouettes and no browser error artifact.
 - ZI-VIS-07 evidence: `output/qa/zi-vis-07-smoke.png`; `npm run build` passed and default smoke reported `perfFpsAvg=26.4`, `perfTargetFps=24`, `perfBudgetStatus=pass`, `backbufferPixels=296400`, `backbufferPixelBudget=1800000`.
 - ZI-VIS-08 evidence: `output/qa/visual-showcase/report.json`, `desktop.png`, `mobile.png`, `desktop.json`, and `mobile.json`; `npm run qa:visual` passed all rubric checks with empty error arrays.
+- Final visual QA rerun: `npm run qa:visual` passed both fixed scenarios after the final build; desktop and mobile screenshots were inspected and both reported empty error arrays.
 - Smoke performance baseline: `perfFpsAvg=26.4`, `perfFrameMsAvg=37.9`, `perfWorstFrameMs=100.0` under the SwiftShader harness.
 - Runtime dependency setup: ignored dependency symlink `node_modules -> /Users/preston/Code/zombie_invasion/node_modules`; no tracked source dependency changes.
 
@@ -120,4 +122,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 
 ## Closeout
 
-- Closeout integration SHA:
+- Closeout integration SHA: `48f892e`
+- All eight feature commits are present on `codex/bulk-zombie-visual-showcase-20260830`; integration into another branch remains unperformed by design.
+- Legacy-route smoke was not run because no legacy route, shared contract, or shared configuration was changed.
+- Hosted/phone/device-provider proof: unavailable; deployment and external-state mutation were not authorized.
