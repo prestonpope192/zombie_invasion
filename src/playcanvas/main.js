@@ -200,8 +200,11 @@ const MATERIALS = {
   weatheredWood: { diffuse: [0.31, 0.24, 0.18], emissive: [0.012, 0.009, 0.006], roughness: 0.95 },
   timber: { diffuse: [0.16, 0.095, 0.052], emissive: [0.007, 0.004, 0.002], roughness: 0.92 },
   houseWall: { diffuse: [0.46, 0.43, 0.38], emissive: [0.014, 0.015, 0.015], roughness: 0.94 },
+  plasterWarm: { diffuse: [0.58, 0.49, 0.39], emissive: [0.018, 0.014, 0.011], roughness: 0.96 },
+  plasterCool: { diffuse: [0.34, 0.39, 0.42], emissive: [0.012, 0.015, 0.018], roughness: 0.96 },
   plasterShadow: { diffuse: [0.34, 0.32, 0.29], emissive: [0.008, 0.008, 0.007], roughness: 0.96 },
   roof: { diffuse: [0.31, 0.105, 0.07], emissive: [0.008, 0.003, 0.002], roughness: 0.94 },
+  roofAccent: { diffuse: [0.43, 0.16, 0.08], emissive: [0.014, 0.004, 0.002], roughness: 0.9 },
   roofDark: { diffuse: [0.19, 0.15, 0.15], emissive: [0.006, 0.005, 0.005], roughness: 0.94 },
   roofEdge: { diffuse: [0.095, 0.055, 0.04], emissive: [0.004, 0.002, 0.001], roughness: 0.96 },
   doorSafe: { diffuse: [0.72, 0.34, 0.12], emissive: [0.14, 0.06, 0.018], roughness: 0.65 },
@@ -234,6 +237,8 @@ const MATERIALS = {
   pumpkin: { diffuse: [0.98, 0.42, 0.08], emissive: [0.38, 0.12, 0.015], roughness: 0.68 },
   pine: { diffuse: [0.06, 0.14, 0.1], emissive: [0.005, 0.016, 0.016], roughness: 0.92 },
   stone: { diffuse: [0.45, 0.42, 0.36], emissive: [0.035, 0.035, 0.035], roughness: 0.86 },
+  stoneMoss: { diffuse: [0.27, 0.34, 0.29], emissive: [0.018, 0.026, 0.019], roughness: 0.9 },
+  roadDry: { diffuse: [0.30, 0.21, 0.14], emissive: [0.016, 0.010, 0.006], roughness: 0.9 },
   stoneDark: { diffuse: [0.3, 0.29, 0.26], emissive: [0.018, 0.018, 0.016], roughness: 0.9 },
   lanternPool: { diffuse: [0.56, 0.25, 0.08], emissive: [0.16, 0.055, 0.012], roughness: 1, opacity: 0.22, blend: "additive" },
   groundMist: { diffuse: [0.32, 0.44, 0.64], emissive: [0.06, 0.11, 0.20], roughness: 1, opacity: 0.16 },
@@ -1198,6 +1203,7 @@ export class PlayCanvasZombieSlice {
     for (let z = -48; z <= 18; z += 5.5) {
       this.addPrimitive(`lane-stone-${z}`, "box", [Math.sin(z) * 2.9, 0.02, z], [1.25, 0.05, 0.36], "stone").setEulerAngles(0, z * 7, 0);
       this.addPrimitive(`mud-shine-${z}`, "box", [Math.cos(z * 0.4) * 1.9, 0.025, z + 1.3], [1.7, 0.035, 0.22], z % 11 === 0 ? "mudHighlight" : "wetRoad").setEulerAngles(0, z * 9, 0);
+      this.addPrimitive(`mud-dry-${z}`, "box", [Math.sin(z * 0.28) * 1.4, 0.026, z - 1.1], [0.9, 0.032, 0.28], "roadDry").setEulerAngles(0, z * 5, 0);
     }
     for (let z = -52; z <= 24; z += 3.8) {
       const seam = this.addPrimitive(`lane-rut-${z}`, "box", [-2.8 + Math.sin(z * 0.6) * 0.18, 0.032, z], [0.08, 0.035, 2.6], "wetRoad");
@@ -1385,6 +1391,7 @@ export class PlayCanvasZombieSlice {
     const intactRoot = this.createEnvironmentModule(`${structureId}-intact`, [0, 0, 0]);
     this.minimapStructures.push({ id: structureId, x, z, sx, sz, kind: "building" });
     this.addPrimitive(`${name}-body`, "box", [x, sy / 2, z], [sx, sy, sz], "houseWall", intactRoot);
+    this.addFacadeSurfaceDetail(name, x, z, sx, sy, sz, index, intactRoot);
     this.addPrimitive(`${name}-foundation`, "box", [x, 0.22, z + sz / 2 + 0.035], [sx * 0.96, 0.42, 0.16], "stoneDark", intactRoot);
     this.addPrimitive(`${name}-plaster-patch-a`, "box", [x - side * sx * 0.08, sy * 0.42, z + sz / 2 + 0.062], [sx * 0.28, sy * 0.34, 0.045], "plasterShadow", intactRoot);
     this.addPrimitive(`${name}-plaster-patch-b`, "box", [x + side * sx * 0.26, sy * 0.28, z + sz / 2 + 0.064], [sx * 0.18, sy * 0.22, 0.045], "plasterShadow", intactRoot);
@@ -1409,6 +1416,23 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`${name}-wheel-b`, "cylinder", [x - side * 1.35, 0.35, z + sz / 2 + 1.78], [0.34, 0.08, 0.34], "timber", intactRoot).setEulerAngles(90, 0, 0);
     }
     this.createVillageStructureDamageVisuals(structureId, intactRoot);
+  }
+
+  addFacadeSurfaceDetail(name, x, z, sx, sy, sz, index, parent) {
+    const facadeZ = z + sz * 0.5 + 0.068;
+    const panelWidth = Math.max(0.22, sx * 0.17);
+    const panelHeight = sy * 0.3;
+    const panelY = sy * (0.23 + (index % 2) * 0.12);
+    const panelXs = [-0.31, 0.28].map((offset) => x + offset * sx);
+    panelXs.forEach((panelX, panelIndex) => {
+      const materialKey = (index + panelIndex) % 3 === 0 ? "plasterCool" : "plasterWarm";
+      this.addPrimitive(`${name}-plaster-panel-${panelIndex}`, "box", [panelX, panelY, facadeZ], [panelWidth, panelHeight, 0.035], materialKey, parent);
+    });
+    for (let stoneIndex = 0; stoneIndex < 3; stoneIndex += 1) {
+      const stoneX = x - sx * 0.38 + stoneIndex * sx * 0.36;
+      const stoneKey = (index + stoneIndex) % 2 === 0 ? "stone" : "stoneMoss";
+      this.addPrimitive(`${name}-foundation-stone-${stoneIndex}`, "box", [stoneX, 0.29, z + sz * 0.5 + 0.13], [sx * 0.22, 0.19, 0.2], stoneKey, parent).setEulerAngles(0, (index + stoneIndex) * 11, 0);
+    }
   }
 
   addWindowFrame(name, x, y, z, width, height, parent = this.app.root) {

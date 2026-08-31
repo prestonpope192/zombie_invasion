@@ -2860,3 +2860,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-02 pass 1: introduced an environment-module registry and reusable road, house, tower, lantern, and fence module roots.
 - ZI-VIS-02 pass 2: moved village road, fence, lantern, and structure construction onto those module roots without changing collision coordinates.
 - ZI-VIS-02 pass 3: focused PlayCanvas simulation tests and the showcase browser capture passed; the modular scene remained visually stable.
+- ZI-VIS-03 pass 1: added warm/cool plaster, roof accent, moss stone, dry mud, and road material variants.
+- ZI-VIS-03 pass 2: added authored facade panels, foundation stones, and dry-lane surface marks to break broad flat planes.
+- ZI-VIS-03 pass 3: inspected the new showcase screenshot and reran focused PlayCanvas coverage; no geometry regression was observed.

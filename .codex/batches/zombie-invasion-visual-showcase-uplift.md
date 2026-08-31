@@ -80,8 +80,8 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 
 - Manifest commit: `52e7dde03c016df7e3b08da2eb5c46559d1c9304`
 - ZI-VIS-01: `411cdff`
-- ZI-VIS-02: `pending commit` (working tree; focused test and browser capture passed)
-- ZI-VIS-03: pending
+- ZI-VIS-02: `aee4290`
+- ZI-VIS-03: `pending commit` (working tree; focused test and browser capture passed)
 - ZI-VIS-04: pending
 - ZI-VIS-05: pending
 - ZI-VIS-06: pending
@@ -102,6 +102,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 - `curl -I http://127.0.0.1:5191/`: HTTP 200.
 - ZI-VIS-01 browser evidence: `output/qa/zi-vis-01-webgame/shot-0.png` and `shot-1.png`; `state-0.json` / `state-1.json` reported the active PlayCanvas route and the capture run produced no `errors-*.json`.
 - ZI-VIS-02 browser evidence: `output/qa/zi-vis-02-webgame/shot-0.png` and `state-0.json`; focused `test/playcanvas_slice.test.js` passed (118 tests) with no browser error artifact.
+- ZI-VIS-03 browser evidence: `output/qa/zi-vis-03-webgame/shot-0.png` and `state-0.json`; focused `test/playcanvas_slice.test.js` passed (118 tests) with no browser error artifact.
 - Smoke performance baseline: `perfFpsAvg=26.4`, `perfFrameMsAvg=37.9`, `perfWorstFrameMs=100.0` under the SwiftShader harness.
 - Runtime dependency setup: ignored dependency symlink `node_modules -> /Users/preston/Code/zombie_invasion/node_modules`; no tracked source dependency changes.
 
