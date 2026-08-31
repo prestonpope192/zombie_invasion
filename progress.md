@@ -2857,3 +2857,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-01 pass 1: added `?showcase=1` as a QA-only locked eye-level hero camera aimed down the village lane.
 - ZI-VIS-01 pass 2: added a clean capture surface that hides HUD/minimap/reticle clutter only in showcase mode.
 - ZI-VIS-01 pass 3: exposed `showcaseMode`, `showcaseTarget`, and `composition=hero-lane-locked` through the render-text hook for deterministic QA.
+- ZI-VIS-02 pass 1: introduced an environment-module registry and reusable road, house, tower, lantern, and fence module roots.
+- ZI-VIS-02 pass 2: moved village road, fence, lantern, and structure construction onto those module roots without changing collision coordinates.
+- ZI-VIS-02 pass 3: focused PlayCanvas simulation tests and the showcase browser capture passed; the modular scene remained visually stable.

@@ -314,6 +314,7 @@ export class PlayCanvasZombieSlice {
     this.entitiesByWindow = new Map();
     this.entitiesByImpact = new Map();
     this.villageStructureVisuals = new Map();
+    this.environmentModules = new Map();
     this.ordnanceEntitiesById = new Map();
     this.fx = [];
     // ?fxslow=1 — stretches shot-FX lifetimes 10x for screenshot capture; always off in prod
@@ -1187,8 +1188,8 @@ export class PlayCanvasZombieSlice {
   }
 
   addGround() {
-    this.addPrimitive("ground", "box", [0, -0.08, -15], [70, 0.12, 104], "ground");
-    this.addPrimitive("mud-lane", "box", [0, -0.03, -13], [9.4, 0.04, 88], "road");
+    this.addRoadModule("ground", 0, -15, 70, 104, "ground", -0.08, 0.12);
+    this.addRoadModule("mud-lane", 0, -13, 9.4, 88, "road", -0.03, 0.04);
     // Grass shoulder strips either side of the mud lane — break the flat plane
     this.addPrimitive("grass-left",  "box", [-8.8, -0.04, -13], [6.8, 0.03, 88], "grassDark");
     this.addPrimitive("grass-right", "box", [ 8.8, -0.04, -13], [6.8, 0.03, 88], "grassDark");
@@ -1240,6 +1241,21 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`pumpkin-${i}`, "sphere", [x, 0.28, z], [0.48, 0.32, 0.42], "pumpkin");
       this.addPrimitive(`crate-${i}`, "box", [x + side * 0.78, 0.34, z - 0.45], [0.62, 0.68, 0.62], "wood").setEulerAngles(0, i * 19, 0);
     }
+  }
+
+  createEnvironmentModule(name, position = [0, 0, 0]) {
+    const module = new pc.Entity(name);
+    module.setLocalPosition(position[0], position[1], position[2]);
+    module._environmentModule = name;
+    this.app.root.addChild(module);
+    this.environmentModules.set(name, module);
+    return module;
+  }
+
+  addRoadModule(name, x, z, width, length, materialKey, y = 0, thickness = 0.04) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    this.addPrimitive(`${name}-surface`, "box", [0, y, 0], [width, thickness, length], materialKey, module);
+    return module;
   }
 
   addBuildingInteriors() {
@@ -1345,8 +1361,7 @@ export class PlayCanvasZombieSlice {
   }
 
   addBellTower(x, z, structureId) {
-    const intactRoot = new pc.Entity(`${structureId}-intact`);
-    this.app.root.addChild(intactRoot);
+    const intactRoot = this.createEnvironmentModule(`${structureId}-intact`, [0, 0, 0]);
     // Wall rises to ~6.0 so the roof eaves (≈6.05) cap it directly — previously
     // the wall stopped at 4.8 while the roof sat at 6.6, leaving the roof
     // floating above a ~1.2m sky gap.
@@ -1367,8 +1382,7 @@ export class PlayCanvasZombieSlice {
 
   addHouseFacade(name, x, z, sx, sy, sz, index, structureId) {
     const side = Math.sign(x) || 1;
-    const intactRoot = new pc.Entity(`${structureId}-intact`);
-    this.app.root.addChild(intactRoot);
+    const intactRoot = this.createEnvironmentModule(`${structureId}-intact`, [0, 0, 0]);
     this.minimapStructures.push({ id: structureId, x, z, sx, sz, kind: "building" });
     this.addPrimitive(`${name}-body`, "box", [x, sy / 2, z], [sx, sy, sz], "houseWall", intactRoot);
     this.addPrimitive(`${name}-foundation`, "box", [x, 0.22, z + sz / 2 + 0.035], [sx * 0.96, 0.42, 0.16], "stoneDark", intactRoot);
@@ -1635,24 +1649,32 @@ export class PlayCanvasZombieSlice {
       const sideName = side < 0 ? "left" : "right";
       const x = side * VILLAGE_FENCE_X;
       for (const [segmentIndex, segment] of VILLAGE_FENCE_SEGMENTS.entries()) {
-        const length = segment.maxZ - segment.minZ;
-        const centerZ = (segment.minZ + segment.maxZ) * 0.5;
-        for (const [rail, ry] of [["top", 1.04], ["mid", 0.58]]) {
-          this.addPrimitive(`fence-${rail}-${sideName}-${segmentIndex}`, "box", [x, ry, centerZ], [0.16, 0.2, length], "wood");
-        }
-        const postCount = Math.max(1, Math.ceil(length / 4));
-        for (let postIndex = 0; postIndex <= postCount; postIndex += 1) {
-          const z = segment.minZ + (length * postIndex) / postCount;
-          this.addPrimitive(`fence-${sideName}-${segmentIndex}-${postIndex}`, "box", [x, 0.72, z], [0.26, 1.25, 0.28], "wood");
-          this.addPrimitive(`fence-cap-${sideName}-${segmentIndex}-${postIndex}`, "box", [x, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood");
-        }
+        this.addFenceModule(sideName, segmentIndex, x, segment);
       }
     }
   }
 
+  addFenceModule(sideName, segmentIndex, x, segment) {
+    const module = this.createEnvironmentModule(`fence-module-${sideName}-${segmentIndex}`, [x, 0, 0]);
+    const length = segment.maxZ - segment.minZ;
+    const centerZ = (segment.minZ + segment.maxZ) * 0.5;
+    module.setLocalPosition(x, 0, centerZ);
+    for (const [rail, ry] of [["top", 1.04], ["mid", 0.58]]) {
+      this.addPrimitive(`fence-${rail}-${sideName}-${segmentIndex}`, "box", [0, ry, 0], [0.16, 0.2, length], "wood", module);
+    }
+    const postCount = Math.max(1, Math.ceil(length / 4));
+    for (let postIndex = 0; postIndex <= postCount; postIndex += 1) {
+      const z = (length * postIndex) / postCount - length * 0.5;
+      this.addPrimitive(`fence-${sideName}-${segmentIndex}-${postIndex}`, "box", [0, 0.72, z], [0.26, 1.25, 0.28], "wood", module);
+      this.addPrimitive(`fence-cap-${sideName}-${segmentIndex}-${postIndex}`, "box", [0, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood", module);
+    }
+    return module;
+  }
+
   addLantern(x, y, z) {
-    this.addPrimitive(`lantern-${x}-${z}`, "sphere", [x, y, z], [0.22, 0.22, 0.22], "lantern");
-    this.addPrimitive(`lantern-pool-${x}-${z}`, "cylinder", [x, 0.035, z], [2.4, 0.018, 2.4], "lanternPool");
+    const module = this.createEnvironmentModule(`lantern-module-${x}-${z}`, [x, 0, z]);
+    this.addPrimitive(`lantern-${x}-${z}`, "sphere", [0, y, 0], [0.22, 0.22, 0.22], "lantern", module);
+    this.addPrimitive(`lantern-pool-${x}-${z}`, "cylinder", [0, 0.035, 0], [2.4, 0.018, 2.4], "lanternPool", module);
     const light = new pc.Entity(`lantern-light-${x}-${z}`);
     light.addComponent("light", {
       type: "omni",
@@ -1661,8 +1683,8 @@ export class PlayCanvasZombieSlice {
       range: 7.5,
       castShadows: false,
     });
-    light.setLocalPosition(x, y, z);
-    this.app.root.addChild(light);
+    light.setLocalPosition(0, y, 0);
+    module.addChild(light);
   }
 
   createWeaponModel() {
