@@ -86,7 +86,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 - ZI-VIS-05: `35a10a4`
 - ZI-VIS-06: `06f80b3`
 - ZI-VIS-07: `a78d53d`
-- ZI-VIS-08: `pending commit` (working tree; visual QA harness passed)
+- ZI-VIS-08: `f6683f1`
 
 ## Deferred work
 
