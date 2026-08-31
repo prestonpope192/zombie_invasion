@@ -82,8 +82,8 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 - ZI-VIS-01: `411cdff`
 - ZI-VIS-02: `aee4290`
 - ZI-VIS-03: `70c0c82`
-- ZI-VIS-04: `pending commit` (working tree; focused test and browser capture passed)
-- ZI-VIS-05: pending
+- ZI-VIS-04: `51e1763`
+- ZI-VIS-05: `pending commit` (working tree; focused test and browser capture passed)
 - ZI-VIS-06: pending
 - ZI-VIS-07: pending
 - ZI-VIS-08: pending
@@ -104,6 +104,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 - ZI-VIS-02 browser evidence: `output/qa/zi-vis-02-webgame/shot-0.png` and `state-0.json`; focused `test/playcanvas_slice.test.js` passed (118 tests) with no browser error artifact.
 - ZI-VIS-03 browser evidence: `output/qa/zi-vis-03-webgame/shot-0.png` and `state-0.json`; focused `test/playcanvas_slice.test.js` passed (118 tests) with no browser error artifact.
 - ZI-VIS-04 browser evidence: `output/qa/zi-vis-04-webgame/shot-0.png` and `shot-1.png`; `state-*.json` include `lightingProfile=cool-moon-warm-lantern`, with no browser error artifact.
+- ZI-VIS-05 browser evidence: `output/qa/zi-vis-05-webgame/shot-0.png` and `shot-1.png`; the dressed lane is visible in the inspected capture and the run produced no browser error artifact.
 - Smoke performance baseline: `perfFpsAvg=26.4`, `perfFrameMsAvg=37.9`, `perfWorstFrameMs=100.0` under the SwiftShader harness.
 - Runtime dependency setup: ignored dependency symlink `node_modules -> /Users/preston/Code/zombie_invasion/node_modules`; no tracked source dependency changes.
 

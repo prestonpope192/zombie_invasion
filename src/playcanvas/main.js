@@ -1679,6 +1679,8 @@ export class PlayCanvasZombieSlice {
       this.addPrimitive(`grass-tuft-${i}`, "cone", [x, sy * 0.5, z], [sx, sy, sx], "grassDark");
     }
 
+    this.addEnvironmentalDressing();
+
     // Split fence runs leave three authored gates on each side. Zombies route
     // through the gate nearest their selected structure, and the player can
     // use the same openings to rotate between threatened buildings.
@@ -1704,6 +1706,82 @@ export class PlayCanvasZombieSlice {
       const z = (length * postIndex) / postCount - length * 0.5;
       this.addPrimitive(`fence-${sideName}-${segmentIndex}-${postIndex}`, "box", [0, 0.72, z], [0.26, 1.25, 0.28], "wood", module);
       this.addPrimitive(`fence-cap-${sideName}-${segmentIndex}-${postIndex}`, "box", [0, 1.38, z], [0.34, 0.12, 0.36], "weatheredWood", module);
+    }
+    return module;
+  }
+
+  addEnvironmentalDressing() {
+    this.addBarrelModule("foreground-barrel", -4.65, 7.2, 0.92);
+    this.addCartModule("foreground-cart", 4.55, 6.2, 0.88);
+    this.addHayBaleModule("foreground-hay", -5.2, 3.5, 0.72);
+    this.addSignModule("midground-sign", 5.35, -1.8, "VILLAGE");
+    this.addCrateStackModule("midground-crates", -5.1, -1.2, 2);
+    this.addRubbleClusterModule("midground-rubble-left", -4.2, -4.4, 5);
+    this.addRubbleClusterModule("midground-rubble-right", 4.1, -5.6, 4);
+    for (const [index, x] of [-4.2, -2.9, 2.9, 4.2].entries()) {
+      this.addPrimitive(`background-pumpkin-${index}`, "sphere", [x, 0.24, -8.3 - (index % 2) * 0.7], [0.42, 0.28, 0.36], "pumpkin");
+    }
+  }
+
+  addBarrelModule(name, x, z, scale = 1) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    this.addPrimitive(`${name}-body`, "cylinder", [0, 0.55 * scale, 0], [0.52 * scale, 1.1 * scale, 0.52 * scale], "wood", module);
+    for (const y of [0.2, 0.55, 0.9]) {
+      this.addPrimitive(`${name}-band-${y}`, "cylinder", [0, y * scale, 0], [0.56 * scale, 0.06 * scale, 0.56 * scale], "metal", module);
+    }
+    this.addPrimitive(`${name}-top`, "cylinder", [0, 1.12 * scale, 0], [0.47 * scale, 0.08 * scale, 0.47 * scale], "weatheredWood", module);
+    module.setEulerAngles(0, -11, 0);
+    return module;
+  }
+
+  addCartModule(name, x, z, scale = 1) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    this.addPrimitive(`${name}-bed`, "box", [0, 0.54 * scale, 0], [2.0 * scale, 0.48 * scale, 0.9 * scale], "wood", module);
+    this.addPrimitive(`${name}-rim`, "box", [0, 0.86 * scale, -0.02], [2.1 * scale, 0.12 * scale, 1.02 * scale], "weatheredWood", module);
+    for (const wheelX of [-0.78, 0.78]) {
+      this.addPrimitive(`${name}-wheel-${wheelX}`, "cylinder", [wheelX * scale, 0.34 * scale, 0.58 * scale], [0.36 * scale, 0.11 * scale, 0.36 * scale], "timber", module).setLocalEulerAngles(90, 0, 0);
+    }
+    this.addPrimitive(`${name}-handle`, "box", [0, 0.88 * scale, -0.92 * scale], [0.15 * scale, 0.15 * scale, 1.25 * scale], "wood", module).setLocalEulerAngles(12, 0, 0);
+    module.setEulerAngles(0, 18, 0);
+    return module;
+  }
+
+  addHayBaleModule(name, x, z, scale = 1) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    this.addPrimitive(`${name}-bale`, "box", [0, 0.42 * scale, 0], [1.15 * scale, 0.82 * scale, 0.78 * scale], "mudHighlight", module);
+    for (const offset of [-0.28, 0.28]) {
+      this.addPrimitive(`${name}-wrap-${offset}`, "box", [offset * scale, 0.42 * scale, -0.02], [0.06 * scale, 0.86 * scale, 0.84 * scale], "weatheredWood", module);
+    }
+    return module;
+  }
+
+  addSignModule(name, x, z, label) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    this.addPrimitive(`${name}-post`, "cylinder", [0, 0.95, 0], [0.09, 1.9, 0.09], "timber", module);
+    this.addPrimitive(`${name}-board`, "box", [0, 1.7, 0], [1.5, 0.58, 0.12], "weatheredWood", module);
+    this.addPrimitive(`${name}-marker`, "box", [0, 1.7, -0.08], [0.75, 0.06, 0.03], "lantern", module);
+    module.setEulerAngles(0, -9, 0);
+    module._signLabel = label;
+    return module;
+  }
+
+  addCrateStackModule(name, x, z, count = 2) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    for (let index = 0; index < count; index += 1) {
+      const offsetX = (index % 2) * 0.62 - 0.3;
+      const offsetZ = Math.floor(index / 2) * 0.58;
+      this.addPrimitive(`${name}-${index}`, "box", [offsetX, 0.34 + Math.floor(index / 2) * 0.58, offsetZ], [0.62, 0.62, 0.62], index % 2 ? "wood" : "weatheredWood", module).setEulerAngles(0, index * 17, 0);
+    }
+    return module;
+  }
+
+  addRubbleClusterModule(name, x, z, count = 4) {
+    const module = this.createEnvironmentModule(name, [x, 0, z]);
+    for (let index = 0; index < count; index += 1) {
+      const angle = index * 1.9;
+      const radius = 0.35 + (index % 2) * 0.24;
+      const scale = 0.24 + (index % 3) * 0.1;
+      this.addPrimitive(`${name}-${index}`, "box", [Math.cos(angle) * radius, scale * 0.45, Math.sin(angle) * radius], [scale * 1.7, scale, scale * 1.2], index % 2 ? "stoneMoss" : "rubbleDark", module).setEulerAngles(index * 17, index * 31, index * 9);
     }
     return module;
   }

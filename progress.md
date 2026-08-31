@@ -2866,3 +2866,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-04 pass 1: separated showcase lighting from normal play with a cooler moon key, lower ambient fill, and warmer lantern pools.
 - ZI-VIS-04 pass 2: tightened showcase fog/exposure and added a deterministic, reduced-motion-aware lantern flicker.
 - ZI-VIS-04 pass 3: inspected the final lighting capture and reran focused simulation/browser checks; scene silhouettes stayed readable.
+- ZI-VIS-05 pass 1: added off-lane foreground scale anchors (barrel, cart, hay bale).
+- ZI-VIS-05 pass 2: added midground sign, crate stacks, rubble clusters, and background pumpkin accents.
+- ZI-VIS-05 pass 3: inspected the dressed lane capture and reran focused simulation/browser checks; the central objective stayed unobstructed.
