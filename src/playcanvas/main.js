@@ -365,7 +365,11 @@ export class PlayCanvasZombieSlice {
     // GLB zombie flag — GLB is the DEFAULT.  Pass ?glb=0 to opt out to the procedural rig.
     // Until the container finishes loading (or if it fails), zombies use the procedural rig
     // automatically — glbContainer stays null and createZombieEntity falls back gracefully.
-    this.useGlbZombies = new URLSearchParams(globalThis.location?.search ?? "").get("glb") !== "0";
+    const glbParam = new URLSearchParams(globalThis.location?.search ?? "").get("glb");
+    // The clean hero frame defaults to the authored procedural silhouettes so
+    // its QA output is stable while the normal game keeps the existing GLB
+    // default. `showcase=1&glb=1` remains available for asset comparison.
+    this.useGlbZombies = this.showcaseMode ? glbParam === "1" : glbParam !== "0";
     /** @type {pc.Asset|null} */
     this.glbContainer = null;
 
@@ -1154,6 +1158,9 @@ export class PlayCanvasZombieSlice {
     this.addVillage();
     this.addBuildingInteriors();
     this.addLaneDressing();
+    if (this.showcaseMode) {
+      this.addShowcaseEnemyStaging();
+    }
     this.createWeaponModel();
     this.createGearVisuals();
     this.createShotFxPool();
@@ -1720,6 +1727,30 @@ export class PlayCanvasZombieSlice {
     this.addRubbleClusterModule("midground-rubble-right", 4.1, -5.6, 4);
     for (const [index, x] of [-4.2, -2.9, 2.9, 4.2].entries()) {
       this.addPrimitive(`background-pumpkin-${index}`, "sphere", [x, 0.24, -8.3 - (index % 2) * 0.7], [0.42, 0.28, 0.36], "pumpkin");
+    }
+  }
+
+  addShowcaseEnemyStaging() {
+    const staged = [
+      { id: "showcase-runner", type: "runner", x: -3.2, z: -2.4, yaw: 12 },
+      { id: "showcase-brute", type: "brute", x: 3.5, z: -6.8, yaw: -16 },
+    ];
+    this.showcaseEnemies = staged.map((zombie) => {
+      const entity = createZombieRig(this.app, this.materials, zombie);
+      entity.setLocalPosition(zombie.x, 0, zombie.z);
+      entity.setLocalEulerAngles(0, zombie.yaw, 0);
+      entity.setLocalScale(zombie.type === "brute" ? 1.08 : 0.98, zombie.type === "brute" ? 1.08 : 0.98, zombie.type === "brute" ? 1.08 : 0.98);
+      entity._showcaseZombie = zombie;
+      return entity;
+    });
+  }
+
+  updateShowcaseEnemyStaging() {
+    if (!this.showcaseEnemies?.length) return;
+    for (const entity of this.showcaseEnemies) {
+      const zombie = entity._showcaseZombie;
+      animateZombieRig(entity, zombie, this.state.elapsedSec);
+      applyZombieRigMaterials(entity, this.materials, zombie.type === "brute" ? "bruteFlesh" : "runnerFlesh", entity._rig?.shirtMatKey ?? "zombieShirtGrey", false);
     }
   }
 
@@ -4538,6 +4569,7 @@ export class PlayCanvasZombieSlice {
       this.villageFlashOverlay.style.opacity = String(this.villageDamageFlashSec * 2.2);
     }
     this.updateCamera(frameDt);
+    this.updateShowcaseEnemyStaging();
     this._updateSky(frameDt);
     this._updateAtmosphere(frameDt);
     this.updateAudioState(frameDt);

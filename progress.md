@@ -2869,3 +2869,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-05 pass 1: added off-lane foreground scale anchors (barrel, cart, hay bale).
 - ZI-VIS-05 pass 2: added midground sign, crate stacks, rubble clusters, and background pumpkin accents.
 - ZI-VIS-05 pass 3: inspected the dressed lane capture and reran focused simulation/browser checks; the central objective stayed unobstructed.
+- ZI-VIS-06 pass 1: made showcase captures default to the stable procedural enemy rig while retaining the normal GLB default outside capture mode.
+- ZI-VIS-06 pass 2: staged a slim runner and broad brute at separate lane depths and animated both with the existing rig system.
+- ZI-VIS-06 pass 3: inspected the enemy capture for silhouette separation and objective readability; both variants read without blocking the bell tower.
