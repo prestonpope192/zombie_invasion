@@ -2863,3 +2863,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-03 pass 1: added warm/cool plaster, roof accent, moss stone, dry mud, and road material variants.
 - ZI-VIS-03 pass 2: added authored facade panels, foundation stones, and dry-lane surface marks to break broad flat planes.
 - ZI-VIS-03 pass 3: inspected the new showcase screenshot and reran focused PlayCanvas coverage; no geometry regression was observed.
+- ZI-VIS-04 pass 1: separated showcase lighting from normal play with a cooler moon key, lower ambient fill, and warmer lantern pools.
+- ZI-VIS-04 pass 2: tightened showcase fog/exposure and added a deterministic, reduced-motion-aware lantern flicker.
+- ZI-VIS-04 pass 3: inspected the final lighting capture and reran focused simulation/browser checks; scene silhouettes stayed readable.

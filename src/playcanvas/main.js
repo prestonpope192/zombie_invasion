@@ -320,6 +320,7 @@ export class PlayCanvasZombieSlice {
     this.entitiesByImpact = new Map();
     this.villageStructureVisuals = new Map();
     this.environmentModules = new Map();
+    this.lanternLights = [];
     this.ordnanceEntitiesById = new Map();
     this.fx = [];
     // ?fxslow=1 — stretches shot-FX lifetimes 10x for screenshot capture; always off in prod
@@ -919,14 +920,16 @@ export class PlayCanvasZombieSlice {
     this.app.setCanvasFillMode(pc.FILLMODE_NONE);
     this.app.setCanvasResolution(pc.RESOLUTION_AUTO);
     this.app.graphicsDevice.maxPixelRatio = this.getRenderPixelRatio(this.viewportMetrics.width, this.viewportMetrics.height);
-    this.app.scene.exposure = 1.48;
-    this.app.scene.ambientLight = new pc.Color(0.12, 0.17, 0.26);
+    this.app.scene.exposure = this.showcaseMode ? 1.28 : 1.48;
+    this.app.scene.ambientLight = this.showcaseMode
+      ? new pc.Color(0.085, 0.12, 0.19)
+      : new pc.Color(0.12, 0.17, 0.26);
     // Task 1: Distance fog — linear, night-sky colour, houses at 30-50m soften into dark
     // Fog start pushed to 42 so zombies at 25-40m are clear; end 95 keeps far background dark.
     this.app.scene.fog.type = pc.FOG_LINEAR;
     this.app.scene.fog.color = new pc.Color(0.04, 0.10, 0.22);
-    this.app.scene.fog.start = 42;
-    this.app.scene.fog.end = 95;
+    this.app.scene.fog.start = this.qualityProfileKey === "mobile_low" ? 34 : 42;
+    this.app.scene.fog.end = this.showcaseMode ? 86 : 95;
     this.syncViewportFrame();
     this.app.start();
     // Hide the boot overlay on the first rendered frame — the canvas is live at this point.
@@ -1108,7 +1111,7 @@ export class PlayCanvasZombieSlice {
     moon.addComponent("light", {
       type: "directional",
       color: new pc.Color(0.75, 0.86, 1),
-      intensity: 2.6,
+      intensity: this.showcaseMode ? 2.35 : 2.6,
       castShadows: this.qualityProfile?.shadows ?? true,
       shadowDistance: 72,
       shadowResolution: shadowRes,
@@ -1121,11 +1124,12 @@ export class PlayCanvasZombieSlice {
     fillLight.addComponent("light", {
       type: "directional",
       color: new pc.Color(0.22, 0.35, 0.58),
-      intensity: 0.55,
+      intensity: this.showcaseMode ? 0.36 : 0.55,
       castShadows: false,
     });
     fillLight.setEulerAngles(55, 210, 0);
     this.app.root.addChild(fillLight);
+    this.skyFillLight = fillLight;
 
     // Cool upward street light — comes from low angle in front of zombies (+Z side, low pitch).
     // Mimics a street-lamp-like uplight: catches the underside of faces/chests, strong silhouette.
@@ -1133,12 +1137,13 @@ export class PlayCanvasZombieSlice {
     rimLight.addComponent("light", {
       type: "directional",
       color: new pc.Color(0.38, 0.58, 0.95),
-      intensity: 0.55,
+      intensity: this.showcaseMode ? 0.66 : 0.55,
       castShadows: false,
     });
     // Pitch 22° from below, yaw 0 (light comes from +Z side toward -Z — hits zombie fronts as they approach)
     rimLight.setEulerAngles(22, 0, 0);
     this.app.root.addChild(rimLight);
+    this.zombieRimLight = rimLight;
 
     this.addSkyLayers();
     this.addPrimitive("moon-disc", "sphere", [0, 27, -72], [4.8, 4.8, 4.8], "moon");
@@ -1317,6 +1322,14 @@ export class PlayCanvasZombieSlice {
   // no per-frame material.update(). Factor eases over ~2s each way.
   _updateAtmosphere(dt) {
     if (!(dt > 0)) return;
+    this._lanternTimeSec = (this._lanternTimeSec ?? 0) + dt;
+    if (this.lanternLights?.length && !this._reducedMotion) {
+      for (let index = 0; index < this.lanternLights.length; index += 1) {
+        const light = this.lanternLights[index];
+        const flicker = 0.94 + Math.sin(this._lanternTimeSec * (5.2 + index * 0.11) + index * 1.7) * 0.045;
+        light.light.intensity = light._baseLanternIntensity * flicker;
+      }
+    }
     let bossAlive = this.state.phase === "secret_boss";
     if (!bossAlive) {
       for (const z of this.state.zombies) {
@@ -1703,12 +1716,14 @@ export class PlayCanvasZombieSlice {
     light.addComponent("light", {
       type: "omni",
       color: new pc.Color(1, 0.52, 0.22),
-      intensity: 2.6,
+      intensity: this.showcaseMode ? 3.15 : 2.6,
       range: 7.5,
       castShadows: false,
     });
     light.setLocalPosition(0, y, 0);
     module.addChild(light);
+    light._baseLanternIntensity = this.showcaseMode ? 3.15 : 2.6;
+    this.lanternLights.push(light);
   }
 
   createWeaponModel() {
@@ -6213,6 +6228,7 @@ export class PlayCanvasZombieSlice {
         `composition=${this.showcaseMode ? "hero-lane-locked" : "target-village-street"}`,
         `showcaseMode=${this.showcaseMode}`,
         `showcaseTarget=${this.showcaseCamera.target}`,
+        `lightingProfile=${this.showcaseMode ? "cool-moon-warm-lantern" : "night-survival"}`,
         `mood=tense-not-too-scary`,
         `phase=${this.state.phase}`,
         `saveVersion=${this.state.version ?? 1}`,
