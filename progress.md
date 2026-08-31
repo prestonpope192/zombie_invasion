@@ -2886,3 +2886,12 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - Final artifacts: `output/qa/visual-showcase/report.json`, `desktop.png`, `mobile.png`, `desktop.json`, and `mobile.json`.
 - Remaining uncertainty: the visual result is proven in the fixed local SwiftShader harness, not on Preston's physical phone GPU or a hosted deployment.
 - Handoff: review the local URL with `?showcase=1` for the clean capture mode; normal gameplay remains the default route.
+
+## 2026-08-30 - RemakeBench visual iteration loop follow-up
+
+- Iteration cap: 3 visual passes, using screenshot review as the decision gate.
+- Pass 1: hid the first-person weapon viewmodel only in `?showcase=1`; normal gameplay weapon presentation is unchanged.
+- Pass 2: added facade depth to the bell tower and corrected its camera-facing detail placement from `-Z` to `+Z`, making the entry, belfry opening, stone piers, and bell glow visible.
+- Pass 3: moved the showcase runner/brute closer and increased their scales so enemy silhouettes read as active threats without blocking the objective.
+- Browser proof: web-game Playwright screenshots and `render_game_to_text` reviewed after each pass; no `errors-*.json` artifacts were emitted.
+- Remaining gap: the scene is still intentionally procedural low-poly geometry. Matching the benchmark's authored asset quality would require a new licensed/CC0 model and texture pipeline, beyond this bounded code-only loop.

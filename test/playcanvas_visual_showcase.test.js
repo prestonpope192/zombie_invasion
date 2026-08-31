@@ -10,12 +10,15 @@ describe("PlayCanvas visual showcase contract", () => {
     expect(mainSource).toContain("hero-lane-locked");
     expect(mainSource).toContain("updateShowcaseEnemyStaging");
     expect(mainSource).toContain("this.showcaseMode ? glbParam === \"1\" : glbParam !== \"0\"");
+    expect(mainSource).toContain("this.weaponRoot.enabled = !this.showcaseMode");
+    expect(mainSource).toContain("const facadeZ = z + 1.48");
   });
 
   it("exposes the visual performance budget and QA signals", () => {
     expect(mainSource).toContain("perfTargetFps=");
     expect(mainSource).toContain("perfBudgetStatus=");
     expect(mainSource).toContain("backbufferPixelBudget=");
+    expect(mainSource).toContain("showcaseWeapon=");
     expect(visualQaSource).toContain("desktop");
     expect(visualQaSource).toContain("mobile");
     expect(visualQaSource).toContain("requestfailed");

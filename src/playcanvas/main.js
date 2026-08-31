@@ -1399,18 +1399,33 @@ export class PlayCanvasZombieSlice {
 
   addBellTower(x, z, structureId) {
     const intactRoot = this.createEnvironmentModule(`${structureId}-intact`, [0, 0, 0]);
+    const facadeZ = z + 1.48;
     // Wall rises to ~6.0 so the roof eaves (≈6.05) cap it directly — previously
     // the wall stopped at 4.8 while the roof sat at 6.6, leaving the roof
     // floating above a ~1.2m sky gap.
     this.addPrimitive("bell-tower-base", "box", [x, 3.0, z], [3.3, 6.0, 2.8], "houseWall", intactRoot);
-    this.addPrimitive("bell-tower-plaster-stain", "box", [x - 0.65, 2.0, z - 1.43], [0.9, 1.6, 0.05], "plasterShadow", intactRoot);
-    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber", intactRoot);
-    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z - 1.42], [0.18, 5.9, 0.18], "timber", intactRoot);
-    this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z - 1.43], [0.72, 1.15, 0.08], "windowGlow", intactRoot), structureId);
-    this.addWindowFrame("bell-window-frame", x, 3.2, z - 1.48, 0.9, 1.34, intactRoot);
+    // Give the objective landmark a readable architectural silhouette from the
+    // hero camera: corner piers, a recessed entry, and a dark belfry opening.
+    // These are deliberately shallow facade pieces so structure collision and
+    // the normal village footprint remain unchanged.
+    for (const side of [-1, 1]) {
+      this.addPrimitive(`bell-tower-pier-${side}`, "box", [x + side * 1.38, 2.45, facadeZ - 0.06], [0.34, 4.9, 0.22], "stoneMoss", intactRoot);
+      this.addPrimitive(`bell-tower-pier-cap-${side}`, "box", [x + side * 1.38, 5.02, facadeZ - 0.09], [0.52, 0.18, 0.32], "stone", intactRoot);
+    }
+    this.addPrimitive("bell-tower-entry-shadow", "box", [x, 0.78, facadeZ - 0.02], [1.02, 1.48, 0.08], "rubbleDark", intactRoot);
+    this.addPrimitive("bell-tower-entry", "box", [x, 0.78, facadeZ - 0.09], [0.78, 1.22, 0.08], "weatheredWood", intactRoot);
+    this.addPrimitive("bell-tower-entry-lintel", "box", [x, 1.46, facadeZ - 0.13], [1.14, 0.16, 0.16], "timber", intactRoot);
+    this.addPrimitive("bell-tower-belfry-shadow", "box", [x, 5.28, facadeZ - 0.02], [1.78, 0.98, 0.08], "rubbleDark", intactRoot);
+    this.addPrimitive("bell-tower-belfry-glow", "box", [x, 5.26, facadeZ - 0.09], [1.15, 0.58, 0.08], "lantern", intactRoot);
+    this.addPrimitive("bell-tower-belfry-sill", "box", [x, 4.74, facadeZ - 0.13], [1.96, 0.16, 0.18], "timber", intactRoot);
+    this.addPrimitive("bell-tower-plaster-stain", "box", [x - 0.65, 2.0, z + 1.43], [0.9, 1.6, 0.05], "plasterShadow", intactRoot);
+    this.addPrimitive("bell-tower-timber-left", "box", [x - 1.55, 3.0, z + 1.42], [0.18, 5.9, 0.18], "timber", intactRoot);
+    this.addPrimitive("bell-tower-timber-right", "box", [x + 1.55, 3.0, z + 1.42], [0.18, 5.9, 0.18], "timber", intactRoot);
+    this.registerWindowEntity("bell-window", this.addPrimitive("bell-window", "box", [x, 3.2, z + 1.43], [0.72, 1.15, 0.08], "windowGlow", intactRoot), structureId);
+    this.addWindowFrame("bell-window-frame", x, 3.2, z + 1.48, 0.9, 1.34, intactRoot);
     // Belfry arch + bell read against the upper wall, just under the roofline.
-    this.addPrimitive("bell-arch", "box", [x, 5.35, z - 1.45], [2.1, 1.1, 0.22], "timber", intactRoot);
-    this.addPrimitive("bell", "sphere", [x, 5.0, z - 1.62], [0.55, 0.55, 0.55], "metal", intactRoot);
+    this.addPrimitive("bell-arch", "box", [x, 5.35, z + 1.45], [2.1, 1.1, 0.22], "timber", intactRoot);
+    this.addPrimitive("bell", "sphere", [x, 5.0, z + 1.62], [0.55, 0.55, 0.55], "metal", intactRoot);
     this.addPitchedRoof("bell-roof", x, z, 4.2, 3.7, 6.6, "roofDark", intactRoot);
     this.addPrimitive("bell-cross-vertical", "box", [x, 8.55, z - 0.1], [0.12, 1.0, 0.12], "metal", intactRoot);
     this.addPrimitive("bell-cross-horizontal", "box", [x, 8.74, z - 0.1], [0.65, 0.1, 0.1], "metal", intactRoot);
@@ -1743,14 +1758,15 @@ export class PlayCanvasZombieSlice {
 
   addShowcaseEnemyStaging() {
     const staged = [
-      { id: "showcase-runner", type: "runner", x: -3.2, z: -2.4, yaw: 12 },
-      { id: "showcase-brute", type: "brute", x: 3.5, z: -6.8, yaw: -16 },
+      { id: "showcase-runner", type: "runner", x: -3.15, z: -0.9, yaw: 12 },
+      { id: "showcase-brute", type: "brute", x: 3.35, z: -3.6, yaw: -16 },
     ];
     this.showcaseEnemies = staged.map((zombie) => {
       const entity = createZombieRig(this.app, this.materials, zombie);
       entity.setLocalPosition(zombie.x, 0, zombie.z);
       entity.setLocalEulerAngles(0, zombie.yaw, 0);
-      entity.setLocalScale(zombie.type === "brute" ? 1.08 : 0.98, zombie.type === "brute" ? 1.08 : 0.98, zombie.type === "brute" ? 1.08 : 0.98);
+      const showcaseScale = zombie.type === "brute" ? 1.24 : 1.12;
+      entity.setLocalScale(showcaseScale, showcaseScale, showcaseScale);
       entity._showcaseZombie = zombie;
       return entity;
     });
@@ -1849,6 +1865,10 @@ export class PlayCanvasZombieSlice {
   createWeaponModel() {
     this.weaponRoot = new pc.Entity("weapon-viewmodel-root");
     this.camera.addChild(this.weaponRoot);
+    // Showcase captures are judged as a scene composition, so keep the
+    // first-person viewmodel out of the hero frame. Normal gameplay remains
+    // unchanged and still presents the active weapon to the player.
+    this.weaponRoot.enabled = !this.showcaseMode;
     this.weaponRoot.setLocalPosition(0.48, -0.5, -0.95);
     this.weaponRoot.setLocalEulerAngles(-1, -6, 0);
 
@@ -6356,6 +6376,7 @@ export class PlayCanvasZombieSlice {
         `composition=${this.showcaseMode ? "hero-lane-locked" : "target-village-street"}`,
         `showcaseMode=${this.showcaseMode}`,
         `showcaseTarget=${this.showcaseCamera.target}`,
+        `showcaseWeapon=${this.showcaseMode ? "hidden" : "visible"}`,
         `lightingProfile=${this.showcaseMode ? "cool-moon-warm-lantern" : "night-survival"}`,
         `mood=tense-not-too-scary`,
         `phase=${this.state.phase}`,
