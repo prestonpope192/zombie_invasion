@@ -2875,3 +2875,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-07 pass 1: formalized fixed performance targets for SwiftShader (24 FPS), mobile (30 FPS), and local GPU (50 FPS).
 - ZI-VIS-07 pass 2: exposed budget status, target FPS, backbuffer pixels, and pixel budget through render text.
 - ZI-VIS-07 pass 3: production build and default PlayCanvas smoke passed; current SwiftShader evidence reports 26.4 FPS and `perfBudgetStatus=pass`.
+- ZI-VIS-08 pass 1: added `npm run qa:visual` with fixed 1280×800 desktop and 390×760 mobile scenarios.
+- ZI-VIS-08 pass 2: the harness captures screenshots, render text, canvas/backbuffer metrics, and fail-closed browser/request errors.
+- ZI-VIS-08 pass 3: inspected both final gameplay screenshots; the rubric passed on desktop and mobile with no recorded errors.

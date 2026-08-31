@@ -15,6 +15,7 @@
     "test:build": "npm run build",
     "test:smoke": "npm run smoke:playcanvas",
     "test:legacy": "npm run smoke:legacy",
+    "qa:visual": "node scripts/visual-qa-playcanvas.mjs",
     "validate": "node scripts/validate-project.mjs",
     "validate:dist": "node scripts/validate-project.mjs --dist",
     "verify": "npm run validate && npm run test:unit && npm run test:build && npm run validate:dist && npm run test:smoke",

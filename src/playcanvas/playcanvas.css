@@ -114,6 +114,16 @@ a {
   pointer-events: none;
 }
 
+.is-showcase .pc-guidance-toast,
+.is-showcase .pc-grace-overlay,
+.is-showcase .pc-summary-overlay,
+.is-showcase .pc-damage-flash,
+.is-showcase .pc-hitmarker,
+.is-showcase .pc-kill-floater,
+.is-showcase .pc-streak-badge {
+  display: none !important;
+}
+
 .is-showcase .pc-slice-canvas {
   filter: saturate(1.08) contrast(1.04);
 }
