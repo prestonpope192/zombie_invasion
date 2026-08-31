@@ -122,7 +122,7 @@ Add repeatable desktop/mobile screenshots, render-text capture, browser-error ch
 
 ## Closeout
 
-- Closeout integration SHA: `48f892e`
+- Closeout evidence commit: `0da04ee`
 - All eight feature commits are present on `codex/bulk-zombie-visual-showcase-20260830`; integration into another branch remains unperformed by design.
 - Legacy-route smoke was not run because no legacy route, shared contract, or shared configuration was changed.
 - Hosted/phone/device-provider proof: unavailable; deployment and external-state mutation were not authorized.
