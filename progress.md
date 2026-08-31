@@ -2872,3 +2872,6 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - ZI-VIS-06 pass 1: made showcase captures default to the stable procedural enemy rig while retaining the normal GLB default outside capture mode.
 - ZI-VIS-06 pass 2: staged a slim runner and broad brute at separate lane depths and animated both with the existing rig system.
 - ZI-VIS-06 pass 3: inspected the enemy capture for silhouette separation and objective readability; both variants read without blocking the bell tower.
+- ZI-VIS-07 pass 1: formalized fixed performance targets for SwiftShader (24 FPS), mobile (30 FPS), and local GPU (50 FPS).
+- ZI-VIS-07 pass 2: exposed budget status, target FPS, backbuffer pixels, and pixel budget through render text.
+- ZI-VIS-07 pass 3: production build and default PlayCanvas smoke passed; current SwiftShader evidence reports 26.4 FPS and `perfBudgetStatus=pass`.

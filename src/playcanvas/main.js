@@ -79,6 +79,9 @@ const VIEWPORT_RESIZE_SETTLE_MS = 220;
 const DESKTOP_BACKBUFFER_PIXEL_BUDGET = 1_800_000;
 const MOBILE_BACKBUFFER_PIXEL_BUDGET = 1_200_000;
 const MIN_RENDER_PIXEL_RATIO = 0.8;
+const SWIFTSHADER_TARGET_FPS = 24;
+const LOCAL_GPU_TARGET_FPS = 50;
+const MOBILE_TARGET_FPS = 30;
 
 const WEAPON_SLOT_BINDINGS = [
   { code: "Digit1", id: "pistol" },
@@ -333,6 +336,7 @@ export class PlayCanvasZombieSlice {
       worstFrameMs: 0,
       lastFrameMs: 0,
     };
+    this.performanceTargetFps = this.getPerformanceTargetFps();
     // Pooled shot-FX subsystem — no per-shot heap allocations after warmup
     this.shotFx = { flashes: [], tracers: [], bursts: [] };
     this.sceneRandom = createSeededRandom(20260603);
@@ -1018,6 +1022,13 @@ export class PlayCanvasZombieSlice {
     const minimumRatio = deviceRatio <= 1.05 ? 1 : MIN_RENDER_PIXEL_RATIO;
 
     return Math.max(minimumRatio, Math.min(requestedRatio, adaptiveCap));
+  }
+
+  getPerformanceTargetFps() {
+    const width = Math.round(window.visualViewport?.width ?? window.innerWidth);
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (width < 768 && "ontouchstart" in window);
+    if (isMobile) return MOBILE_TARGET_FPS;
+    return navigator.webdriver === true ? SWIFTSHADER_TARGET_FPS : LOCAL_GPU_TARGET_FPS;
   }
 
   scheduleViewportFrameSync() {
@@ -6322,6 +6333,13 @@ export class PlayCanvasZombieSlice {
       const guidance = getPlayCanvasGuidanceSnapshot(this.state);
       const rewarded = getPlayCanvasRewardedAdSnapshot(this.state);
       const perf = this.performanceTelemetry;
+      const perfTargetFps = this.performanceTargetFps;
+      const perfBudgetStatus = perf.frameCount < 30
+        ? "warmup"
+        : perf.fpsAvg >= perfTargetFps
+          ? "pass"
+          : "review";
+      const backbufferPixels = Math.round((this.app?.graphicsDevice?.width ?? 0) * (this.app?.graphicsDevice?.height ?? 0));
       const audio = getPlayCanvasAudioSnapshot(this.state, {
         shopOpen: this.shopOpen,
         villageDamageRecent: this.audioDamagePulseSec > 0 ? 1 : 0,
@@ -6379,6 +6397,10 @@ export class PlayCanvasZombieSlice {
         `perfFrameMsAvg=${Number(perf.frameMsAvg || 0).toFixed(1)}`,
         `perfSlowFrames=${perf.slowFrames}`,
         `perfWorstFrameMs=${Number(perf.worstFrameMs || 0).toFixed(1)}`,
+        `perfTargetFps=${perfTargetFps}`,
+        `perfBudgetStatus=${perfBudgetStatus}`,
+        `backbufferPixels=${backbufferPixels}`,
+        `backbufferPixelBudget=${this.qualityProfileKey === "desktop_high" ? DESKTOP_BACKBUFFER_PIXEL_BUDGET : MOBILE_BACKBUFFER_PIXEL_BUDGET}`,
         `qualityProfile=${this.qualityProfileKey}`,
         `renderScale=${Number(this.qualityProfile?.renderScale ?? 1).toFixed(2)}`,
         `musicEnabled=${audio.musicEnabled}`,
