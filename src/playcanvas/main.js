@@ -856,7 +856,13 @@ export class PlayCanvasZombieSlice {
       // Auto-dismiss on ANY first pointerdown (capture phase, before click fires).
       // This lets the smoke's click on [data-flow-action="primary"] still work:
       // pointerdown removes the overlay → click reaches the button underneath.
-      const _onFirstPointerDown = () => {
+      const _onFirstPointerDown = (event) => {
+        // Let the onboarding button complete its own pointerdown/click pair.
+        // Dismissing during pointerdown hides the target before the browser can
+        // dispatch click, which makes a real tap/click appear unresponsive.
+        if (event.target?.closest?.('[data-action="onboarding-dismiss"]')) {
+          return;
+        }
         this._dismissOnboarding();
         document.removeEventListener('pointerdown', _onFirstPointerDown, true);
       };
@@ -3101,12 +3107,12 @@ export class PlayCanvasZombieSlice {
     if (!isOpen) {
       // Opening: trap focus inside the card, Escape closes
       this._releasePointerLockForUi();
+      // Capture the opener before _trapFocus moves focus into the dialog.
+      this._settingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const card = this.settingsSheet.querySelector('.zi-settings-card');
       this._trapFocus(card ?? this.settingsSheet, {
         onEscape: () => this.toggleHudSettings(),
       });
-      // Remember the button that opened the sheet so we can restore focus on close
-      this._settingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     } else {
       // Closing: release trap and return focus to the ⚙ button
       this._releaseFocusTrap();
