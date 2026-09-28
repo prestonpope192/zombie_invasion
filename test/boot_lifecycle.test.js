@@ -5,6 +5,15 @@ function makeBootElements() {
   const classes = new Set();
   const attributes = new Map();
   const handlers = new Map();
+  const documentObject = {
+    activeElement: null,
+    listeners: new Map(),
+    addEventListener(type, handler) {
+      const listeners = this.listeners.get(type) ?? [];
+      listeners.push(handler);
+      this.listeners.set(type, listeners);
+    },
+  };
   const element = {
     classList: {
       add: (...names) => names.forEach((name) => classes.add(name)),
@@ -13,10 +22,13 @@ function makeBootElements() {
     },
     setAttribute: (name, value) => attributes.set(name, value),
     querySelector: (selector) => selector === "[data-zi-boot-retry]" ? retryButton : message,
+    querySelectorAll: () => [retryButton],
   };
   const retryButton = {
     addEventListener: (type, handler) => handlers.set(type, handler),
+    focus: () => { documentObject.activeElement = retryButton; },
   };
+  const contentRoot = { inert: false, setAttribute: vi.fn() };
   const message = { textContent: "Hold the village through the night" };
   const windowObject = {
     listeners: new Map(),
@@ -26,15 +38,16 @@ function makeBootElements() {
     removeEventListener(type, handler) {
       if (this.listeners.get(type) === handler) this.listeners.delete(type);
     },
+    document: documentObject,
   };
-  return { element, retryButton, message, windowObject, classes, attributes, handlers };
+  return { element, retryButton, message, windowObject, documentObject, contentRoot, classes, attributes, handlers };
 }
 
 function makeController(options = {}) {
   const parts = makeBootElements();
   return {
     ...parts,
-    controller: createBootOverlayController({ element: parts.element, windowObject: parts.windowObject, ...options }),
+    controller: createBootOverlayController({ element: parts.element, windowObject: parts.windowObject, contentRoot: parts.contentRoot, ...options }),
   };
 }
 
@@ -127,6 +140,22 @@ describe("boot overlay lifecycle", () => {
 
     expect(controller.state).toBe("failed");
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("moves failure focus to Retry and traps Tab outside inert game content", () => {
+    const { controller, retryButton, documentObject, contentRoot, attributes } = makeController();
+    controller.showFailure();
+
+    expect(documentObject.activeElement).toBe(retryButton);
+    expect(contentRoot.inert).toBe(true);
+    expect(contentRoot.setAttribute).toHaveBeenCalledWith("aria-hidden", "true");
+    expect(attributes.get("role")).toBe("alertdialog");
+    expect(attributes.get("aria-modal")).toBe("true");
+
+    const event = { key: "Tab", shiftKey: true, preventDefault: vi.fn() };
+    documentObject.listeners.get("keydown")[0](event);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(documentObject.activeElement).toBe(retryButton);
   });
 
   it("preserves boothold for normal boot but still allows failures to surface", () => {

@@ -1,6 +1,7 @@
 export function createBootOverlayController({
   element,
   windowObject = window,
+  contentRoot = null,
   retryButton = element.querySelector("[data-zi-boot-retry]"),
   message = element.querySelector("[data-zi-boot-message]"),
   hold = false,
@@ -63,11 +64,34 @@ export function createBootOverlayController({
       clearScheduledHides();
       element.classList.remove("is-hidden", "is-gone");
       element.classList.add("is-error");
-      element.setAttribute("role", "alert");
+      element.setAttribute("role", "alertdialog");
+      element.setAttribute("aria-modal", "true");
+      element.setAttribute("aria-hidden", "false");
       element.setAttribute("aria-label", "Zombie Invasion could not start");
+      if (contentRoot) {
+        contentRoot.inert = true;
+        contentRoot.setAttribute("inert", "");
+        contentRoot.setAttribute("aria-hidden", "true");
+      }
       if (message) message.textContent = "The game couldn't start. Check your connection and retry.";
       windowObject.removeEventListener("pointerdown", dismiss, true);
       windowObject.removeEventListener("keydown", hide, true);
+      windowObject.document?.addEventListener("keydown", (event) => {
+        if (state !== "failed" || event.key !== "Tab") return;
+        const focusable = Array.from(element.querySelectorAll(
+          'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+        ));
+        if (!focusable.length) {
+          event.preventDefault();
+          return;
+        }
+        const index = focusable.indexOf(windowObject.document.activeElement);
+        if (index === -1 || (event.shiftKey && index === 0) || (!event.shiftKey && index === focusable.length - 1)) {
+          event.preventDefault();
+          focusable[event.shiftKey ? focusable.length - 1 : 0].focus();
+        }
+      }, true);
+      retryButton?.focus();
     },
   };
 }

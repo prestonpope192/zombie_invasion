@@ -49,6 +49,7 @@ const params = new URLSearchParams(window.location.search);
   if (!el) return null;
   const controller = createBootOverlayController({
     element: el,
+    contentRoot: root,
     hold: params.get("boothold") === "1",
   });
   window.__ziBootHide = controller.hide;

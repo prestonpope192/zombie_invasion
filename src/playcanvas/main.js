@@ -3088,6 +3088,7 @@ export class PlayCanvasZombieSlice {
     const first = getFocusable()[0];
     if (first) first.focus();
     const onKeyDown = (e) => {
+      if (containerEl.closest?.("[inert], [aria-hidden=\"true\"]")) return;
       if (e.key === 'Escape' && onEscape) { onEscape(); return; }
       if (e.key !== 'Tab') return;
       const focusable = getFocusable();

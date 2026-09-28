@@ -40,6 +40,24 @@ async function installOneShotImportFailure(page, delayMs = 100) {
   return () => requests;
 }
 
+async function installOnboardingConstructorFailure(page) {
+  await page.addInitScript(() => {
+    const nativeGetContext = HTMLCanvasElement.prototype.getContext;
+    const failureKey = "zi_test_failed_after_onboarding_focus";
+    HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+      const onboarding = document.querySelector("#zi-onboarding");
+      if (["webgl2", "webgl", "experimental-webgl"].includes(type)
+        && !sessionStorage.getItem(failureKey)
+        && onboarding && !onboarding.hidden && onboarding.contains(document.activeElement)) {
+        sessionStorage.setItem(failureKey, "1");
+        window.__ziFailureAfterOnboardingFocus = true;
+        throw new Error("injected PlayCanvas context initialization failure");
+      }
+      return nativeGetContext.call(this, type, ...args);
+    };
+  });
+}
+
 async function verifyRecoveredPage(page, errors) {
   await page.waitForFunction(
     () => document.body.innerText.includes("WAVE") && document.body.innerText.includes("VILLAGE"),
@@ -135,9 +153,38 @@ try {
   assert(mobileRequestCount() >= 2, "touch Retry did not reload the failed game module");
   assert(await mobile.locator("#zi-boot.is-error").count() === 0, "touch Retry remained in the boot failure state");
 
+  const constructorFailure = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await installOnboardingConstructorFailure(constructorFailure);
+  let constructorRequests = 0;
+  await constructorFailure.route("**/src/playcanvas/main.js*", async (route) => {
+    constructorRequests += 1;
+    await route.continue();
+  });
+  await constructorFailure.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await constructorFailure.waitForSelector("#zi-boot.is-error", { timeout: 15000 });
+  assert(await constructorFailure.evaluate(() => window.__ziFailureAfterOnboardingFocus === true),
+    "constructor failure did not occur after onboarding focus was trapped");
+  assert(await constructorFailure.evaluate(() => {
+    const app = document.querySelector("#app");
+    const retry = document.querySelector("[data-zi-boot-retry]");
+    return app.inert && app.getAttribute("aria-hidden") === "true" && document.activeElement === retry;
+  }), "failure did not inert the game and focus Retry");
+  await constructorFailure.keyboard.press("Shift+Tab");
+  assert(await constructorFailure.evaluate(() => document.activeElement === document.querySelector("[data-zi-boot-retry]")),
+    "an active onboarding trap redirected Shift-Tab away from Retry");
+  const constructorNavigation = constructorFailure.waitForEvent("framenavigated");
+  await constructorFailure.keyboard.press("Enter");
+  await constructorNavigation;
+  await constructorFailure.waitForFunction(() => Boolean(window.__playCanvasZombieGame), null, { timeout: 10000 });
+  assert(await constructorFailure.locator("#zi-boot.is-error").count() === 0,
+    "keyboard Retry remained in the boot failure state");
+  assert(constructorRequests >= 2, "keyboard Retry did not reload after the constructor failure");
+  await constructorFailure.close();
+
   console.log(JSON.stringify({
     desktop: { failureRestored: true, staleCallbackIgnored: true, retryReloaded: true, screenshot: desktopScreenshot },
     touch: { failureRestored: true, retryReloaded: true, moduleStatus: mobileImportResponse.status(), screenshot: mobileScreenshot },
+    onboardingConstructorFailure: { focusTrapped: true, underlyingAppInert: true, shiftTabContained: true, keyboardRetryReloaded: true },
     target: "local",
   }));
   await mobileContext.close();
