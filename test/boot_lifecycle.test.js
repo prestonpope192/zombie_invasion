@@ -24,7 +24,7 @@ function makeBootElements() {
       this.listeners.set(type, handler);
     },
     removeEventListener(type, handler) {
-      if (this.listeners.get(type) === handler || type === "pointerdown") this.listeners.delete(type);
+      if (this.listeners.get(type) === handler) this.listeners.delete(type);
     },
   };
   return { element, retryButton, message, windowObject, classes, attributes, handlers };
@@ -50,6 +50,7 @@ describe("boot overlay lifecycle", () => {
     windowObject.listeners.get("pointerdown")({ target: { closest: () => null } });
 
     expect(controller.state).toBe("hidden");
+    expect(windowObject.listeners.has("pointerdown")).toBe(false);
     expect(classes.has("is-hidden")).toBe(true);
     vi.advanceTimersByTime(450);
     expect(controller.state).toBe("gone");
@@ -134,10 +135,15 @@ describe("boot overlay lifecycle", () => {
 
     expect(windowObject.listeners.size).toBe(0);
     vi.advanceTimersByTime(5000);
+    controller.hide();
     expect(controller.state).toBe("loading");
+    expect(classes.has("is-hidden")).toBe(false);
+    expect(classes.has("is-gone")).toBe(false);
     controller.showFailure();
     expect(controller.state).toBe("failed");
     expect(classes.has("is-error")).toBe(true);
+    expect(classes.has("is-hidden")).toBe(false);
+    expect(classes.has("is-gone")).toBe(false);
   });
 });
 

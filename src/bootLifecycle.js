@@ -21,7 +21,7 @@ export function createBootOverlayController({
   };
 
   const hide = () => {
-    if (state !== "loading") return;
+    if (hold || state !== "loading") return;
     state = "hidden";
     const transition = ++generation;
     clearTimer(safetyTimer);
@@ -33,7 +33,7 @@ export function createBootOverlayController({
       element.classList.add("is-gone");
       goneTimer = null;
     }, 450);
-    windowObject.removeEventListener("pointerdown", hide, true);
+    windowObject.removeEventListener("pointerdown", dismiss, true);
     windowObject.removeEventListener("keydown", hide, true);
   };
 
