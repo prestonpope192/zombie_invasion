@@ -113,11 +113,18 @@ describe("PlayCanvas storage status", () => {
     const storage = memoryStorage();
     vi.stubGlobal("localStorage", storage);
     const state = createSliceState({ coins: 55, ownedWeapons: ["pipe"] });
+    expect(probeBrowserStorage()).toBe(true);
+    expect(persistPlayCanvasSave(state)?.coins).toBe(55);
+    expect(isSessionOnly()).toBe(false);
+    const savedValue = storage.entries.get(PLAYCANVAS_SAVE_KEY);
     storage.setItem.mockImplementation(() => { throw new Error("save denied"); });
 
-    expect(() => persistPlayCanvasSave(state)).not.toThrow();
+    let failedSave;
+    expect(() => { failedSave = persistPlayCanvasSave(state); }).not.toThrow();
+    expect(failedSave).toBeNull();
     expect(isSessionOnly()).toBe(true);
     expect(state.coins).toBe(55);
+    expect(storage.entries.get(PLAYCANVAS_SAVE_KEY)).toBe(savedValue);
   });
 
   it("uses safe reads and writes when storage methods throw", () => {

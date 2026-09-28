@@ -4,7 +4,7 @@ import buildingsConfig from "../fps/config/buildings_fps.json";
 import economyConfig from "../fps/config/economy_fps.json";
 import { computeVillageStructureDamage } from "../fps/systems/villageDamageRules";
 import { canInteractWithDoor } from "../fps/systems/doorRules";
-import { safeStorageGetItem, safeStorageSetItem } from "./storageStatus";
+import { markStorageUnavailable, safeStorageGetItem, safeStorageSetItem } from "./storageStatus";
 import {
   getEnemyIntroMessage,
   getFirstSessionShopRecommendation,
@@ -3145,7 +3145,11 @@ export function persistPlayCanvasSave(state) {
     claimedGoalIds: normalizeClaimedGoalIds(state.claimedGoalIds),
   };
   const safe = sanitizePlayCanvasSave(save);
-  return safeStorageSetItem(PLAYCANVAS_SAVE_KEY, JSON.stringify(safe)) ? safe : null;
+  if (!safeStorageSetItem(PLAYCANVAS_SAVE_KEY, JSON.stringify(safe))) {
+    markStorageUnavailable();
+    return null;
+  }
+  return safe;
 }
 
 export function loadPlayCanvasSave() {
