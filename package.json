@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250",
     "smoke:playcanvas": "node scripts/smoke-playcanvas-slice.mjs",
+    "smoke:boot-recovery": "node scripts/smoke-boot-recovery.mjs",
     "smoke:legacy": "node scripts/smoke-legacy-route.mjs"
   },
   "dependencies": {
