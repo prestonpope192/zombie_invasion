@@ -17,11 +17,14 @@
     "test:legacy": "npm run smoke:legacy",
     "validate": "node scripts/validate-project.mjs",
     "validate:dist": "node scripts/validate-project.mjs --dist",
-    "verify": "npm run validate && npm run test:unit && npm run test:build && npm run validate:dist && npm run test:smoke",
+    "verify": "npm run validate && npm run test:unit && npm run test:build && npm run validate:dist && npm run test:storage-status && npm run test:smoke",
     "test:full": "npm run verify",
     "test:watch": "vitest",
     "test:game": "node \"$WEB_GAME_CLIENT\" --url http://127.0.0.1:5173 --actions-file \"$WEB_GAME_ACTIONS\" --iterations 2 --pause-ms 250",
     "smoke:playcanvas": "node scripts/smoke-playcanvas-slice.mjs",
+    "smoke:storage-status": "node scripts/smoke-storage-status.mjs",
+    "test:storage-status": "npm run smoke:storage-status",
+    "smoke:boot-recovery": "node scripts/smoke-boot-recovery.mjs",
     "smoke:legacy": "node scripts/smoke-legacy-route.mjs"
   },
   "dependencies": {

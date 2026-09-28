@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "record_type": "qaqc_specification",
+  "check_id": "ZI-QA-BULK-011",
+  "coverage_key": "zombie-invasion:boot-recovery-retry-persistence",
+  "title": "Persistent PlayCanvas boot failure recovery",
+  "status": "ready_for_qa",
+  "introduced_at": "2026-09-28",
+  "surface": "Primary and legacy route startup overlay and Retry action",
+  "behavior": "Synchronous startup failures and rejected route imports replace the normal click-through loader with a persistent, accessible recovery message and actionable Retry button. Normal loader dismissal, first-frame readiness, the 4-second safety timer, delayed is-gone transition, legacy route, and boothold behavior remain intact outside recovery.",
+  "failure_mode": "A boot failure may leave an invisible/blank game or a Retry overlay that can be dismissed by a pointer/key event, safety timeout, delayed transition callback, or PlayCanvas first-frame signal. Normal readiness may also hide the intentionally held boothold overlay.",
+  "fixtures": "Synthetic boot DOM/controller; Playwright local route with one-shot PlayCanvas module request failure; desktop pointer and mobile touch browser contexts; legacy route.",
+  "steps": [
+    "Run npx vitest run test/boot_lifecycle.test.js.",
+    "Run npm run smoke:boot-recovery with its local Vite and Playwright bootstrap.",
+    "Verify a failed dynamic import restores the error overlay after ordinary pointer dismissal and leaves it visible after key/pointer events, the 4-second timer, and the pending 450ms hide transition; confirm the first-frame hide callback is ignored after failure.",
+    "Use the desktop Retry button with a real pointer click and the touch Retry button with a real tap; verify a second route request and successful game-shell startup.",
+    "Run npm run test:legacy and verify ordinary route readiness/dismissal, plus the unit assertion that boothold remains visible after readiness hide but can still transition to failure recovery."
+  ],
+  "success_criteria": [
+    "Synchronous startup exceptions and asynchronous import rejections enter recovery rather than leaving an unhandled blank route.",
+    "Once failed, the recovery overlay remains visible past the 4-second timeout, key/pointer input, stale delayed hide callback, and first-frame hide signal.",
+    "Retry is a semantic, keyboard-focusable button with a visible focus treatment and a real desktop/touch hit target; activating it reloads the document and permits a subsequent successful route request.",
+    "During ordinary non-failure loading, click-through and dismissal still work, the legacy route reaches its normal menu, and boothold remains visible when route readiness invokes hide.",
+    "A boot failure still overrides boothold and any prior normal dismissal, revealing recovery until Retry reloads."
+  ],
+  "tests": [
+    {
+      "file": "test/boot_lifecycle.test.js",
+      "name_or_pattern": "boot overlay lifecycle and boot attempt error handling",
+      "direct_command": "npx vitest run test/boot_lifecycle.test.js",
+      "broader_suite_command": "npm run verify"
+    },
+    {
+      "file": "scripts/smoke-boot-recovery.mjs",
+      "name_or_pattern": "desktop pointer Retry and mobile touch Retry reload route after injected import failure",
+      "direct_command": "npm run smoke:boot-recovery",
+      "broader_suite_command": "npm run verify"
+    },
+    {
+      "file": "scripts/smoke-legacy-route.mjs",
+      "name_or_pattern": "legacy route menu startup and normal boot overlay dismissal",
+      "direct_command": "npm run test:legacy",
+      "broader_suite_command": "npm run verify"
+    }
+  ],
+  "source_evidence": [
+    "src/bootLifecycle.js:createBootOverlayController",
+    "src/bootLifecycle.js:runBootAttempt",
+    "src/main.js:setupBootOverlay",
+    "index.html:#zi-boot",
+    "test/boot_lifecycle.test.js",
+    "scripts/smoke-boot-recovery.mjs",
+    "scripts/smoke-legacy-route.mjs"
+  ],
+  "environment_scope": ["local"],
+  "database_sync": "not_applicable_no_project_catalog",
+  "external_mutation": false,
+  "notes": "Specification only. Worktree test outcomes are recorded in the batch ledger. Browser smoke forces an asynchronous module request failure; synchronous throw is covered by the executable runBootAttempt unit test. No hosted or production claim is made."
+}

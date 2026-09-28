@@ -4,6 +4,7 @@ import buildingsConfig from "../fps/config/buildings_fps.json";
 import economyConfig from "../fps/config/economy_fps.json";
 import { computeVillageStructureDamage } from "../fps/systems/villageDamageRules";
 import { canInteractWithDoor } from "../fps/systems/doorRules";
+import { markStorageUnavailable, safeStorageGetItem, safeStorageSetItem } from "./storageStatus";
 import {
   getEnemyIntroMessage,
   getFirstSessionShopRecommendation,
@@ -3106,9 +3107,6 @@ export function consumePlayCanvasOrdnanceDetonations(state) {
 }
 
 export function persistPlayCanvasSave(state) {
-  if (typeof localStorage === "undefined") {
-    return null;
-  }
   const grenadeInventory = normalizeGrenadeInventory(state.grenadeInventory, 5);
   const grenades = Math.max(0, Math.round(Number(grenadeInventory.frag ?? state.grenades ?? 0)));
   const activeGrenadeId = GRENADE_DEF_BY_ID.has(state.activeOrdnanceId) ? state.activeOrdnanceId : DEFAULT_GRENADE_TYPE_ID;
@@ -3147,16 +3145,16 @@ export function persistPlayCanvasSave(state) {
     claimedGoalIds: normalizeClaimedGoalIds(state.claimedGoalIds),
   };
   const safe = sanitizePlayCanvasSave(save);
-  localStorage.setItem(PLAYCANVAS_SAVE_KEY, JSON.stringify(safe));
+  if (!safeStorageSetItem(PLAYCANVAS_SAVE_KEY, JSON.stringify(safe))) {
+    markStorageUnavailable();
+    return null;
+  }
   return safe;
 }
 
 export function loadPlayCanvasSave() {
-  if (typeof localStorage === "undefined") {
-    return null;
-  }
   try {
-    return sanitizePlayCanvasSave(JSON.parse(localStorage.getItem(PLAYCANVAS_SAVE_KEY) || "null"));
+    return sanitizePlayCanvasSave(JSON.parse(safeStorageGetItem(PLAYCANVAS_SAVE_KEY) || "null"));
   } catch {
     return null;
   }

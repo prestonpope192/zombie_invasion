@@ -3203,6 +3203,44 @@
         display: none;
       }
 
+      #zi-boot.is-error {
+        opacity: 1;
+        pointer-events: auto;
+        user-select: text;
+        touch-action: auto;
+      }
+
+      #zi-boot.is-error .zi-boot-spinner {
+        display: none;
+      }
+
+      .zi-boot-retry {
+        display: none;
+        min-width: 132px;
+        min-height: 48px;
+        margin-top: 8px;
+        padding: 12px 22px;
+        border: 1px solid var(--accent-strong);
+        border-radius: 6px;
+        background: var(--accent-strong);
+        color: #10170a;
+        font: 800 0.95rem/1 var(--font-body);
+        text-transform: uppercase;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+
+      .zi-boot-retry:focus-visible {
+        outline: 3px solid #fff;
+        outline-offset: 3px;
+      }
+
+      #zi-boot.is-error .zi-boot-retry {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
       .zi-boot-title {
         font-family: var(--font-heading);
         font-size: clamp(2rem, 8vw, 3.6rem);
@@ -3264,10 +3302,11 @@
   </head>
   <body>
     <!-- Boot overlay — shown immediately on first paint, before module JS loads -->
-    <div id="zi-boot" aria-label="Loading Zombie Invasion" role="status">
+    <div id="zi-boot" aria-label="Loading Zombie Invasion" role="status" aria-live="polite">
       <h1 class="zi-boot-title">Zombie Invasion</h1>
-      <p class="zi-boot-subtitle">Hold the village through the night</p>
+      <p class="zi-boot-subtitle" data-zi-boot-message>Hold the village through the night</p>
       <div class="zi-boot-spinner" aria-hidden="true"></div>
+      <button class="zi-boot-retry" type="button" data-zi-boot-retry>Retry</button>
     </div>
     <div id="app"></div>
     <div id="rotate-prompt">Rotate your phone to landscape to play Zombie Invasion.</div>
