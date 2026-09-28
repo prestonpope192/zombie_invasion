@@ -1,0 +1,76 @@
+{
+  "check_id": "ZI-QA-BULK-010",
+  "coverage_key": "zombie-invasion:session-only-storage-startup",
+  "record_type": "atomic",
+  "title": "BR-02 PlayCanvas startup storage status",
+  "status": "passed-local",
+  "scope": {
+    "route": "PlayCanvas",
+    "requirements": [
+      "Probe storage before createSliceState, initial HUD render, or save writes.",
+      "Missing, inaccessible, or failed read/write storage shows exact SESSION ONLY status before interaction while gameplay remains usable in memory.",
+      "Healthy storage hides the warning and preserves existing save/load behavior.",
+      "The probe does not mutate PLAYCANVAS_SAVE_KEY and leaves no probe key after successful cleanup.",
+      "A later save-key write failure shows SESSION ONLY without throwing through restartAndStart().",
+      "The warning remains visible in menu and gameplay, including mobile layout."
+    ],
+    "excluded": ["Ads", "monetization", "ad providers"]
+  },
+  "evidence": {
+    "focused_unit": {
+      "command": "npm test -- --run test/storage_status.test.js test/playcanvas_slice.test.js",
+      "result": "passed",
+      "files": 2,
+      "tests": 129
+    },
+    "storage_browser_smoke": {
+      "command": "npm run smoke:storage-status",
+      "result": "passed",
+      "log": "/tmp/zi-storage-status-smoke.log",
+      "scenarios": [
+        "healthy",
+        "missing",
+        "getter-throws",
+        "probe-read-throws",
+        "probe-write-throws",
+        "probe-readback-mismatch",
+        "cleanup-retry"
+      ],
+      "assertions": [
+        "Each case reached playable state.",
+        "Failed-storage cases showed the initial warning.",
+        "Healthy storage kept the initial warning hidden and loaded the seeded save.",
+        "The seeded save value was unchanged by probing.",
+        "No probe key remained after probe cleanup.",
+        "restartAndStart() exercised the save-key write failure; SESSION ONLY appeared without an escaping exception."
+      ],
+      "screenshots": [
+        "output/playwright/storage-status-healthy.png",
+        "output/playwright/storage-status-mobile.png"
+      ]
+    },
+    "boot_recovery_smoke": {
+      "command": "npm run smoke:boot-recovery",
+      "result": "passed",
+      "desktop": "failure restored, stale callback ignored, Retry reloaded route",
+      "touch": "failure restored, Retry reloaded route, module status 200",
+      "screenshots": [
+        "output/playwright/boot-recovery-desktop.png",
+        "output/playwright/boot-recovery-touch.png"
+      ]
+    },
+    "legacy_smoke": {
+      "command": "npm run test:legacy",
+      "result": "passed",
+      "assertions": ["legacy menu route", "start button", "canvas", "boot overlay dismissed"],
+      "screenshot": "output/playwright/legacy-route.png"
+    },
+    "production_build": {
+      "command": "npm run build",
+      "result": "passed",
+      "note": "Vite reported the existing large-chunk advisory; build completed successfully."
+    }
+  },
+  "known_limit": "If storage permanently denies removeItem after accepting a probe write, the application cannot guarantee removal. It retries cleanup, verifies absence, and treats persistent residue as failed acceptance.",
+  "deployment": "not-run"
+}

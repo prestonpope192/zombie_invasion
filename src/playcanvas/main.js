@@ -71,6 +71,13 @@ import {
 import { showRewardedAd } from "../fps/systems/rewardedAds";
 import { SfxSampleManager } from "./sfxSamples";
 import { computeBallisticTracerDrop } from "./shotFxRules";
+import {
+  isSessionOnly,
+  probeBrowserStorage,
+  safeStorageGetItem,
+  safeStorageSetItem,
+  subscribeStorageStatus,
+} from "./storageStatus";
 import "./playcanvas.css";
 
 const MINIMAP_SIZE_PX = 180;
@@ -269,6 +276,8 @@ const MATERIALS = {
 export class PlayCanvasZombieSlice {
   constructor(root) {
     this.root = root;
+    probeBrowserStorage();
+    this._storageStatusUnsubscribe = subscribeStorageStatus(() => this.updateStorageWarning());
     this.state = createSliceState();
     this.audio = new Audio3D(null);
     this.audio.setMusicEnabled(this.state.musicEnabled);
@@ -372,9 +381,7 @@ export class PlayCanvasZombieSlice {
     this._streakLastKillTime = 0;
     this._streakTimeoutMs = 3000; // reset streak if >3s between kills
     // Haptics
-    this.hapticsEnabled = typeof localStorage !== "undefined"
-      ? localStorage.getItem("zi_haptics") !== "false"
-      : true;
+    this.hapticsEnabled = safeStorageGetItem("zi_haptics") !== "false";
     // Coin tracking for kill floater delta
     this._lastCoinsDelta = 0;
     this._lastKnownCoins = 0;
@@ -447,6 +454,7 @@ export class PlayCanvasZombieSlice {
     this.root.innerHTML = `
       <div class="pc-slice">
         <canvas class="pc-slice-canvas" aria-label="Zombie Invasion 3D view"></canvas>
+        <div class="zi-storage-warning" data-storage-warning role="status" aria-live="polite" hidden>SESSION ONLY</div>
         <div class="pc-slice-hud" aria-live="polite">
 
           <!-- TOP-LEFT: wave + village integrity -->
@@ -808,6 +816,8 @@ export class PlayCanvasZombieSlice {
       haptics: this.root.querySelector('[data-action="haptics"]'),
       fullscreen: this.root.querySelector('[data-action="fullscreen"]'),
     };
+    this.storageWarning = this.root.querySelector("[data-storage-warning]");
+    this.updateStorageWarning();
     this.shopPanel = this.root.querySelector('[data-panel="shop"]');
     this.shopGuideTitle = this.root.querySelector("[data-shop-guide-title]");
     this.shopGuideBody = this.root.querySelector("[data-shop-guide-body]");
@@ -842,7 +852,7 @@ export class PlayCanvasZombieSlice {
     this.onboardingOverlay = this.root.querySelector('#zi-onboarding');
     this._shopNudgeFired = false;
     // Show only on first visit; zi_onboarded flag tracks dismissal
-    const alreadyOnboarded = typeof localStorage !== 'undefined' && localStorage.getItem('zi_onboarded') === '1';
+    const alreadyOnboarded = safeStorageGetItem("zi_onboarded") === "1";
     if (!alreadyOnboarded && this.onboardingOverlay) {
       this.onboardingOverlay.hidden = false;
       // Suppress the campaign modal behind the onboarding card so its text
@@ -2141,6 +2151,8 @@ export class PlayCanvasZombieSlice {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._storageStatusUnsubscribe?.();
+    this._storageStatusUnsubscribe = null;
     for (const { target, event, handler, options } of this._teardownListeners ?? []) {
       target.removeEventListener(event, handler, options);
     }
@@ -3048,10 +3060,17 @@ export class PlayCanvasZombieSlice {
 
   toggleHaptics() {
     this.hapticsEnabled = !this.hapticsEnabled;
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem("zi_haptics", String(this.hapticsEnabled));
-    }
+    safeStorageSetItem("zi_haptics", String(this.hapticsEnabled));
     this.updateHud();
+  }
+
+  updateStorageWarning() {
+    const unavailable = isSessionOnly();
+    this.root?.classList.toggle("has-session-only", unavailable);
+    if (this.storageWarning) {
+      this.storageWarning.hidden = !unavailable;
+      this.storageWarning.textContent = "SESSION ONLY";
+    }
   }
 
   _vibrate(pattern) {
@@ -3480,9 +3499,7 @@ export class PlayCanvasZombieSlice {
     this._onboardingVisible = false;
     // Release the focus trap that was set when the onboarding was shown.
     this._releaseFocusTrap();
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('zi_onboarded', '1');
-    }
+    safeStorageSetItem("zi_onboarded", "1");
     // Reveal the campaign modal again now that onboarding is gone.
     this.updateHud?.();
   }
@@ -4348,11 +4365,9 @@ export class PlayCanvasZombieSlice {
       // Wave-1 shop nudge — fires once ever (gated by zi_shop_nudged localStorage flag)
       if (this.state.waveNumber === 1 && !this._shopNudgeFired) {
         this._shopNudgeFired = true;
-        const alreadyNudged = typeof localStorage !== 'undefined' && localStorage.getItem('zi_shop_nudged') === '1';
+        const alreadyNudged = safeStorageGetItem("zi_shop_nudged") === "1";
         if (!alreadyNudged) {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('zi_shop_nudged', '1');
-          }
+          safeStorageSetItem("zi_shop_nudged", "1");
           // Show after a short delay so the wave-clear summary is visible first
           setTimeout(() => {
             if (this._disposed) return;
