@@ -26,9 +26,10 @@
 - BR-01: passed isolated code/test/review. Commits `f323674` and `7ad4f65`; final Astra pass on current state. `npm test -- --run test/boot_recovery_persistence.test.js` passed 8 tests; `node test/boot_recovery_browser.mjs` passed real pointer hit-testing with committed CSS and reload navigation. Reviewer noted browser proof is a fixture-level test, not a full-game boot-failure runtime.
 - BR-02: pending; proof requires initial UI/state checks for missing, throwing, read/write probe failure and healthy storage, no save-key mutation or probe-key residue, plus playable in-memory state.
 - Prepare: passed; isolated worktree created on `codex/zi-boot-storage-fixes-20260928`, manifest/ledger commits `71eb25031f22e407fefeef9cb38c545d6befd8ac` and `02223073dd786eda0bec62cffcf75e12726ecd38`; dependency symlink uses existing root `node_modules` (Vite 7.3.5, Vitest 3.2.6; local runtime Node 26 although package expects Node 22); Vite `http://127.0.0.1:5192/` returned HTTP 200. Baseline focused `npm test -- --run test/runtime_recovery.test.js`: 1 file / 6 tests passed.
-- Isolated test: scheduled after BR-02 implementation/review; `npm run verify` is required.
-- Polish: pending; assess cross-item interaction after both reviews.
-- Worktree test: pending.
+- Isolated test: completed on the dirty candidate baseline; clean `origin/main` release-port implementation and `npm run verify` remain pending.
+- Polish: not applicable; BR-01 controls the boot recovery overlay after initialization failure, while BR-02 controls the normal playable HUD. The error surface replaces HUD/play state on failure, so the two behaviors do not share a visible layout or state transition.
+- Candidate tests: BR-01 and BR-02 focused unit/browser tests passed on `/Users/preston/.codex/worktrees/zi-boot-storage-fix/zombie_invasion`; the full `npm run verify` also passed there. This copied dirty candidate includes unrelated changes and is evidence only, not a release source. Its Vite process PID `97535` was stopped.
+- Release worktree: `/Users/preston/.codex/worktrees/zi-boot-storage-release/zombie_invasion`, branch `codex/zi-boot-storage-prod-20260928`, clean base `origin/main` at `32272385ad42e472d7d32c0031a28c1e3c2ddac3`; task-owned changes will be reconstructed here to exclude unrelated candidate work.
 - Prep-collapse/collapse: pending; preserve unrelated primary checkout modifications.
 - Integrated local: pending; Vite, static app with browser-local state.
 - Deploy: pending exact target registry proof.
@@ -42,5 +43,6 @@
 - Target identity: `verify_vercel_target.py verify --client preston --app zombie-invasion --repo /Users/preston/Code/zombie_invasion --environment production` passed read-only. Resolver reported a single registered environment and sole-target rule handles production.
 - Baseline source evidence: existing `src/runtime/bootRecovery.js`, `safeStorage.js`, and tests are present only in the copied dirty snapshot at prepare start.
 - Deployment topology: pending inspection through the registered Vercel project and current deployment metadata; never infer production from repo linking alone.
-- Local / hosted results: none yet.
-- Next action: re-use the idle Luna/high implementer for BR-02 using its accepted plan, then run a fresh independent Astra review before broad worktree testing.
+- Candidate evidence: BR-01 `8` focused unit tests + browser Retry click/navigation; BR-02 `7` focused unit tests + initial HUD browser proof; candidate `npm run verify` passed. This does not yet prove the clean production-based release tree.
+- Hosted results: none yet.
+- Next action: implement and review BR-01 then BR-02 on the clean release worktree; run isolated `npm run verify`; continue only through the target's build-it release gates.
