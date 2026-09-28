@@ -15,17 +15,18 @@
 
 - BR-01 plan: agent `01a0e874-e97e-77e1-a0b8-e43b8463caed` (Pascal), requested `gpt-6-luna/high`, routine localized route; plan accepted subject to current candidate checks.
 - BR-02 plan: agent `01a0e876-0967-78a2-bfcd-7ffb96173343` (Faraday), requested `gpt-6-luna/high`, routine storage-state/UI change; plan accepted with safe probe using existing runtime storage wrapper.
-- BR-01 implementer: pending.
-- BR-01 reviewer: fresh Astra pending.
+- BR-01 planner: `01a0e874-e97e-77e1-a0b8-e43b8463caed`, requested `gpt-6-luna/high`; returned localized timer/event lifecycle plan.
+- BR-01 implementer: `01a0e883-b5f7-7ea0-b540-b2a9abd9fd74`, requested `gpt-6-luna/high`; commit `f323674d18229283600dd4f8de0334c6cb82045b`, then same worker repaired Astra finding in `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93`.
+- BR-01 initial reviewer: `01a0e889-c116-7d20-8cf2-7e0018dda36d`, requested `gpt-6-astra/low`; initial `changes requested` for pointer-events/hit-test proof, re-review `pass` at final candidate `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93`, scoped diff SHA-256 `d1a2135e21d01841c2e1d8ba80f7c4f7355581105aa97a4702e0ce56b1a25d27`.
 - BR-02 implementer: pending.
 - BR-02 reviewer: fresh Astra pending.
 
 ## Acceptance and phase status
 
-- BR-01: pending; proof requires focused event/key/timeout/pending-transition/first-frame tests plus ordinary loading dismissal regression.
+- BR-01: passed isolated code/test/review. Commits `f323674` and `7ad4f65`; final Astra pass on current state. `npm test -- --run test/boot_recovery_persistence.test.js` passed 8 tests; `node test/boot_recovery_browser.mjs` passed real pointer hit-testing with committed CSS and reload navigation. Reviewer noted browser proof is a fixture-level test, not a full-game boot-failure runtime.
 - BR-02: pending; proof requires initial UI/state checks for missing, throwing, read/write probe failure and healthy storage, no save-key mutation or probe-key residue, plus playable in-memory state.
 - Prepare: passed; isolated worktree created on `codex/zi-boot-storage-fixes-20260928`, manifest/ledger commits `71eb25031f22e407fefeef9cb38c545d6befd8ac` and `02223073dd786eda0bec62cffcf75e12726ecd38`; dependency symlink uses existing root `node_modules` (Vite 7.3.5, Vitest 3.2.6; local runtime Node 26 although package expects Node 22); Vite `http://127.0.0.1:5192/` returned HTTP 200. Baseline focused `npm test -- --run test/runtime_recovery.test.js`: 1 file / 6 tests passed.
-- Isolated test: scheduled after implementation/review; `npm run verify` is required.
+- Isolated test: scheduled after BR-02 implementation/review; `npm run verify` is required.
 - Polish: pending; assess cross-item interaction after both reviews.
 - Worktree test: pending.
 - Prep-collapse/collapse: pending; preserve unrelated primary checkout modifications.
@@ -42,4 +43,4 @@
 - Baseline source evidence: existing `src/runtime/bootRecovery.js`, `safeStorage.js`, and tests are present only in the copied dirty snapshot at prepare start.
 - Deployment topology: pending inspection through the registered Vercel project and current deployment metadata; never infer production from repo linking alone.
 - Local / hosted results: none yet.
-- Next action: begin BR-01 implementation worker, one writer at a time, then fresh Astra review before BR-02.
+- Next action: re-use the idle Luna/high implementer for BR-02 using its accepted plan, then run a fresh independent Astra review before broad worktree testing.

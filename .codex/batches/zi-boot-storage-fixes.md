@@ -38,8 +38,9 @@
 ## Commits and evidence
 
 - Manifest/ledger commit: `71eb25031f22e407fefeef9cb38c545d6befd8ac`.
-- BR-01 commit: pending.
+- BR-01 commits: `f323674d18229283600dd4f8de0334c6cb82045b` and review repair `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93`.
 - BR-02 commit: pending.
-- Focused and broad validation: pending.
+- BR-01 focused tests: 8 unit tests and real-browser Retry hit-test/navigation passed. Current-state Astra review passed at `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93` (scoped patch SHA-256 `d1a2135e21d01841c2e1d8ba80f7c4f7355581105aa97a4702e0ce56b1a25d27`).
+- Broad validation: pending.
 - Closeout integration SHA: pending.
 - Deferred: unrelated dirty candidate work remains preserved and uncommitted.
