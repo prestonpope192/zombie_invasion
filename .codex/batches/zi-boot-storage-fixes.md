@@ -10,7 +10,7 @@
 - Branch: `codex/zi-boot-storage-fixes-20260928`
 - Base/integration candidate: `origin/codex/dev-consolidation-20260707` at `9b06a797626234817da4ef126b08cc457f5c5bf0` (freshly fetched 2026-09-28; same as local HEAD)
 - Starting tree: Exact tracked and untracked working-tree snapshot from the calling checkout was copied for dependency fidelity. Existing unrelated changes remain uncommitted and out of scope.
-- Deployment authority: `$build-it` invocation, deployment target unresolved pending live Vercel topology. Static Vite app, no backend/database detected.
+- Deployment authority: `$build-it` invocation and its sole-registered-environment rule resolve this run to logical `production`; verified Vercel team `team_sw7Nix2eZZaMWjwT20q6rWlW`, project `prj_iRhw2dYqI4JyLDH9GQ9fEdMpN1yf`, release branch `main`, stable URL `https://zombie-invasion-alpha.vercel.app`. No Vercel/GitHub writes until all local gates and the final provider identity gate pass.
 - Overlap: Older visual-showcase worktree has disjoint dirty UI/gameplay edits in shared files; preserved without import or modification.
 
 ## Items and acceptance
@@ -32,7 +32,7 @@
 
 - Isolated: focused BR-01/BR-02 tests, relevant legacy dismissal regression, then `npm run verify`.
 - Integrated local: same assertions on the actual integrated checkout and Vite runtime, including initial session-only UI and boot recovery persistence.
-- Hosted: pending target resolution; test exact deployed revision and runtime behavior after authorized target rollout.
+- Hosted: target resolved to the sole registered Production environment; deployment and exact-revision feature proof remain pending their later build-it gates.
 - Visual proof: capture recovery and initial session-only states from the deployed revision if a matching browser/test route is available.
 
 ## Commits and evidence
