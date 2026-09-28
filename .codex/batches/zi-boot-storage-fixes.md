@@ -37,7 +37,7 @@
 
 ## Commits and evidence
 
-- Manifest/ledger commit: pending.
+- Manifest/ledger commit: `71eb25031f22e407fefeef9cb38c545d6befd8ac`.
 - BR-01 commit: pending.
 - BR-02 commit: pending.
 - Focused and broad validation: pending.
