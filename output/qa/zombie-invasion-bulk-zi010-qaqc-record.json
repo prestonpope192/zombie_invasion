@@ -13,18 +13,18 @@
   "steps": [
     "Run npx vitest run test/storage_status.test.js test/playcanvas_slice.test.js.",
     "Run npm run smoke:storage-status; use its fresh browser context for each fixture alias and its local Vite/Playwright bootstrap.",
-    "Before interaction, inspect the initial menu warning, seeded save value, and probe-prefix keys; then start the campaign and verify in-memory playability.",
-    "In the healthy case, enable save-key write failure and invoke the exposed restartAndStart() path; inspect the warning and running state after the failed persistence attempt.",
-    "Check the mobile warning bounds at the smoke viewport and confirm it remains readable in both initial menu and gameplay states."
+    "Before interaction, inspect the initial warning, seeded save value, and probe-prefix keys. For missing storage, dismiss onboarding with Escape, verify the campaign menu appears, then click Start Campaign. For getter-throws, click GOT IT — PLAY and follow its direct-start flow. Otherwise verify the campaign menu is visible and click Start Campaign. Do not invoke startOrContinueCampaign() programmatically.",
+    "After the real UI start, verify running phase and in-memory state. At 390x844, require the warning, populated gameplay toast, and village objective to be visibly rendered; check full warning bounds and assert toast/objective rectangles do not intersect.",
+    "Enable failure for writes to PLAYCANVAS_SAVE_KEY, invoke restartAndStart(), and verify the write was attempted where storage is accessible, SESSION ONLY remains visible, and phase/state remain valid and running."
   ],
   "success_criteria": [
     "Absent localStorage, a throwing localStorage property getter, probe getItem/setItem failure, or mismatched probe readback sets a visible warning whose text is exactly SESSION ONLY before player interaction; startup does not route to boot failure.",
-    "Each failed-storage browser fixture reaches a playable state in memory, can start the campaign, and produces no uncaught browser page error.",
+    "Each failed-storage browser fixture reaches a playable state in memory through actual UI: Escape dismissal followed by Start Campaign for missing storage, GOT IT — PLAY for throwing getter, or visible Start Campaign for the other cases. No uncaught browser page error occurs.",
     "Healthy storage keeps SESSION ONLY hidden initially and loads the seeded PlayCanvas save through loadPlayCanvasSave().",
     "The probe uses a unique temporary key, validates write/readback, attempts removal and verifies absence; PLAYCANVAS_SAVE_KEY has exactly the seeded value before and after probing, and no probe-prefix key remains after successful cleanup.",
     "One transient removeItem failure is retried; successful retry and verified absence pass. Persistent removal denial fails the probe and acceptance if residue remains; the specification does not claim the browser can remove a key when the browser persistently denies removal.",
     "A later write failure to PLAYCANVAS_SAVE_KEY through restartAndStart() shows the same SESSION ONLY warning, does not throw through the method, and leaves the game running with valid in-memory state.",
-    "At the 390x844 mobile smoke viewport, the warning is visible and fully within viewport bounds in the initial menu and gameplay."
+    "At 390x844 after UI-driven campaign start, the warning is visible and fully within viewport bounds, the gameplay toast and village objective are both rendered, and their non-empty bounding boxes do not intersect."
   ],
   "tests": [
     {
@@ -41,7 +41,7 @@
     },
     {
       "file": "scripts/smoke-storage-status.mjs",
-      "name_or_pattern": "runCase across healthy, missing, getter-throws, probe-read-throws, probe-write-throws, probe-readback-mismatch, and cleanup-retry scenarios; initial warning/save preservation/probe cleanup/playability/later save failure/mobile bounds",
+      "name_or_pattern": "runCase across healthy, missing, getter-throws, probe-read-throws, probe-write-throws, probe-readback-mismatch, and cleanup-retry scenarios; initial warning/save preservation/probe cleanup; UI-driven start; visible warning/toast/objective with non-overlap at 390x844; actual failed save write; running in-memory state",
       "direct_command": "npm run smoke:storage-status",
       "broader_suite_command": "npm run verify"
     }

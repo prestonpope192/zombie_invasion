@@ -125,8 +125,10 @@ a {
   display: none;
 }
 
-.has-session-only .zi-toast {
-  top: calc(env(safe-area-inset-top, 0px) + 48px);
+@media (orientation: landscape) {
+  .has-session-only .zi-toast {
+    top: calc(env(safe-area-inset-top, 0px) + 48px);
+  }
 }
 
 body.viewport-resizing #app *,

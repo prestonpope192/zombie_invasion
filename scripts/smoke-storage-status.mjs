@@ -76,6 +76,7 @@ async function installStorageCase(page, scenario) {
         if (scenario === "probe-write-throws") throw new DOMException("write denied", "QuotaExceededError");
       }
       if (key === saveKey && window.__ziFailSaveWrites) {
+        window.__ziSaveWriteAttempts = (window.__ziSaveWriteAttempts ?? 0) + 1;
         throw new DOMException("save write denied", "QuotaExceededError");
       }
       return nativeSet.call(this, key, value);
@@ -111,7 +112,7 @@ async function runCase(baseUrl, scenario) {
     return {
       warningVisible: !warning.hidden && getComputedStyle(warning).display !== "none" && rect.width > 0 && rect.height > 0,
       warningText: warning.textContent.trim(),
-      warningFitsViewport: rect.left >= 0 && rect.right <= innerWidth,
+      warningFitsViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
       coins: window.__playCanvasZombieGame?.state?.coins,
       savedValue: native.getItem(saveKey),
       probeKeys: Array.from({ length: native.length }, (_, index) => native.key(index)).filter((key) => key?.startsWith(probePrefix)),
@@ -140,33 +141,89 @@ async function runCase(baseUrl, scenario) {
   if (scenario === "healthy") {
     await mkdir(outputDirectory, { recursive: true });
     await page.screenshot({ path: `${outputDirectory}/storage-status-healthy.png` });
-    await page.evaluate(() => { window.__ziFailSaveWrites = true; });
   } else if (scenario === "missing") {
     await mkdir(outputDirectory, { recursive: true });
     await page.screenshot({ path: `${outputDirectory}/storage-status-mobile.png` });
   }
 
-  await page.evaluate(() => window.__playCanvasZombieGame.startOrContinueCampaign());
-  await page.waitForFunction(() => window.__playCanvasZombieGame?.state?.phase === "running", null, { timeout: 8000 });
-  if (scenario === "healthy") {
-    const restartError = await page.evaluate(() => {
-      try {
-        window.__playCanvasZombieGame.restartAndStart();
-        return null;
-      } catch (error) {
-        return error.message;
-      }
-    });
-    assert(restartError === null, `later save failure escaped through restartAndStart: ${restartError}`);
-    await page.waitForFunction(() => !document.querySelector("[data-storage-warning]")?.hidden, null, { timeout: 5000 });
-    assert(await page.locator("[data-storage-warning]").textContent().then((text) => text.trim()) === "SESSION ONLY",
-      "later save failure did not show SESSION ONLY");
+  const onboardingDismiss = page.locator('[data-action="onboarding-dismiss"]');
+  const startCampaign = page.locator('[data-flow-action="primary"]');
+  let startPath;
+  if (await onboardingDismiss.isVisible()) {
+    if (scenario === "missing") {
+      startPath = "onboarding-escape-menu";
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => document.querySelector("#zi-onboarding")?.hidden === true, null, { timeout: 5000 });
+      assert(await startCampaign.isVisible(), `${scenario}: campaign menu did not appear after onboarding dismissal`);
+      await startCampaign.click();
+    } else {
+      startPath = "onboarding-dismiss";
+      await onboardingDismiss.click();
+      await page.waitForFunction(() => document.querySelector("#zi-onboarding")?.hidden === true, null, { timeout: 5000 });
+    }
   } else {
-    assert(await page.evaluate(() => Number.isFinite(window.__playCanvasZombieGame.state.coins)), `${scenario}: in-memory campaign state was unavailable`);
+    assert(await startCampaign.isVisible(), `${scenario}: campaign menu was not visible before interaction`);
+    startPath = "campaign-menu";
+    await startCampaign.click();
   }
+  await page.waitForFunction(() => window.__playCanvasZombieGame?.state?.phase === "running", null, { timeout: 8000 });
+  if (mobile && shouldWarn) {
+    const gameplayLayout = await page.evaluate(() => {
+      const bounds = (selector) => {
+        const element = document.querySelector(selector);
+        const rect = element?.getBoundingClientRect();
+        const style = element && getComputedStyle(element);
+        return {
+          visible: Boolean(element && !element.hidden && rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && Number(style.opacity) > 0),
+          left: rect?.left ?? 0,
+          top: rect?.top ?? 0,
+          right: rect?.right ?? 0,
+          bottom: rect?.bottom ?? 0,
+          text: element?.textContent.trim() ?? "",
+        };
+      };
+      const warning = bounds("[data-storage-warning]");
+      const toast = bounds(".zi-toast");
+      const objective = bounds(".zi-hud-objective");
+      const intersects = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      return {
+        warning,
+        toast,
+        objective,
+        toastObjectiveOverlap: intersects(toast, objective),
+        warningFitsViewport: warning.left >= 0 && warning.top >= 0 && warning.right <= innerWidth && warning.bottom <= innerHeight,
+      };
+    });
+    assert(gameplayLayout.warning.visible && gameplayLayout.warning.text === "SESSION ONLY", `${scenario}: gameplay warning was not visible with exact text`);
+    assert(gameplayLayout.warningFitsViewport, `${scenario}: gameplay warning exceeded viewport bounds`);
+    assert(gameplayLayout.toast.visible && gameplayLayout.toast.text.length > 0, `${scenario}: gameplay toast was not actually visible`);
+    assert(gameplayLayout.objective.visible && gameplayLayout.objective.text.length > 0, `${scenario}: village objective was not actually visible`);
+    assert(!gameplayLayout.toastObjectiveOverlap, `${scenario}: gameplay toast overlaps village objective at 390x844`);
+  }
+
+  await page.evaluate(() => { window.__ziFailSaveWrites = true; });
+  const restartResult = await page.evaluate(() => {
+    try {
+      window.__playCanvasZombieGame.restartAndStart();
+      return { error: null, phase: window.__playCanvasZombieGame.state.phase, coins: window.__playCanvasZombieGame.state.coins };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+  assert(restartResult.error === null, `${scenario}: later save failure escaped through restartAndStart: ${restartResult.error}`);
+  assert(restartResult.phase === "running" && Number.isFinite(restartResult.coins), `${scenario}: failed save did not preserve playable in-memory state`);
+  await page.waitForFunction(() => {
+    const warning = document.querySelector("[data-storage-warning]");
+    return warning && !warning.hidden && warning.textContent.trim() === "SESSION ONLY";
+  }, null, { timeout: 5000 });
+  if (!["missing", "getter-throws"].includes(scenario)) {
+    assert(await page.evaluate(() => window.__ziSaveWriteAttempts > 0), `${scenario}: later failed save did not attempt PLAYCANVAS_SAVE_KEY write`);
+  }
+  assert(await page.locator("[data-storage-warning]").textContent().then((text) => text.trim()) === "SESSION ONLY",
+    `${scenario}: later save failure did not show SESSION ONLY`);
   assert(pageErrors.length === 0, `${scenario}: browser threw while keeping the game playable: ${pageErrors.join(" | ")}`);
   await context.close();
-  return { scenario, initialWarning: initial.warningVisible, playable: true, probeKeysAfterProbe: initial.probeKeys.length };
+  return { scenario, initialWarning: initial.warningVisible, startPath, playable: true, probeKeysAfterProbe: initial.probeKeys.length };
 }
 
 try {
