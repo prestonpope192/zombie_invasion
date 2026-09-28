@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "record_type": "qaqc_specification",
+  "check_id": "ZI-QA-BULK-010",
+  "coverage_key": "zombie-invasion:session-only-storage-startup",
+  "title": "Session-only storage status at PlayCanvas startup",
+  "status": "ready_for_qa",
+  "introduced_at": "2026-09-28",
+  "surface": "PlayCanvas startup storage probe, initial/menu/gameplay status, and save persistence",
+  "behavior": "Before createSliceState, the first HUD render, or any save write, safely probe browser storage. Show the exact SESSION ONLY status for absent, inaccessible, or failed-probe storage while preserving playable in-memory state. Keep the warning hidden with healthy storage and preserve normal save/load behavior. Surface a later save-key write failure without throwing through gameplay.",
+  "failure_mode": "A missing localStorage object, throwing property getter, failed probe read/write/readback, or later save write can otherwise leave the player unaware that progress is not durable or can abort startup/gameplay. A probe can also leave a temporary key if cleanup fails.",
+  "fixtures": "Portable browser scenario aliases: healthy, missing, getter-throws, probe-read-throws, probe-write-throws, probe-readback-mismatch, cleanup-retry. Unit adapter alias: memoryStorage(seed) with independently replaceable getItem, setItem, and removeItem methods.",
+  "steps": [
+    "Run npx vitest run test/storage_status.test.js test/playcanvas_slice.test.js.",
+    "Run npm run smoke:storage-status; use its fresh browser context for each fixture alias and its local Vite/Playwright bootstrap.",
+    "Before interaction, inspect the initial menu warning, seeded save value, and probe-prefix keys; then start the campaign and verify in-memory playability.",
+    "In the healthy case, enable save-key write failure and invoke the exposed restartAndStart() path; inspect the warning and running state after the failed persistence attempt.",
+    "Check the mobile warning bounds at the smoke viewport and confirm it remains readable in both initial menu and gameplay states."
+  ],
+  "success_criteria": [
+    "Absent localStorage, a throwing localStorage property getter, probe getItem/setItem failure, or mismatched probe readback sets a visible warning whose text is exactly SESSION ONLY before player interaction; startup does not route to boot failure.",
+    "Each failed-storage browser fixture reaches a playable state in memory, can start the campaign, and produces no uncaught browser page error.",
+    "Healthy storage keeps SESSION ONLY hidden initially and loads the seeded PlayCanvas save through loadPlayCanvasSave().",
+    "The probe uses a unique temporary key, validates write/readback, attempts removal and verifies absence; PLAYCANVAS_SAVE_KEY has exactly the seeded value before and after probing, and no probe-prefix key remains after successful cleanup.",
+    "One transient removeItem failure is retried; successful retry and verified absence pass. Persistent removal denial fails the probe and acceptance if residue remains; the specification does not claim the browser can remove a key when the browser persistently denies removal.",
+    "A later write failure to PLAYCANVAS_SAVE_KEY through restartAndStart() shows the same SESSION ONLY warning, does not throw through the method, and leaves the game running with valid in-memory state.",
+    "At the 390x844 mobile smoke viewport, the warning is visible and fully within viewport bounds in the initial menu and gameplay."
+  ],
+  "tests": [
+    {
+      "file": "test/storage_status.test.js",
+      "name_or_pattern": "probes healthy storage and removes its temporary key without changing the save; marks absent storage unavailable; marks a throwing localStorage property getter unavailable; marks probe reads unavailable; marks probe writes unavailable and removes a partially written key; marks mismatched probe readback unavailable and cleans up; retries one transient cleanup failure and verifies no probe key remains; fails closed when cleanup remains denied and records the unavoidable probe residue; reports later save write failure without throwing and preserves in-memory state; uses safe reads and writes when storage methods throw; retains existing save/load behavior after a healthy probe",
+      "direct_command": "npx vitest run test/storage_status.test.js",
+      "broader_suite_command": "npm run verify"
+    },
+    {
+      "file": "test/playcanvas_slice.test.js",
+      "name_or_pattern": "sanitizes and persists PlayCanvas saves with the old FPS progression surface; returns null for missing or non-object saves and survives corrupted JSON",
+      "direct_command": "npx vitest run test/playcanvas_slice.test.js",
+      "broader_suite_command": "npm run verify"
+    },
+    {
+      "file": "scripts/smoke-storage-status.mjs",
+      "name_or_pattern": "runCase across healthy, missing, getter-throws, probe-read-throws, probe-write-throws, probe-readback-mismatch, and cleanup-retry scenarios; initial warning/save preservation/probe cleanup/playability/later save failure/mobile bounds",
+      "direct_command": "npm run smoke:storage-status",
+      "broader_suite_command": "npm run verify"
+    }
+  ],
+  "source_evidence": [
+    "src/playcanvas/storageStatus.js:probeBrowserStorage",
+    "src/playcanvas/storageStatus.js:safeStorageGetItem",
+    "src/playcanvas/storageStatus.js:safeStorageSetItem",
+    "src/playcanvas/sliceSimulation.js:PLAYCANVAS_SAVE_KEY",
+    "src/playcanvas/sliceSimulation.js:createSliceState",
+    "src/playcanvas/sliceSimulation.js:loadPlayCanvasSave",
+    "src/playcanvas/sliceSimulation.js:persistPlayCanvasSave",
+    "src/playcanvas/main.js:PlayCanvasZombieSlice.constructor",
+    "src/playcanvas/main.js:PlayCanvasZombieSlice.buildDom",
+    "src/playcanvas/main.js:PlayCanvasZombieSlice.updateStorageWarning",
+    "src/playcanvas/main.js:PlayCanvasZombieSlice.restartAndStart",
+    "src/playcanvas/playcanvas.css:.zi-storage-warning",
+    "test/storage_status.test.js",
+    "test/playcanvas_slice.test.js",
+    "scripts/smoke-storage-status.mjs",
+    "package.json"
+  ],
+  "environment_scope": ["local"],
+  "database_sync": "not_applicable_no_project_catalog",
+  "external_mutation": false,
+  "notes": "Specification only; run outcomes and evidence belong in the parent batch ledger. No hosted or production claim is made."
+}
