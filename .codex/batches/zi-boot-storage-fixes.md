@@ -39,10 +39,12 @@
 
 - Manifest/ledger commit: `71eb25031f22e407fefeef9cb38c545d6befd8ac`.
 - BR-01 clean-release commits: `47a8db44165cd3a7485d1ffeafac17ee81c9e98c` and review repair `3571f78100272c3d942b1b2dc90ffc6dc8b41279`.
-- BR-02 commit: pending.
+- BR-02 commits: `d741b226ca27f8997aef2af2b8dc23314f578eb6`, QA schema correction `2a9dbc6724012188958bc7698215a38441ba960e`, and review repair `43bb88508feb2dff5e2afa1143b337d00e7ee97a`.
 - BR-01 focused tests: 8 unit tests and real-browser Retry hit-test/navigation passed. Current-state Astra review passed at `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93` (scoped patch SHA-256 `d1a2135e21d01841c2e1d8ba80f7c4f7355581105aa97a4702e0ce56b1a25d27`).
 - BR-01 clean-release evidence: `npm test -- --run test/boot_lifecycle.test.js` passed 9/9; `npm run smoke:boot-recovery` passed desktop and touch; `npm run test:legacy` and `npm run build` passed. Astra pass at `3571f78100272c3d942b1b2dc90ffc6dc8b41279`, scoped diff SHA-256 `72dac99ec16775be7ba4788d1877335bc641484acf3d2d04ac08e36ad6a0eb27`.
 - BR-02 focused tests: 7 unit tests and browser startup proof passed; current-state Astra review passed on candidate `e2909df025423e4c87eba90ac3d197429d90c009` plus scoped delta SHA-256 `3c78c1ffe2ab20a86e2fd9a3d56d17bc22f7f523dc9dcbc67ee1ce0e9275ff16`. Candidate commit deferred until changes are represented without the baseline's unrelated large file diffs.
+- BR-02 clean-release evidence: focused storage/save tests 2 files / 129 tests; seven browser storage scenarios passed with real UI start, initial and post-save status, save preservation, probe cleanup, and mobile HUD non-overlap; boot recovery and legacy smokes passed; production build passed with the existing large-chunk advisory. Current Astra pass at `43bb88508feb2dff5e2afa1143b337d00e7ee97a`, scoped diff SHA-256 `e4a12de4e3ff5f685029132df830b56e7417a14fa639020db2583c2cf799ae90`.
+- QA specs: BR-02 `ZI-QA-BULK-010` (`zombie-invasion:session-only-storage-startup`) and BR-01 `ZI-QA-BULK-011` (`zombie-invasion:boot-recovery-retry-persistence`), both local `ready_for_qa` specifications under `output/qa/`; neither is a hosted execution record.
 - Isolated candidate verification: `npm run verify` passed at `f308a23e3ff022cc1b0a0ee6750808661969e198` plus the scoped BR-02 delta: project validation; 45 test files / 307 tests; Vite production build; dist contract; PlayCanvas smoke. Smoke reported `persistence=saved`, `phase=running`, `perfFpsAvg=31.6`; screenshot `output/playcanvas-slice-smoke.png`.
 - Broad validation: passed for the dirty candidate; clean release-baseline validation remains pending.
 - Closeout integration SHA: pending.
