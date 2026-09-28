@@ -41,6 +41,8 @@
 - BR-01 commits: `f323674d18229283600dd4f8de0334c6cb82045b` and review repair `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93`.
 - BR-02 commit: pending.
 - BR-01 focused tests: 8 unit tests and real-browser Retry hit-test/navigation passed. Current-state Astra review passed at `7ad4f65f1ba3ff313c4beb4289ecb1187ac0de93` (scoped patch SHA-256 `d1a2135e21d01841c2e1d8ba80f7c4f7355581105aa97a4702e0ce56b1a25d27`).
-- Broad validation: pending.
+- BR-02 focused tests: 7 unit tests and browser startup proof passed; current-state Astra review passed on candidate `e2909df025423e4c87eba90ac3d197429d90c009` plus scoped delta SHA-256 `3c78c1ffe2ab20a86e2fd9a3d56d17bc22f7f523dc9dcbc67ee1ce0e9275ff16`. Candidate commit deferred until changes are represented without the baseline's unrelated large file diffs.
+- Isolated candidate verification: `npm run verify` passed at `f308a23e3ff022cc1b0a0ee6750808661969e198` plus the scoped BR-02 delta: project validation; 45 test files / 307 tests; Vite production build; dist contract; PlayCanvas smoke. Smoke reported `persistence=saved`, `phase=running`, `perfFpsAvg=31.6`; screenshot `output/playcanvas-slice-smoke.png`.
+- Broad validation: passed for the dirty candidate; clean release-baseline validation remains pending.
 - Closeout integration SHA: pending.
 - Deferred: unrelated dirty candidate work remains preserved and uncommitted.
