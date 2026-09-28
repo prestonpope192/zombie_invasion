@@ -1,6 +1,6 @@
 # Execution Ledger: zi-boot-storage-fixes
 
-- Current phase: prep-collapse
+- Current phase: deploy
 - Scope: BR-01 persistent boot recovery; BR-02 startup `SESSION ONLY` warning. Ads/monetization excluded.
 - Repository: `/Users/preston/Code/zombie_invasion`
 - Worktree/branch: `/Users/preston/.codex/worktrees/zi-boot-storage-release/zombie_invasion`, `codex/zi-boot-storage-prod-20260928`
@@ -34,10 +34,10 @@
 - Full worktree verification: passed at `6826a7953efb4b8338b47ea90e3b210f664fcc76`. `npm run verify` exit 0: project validation, 44 test files / 285 tests, production build, dist validation (4 JS files / 5.18 MiB; largest 2.74 MiB), seven storage browser cases, and PlayCanvas smoke (`phase=running`, `perfFpsAvg=29.6` on the confirmation run). Existing Vite large-chunk advisory remains.
 - Final exact-SHA browser checks: `npm run smoke:boot-recovery` exit 0 (desktop/touch Retry reload); `npm run test:legacy` exit 0 (legacy menu, start button, canvas, overlay dismissed). Storage smoke reran inside full verify and passed all seven scenarios with mobile layout assertions. No Vite/Chromium/test process remains. Screenshots are under `output/playwright/`.
 - Initial full verify at `59eb9e0` failed at `scripts/validate-project.mjs:23` because its source contract requires `await import("./fps/app/FpsGame")`; BR-01 was adjusted to retain explicit awaited dynamic imports. No validator assertion was weakened. Astra re-review passed the hot-fix state.
-- Clean release branch final implementation SHA: `6826a7953efb4b8338b47ea90e3b210f664fcc76`; only untracked item is the pre-existing dependency symlink `node_modules`.
-- Prep-collapse/collapse: pending; preserve unrelated primary checkout modifications.
-- Integrated local: pending; Vite, static app with browser-local state.
-- Deploy: pending exact target registry proof.
+- Earlier BR-01 review baseline was `6826a7953efb4b8338b47ea90e3b210f664fcc76`; the combined task release candidate is `04661c7f19f15a14b531007ce19b358b06463065` before this ledger-only closeout.
+- Prep-collapse/collapse: passed. Integrated task commit `5d62ec175b52847869a7b9abcc084df3a916d174` into `/Users/preston/Code/zombie_invasion` without staging unrelated work; local evidence ledger commit is `6c8658ed1d9bddbc714a873cc21846d506aeec48`. The original dirty files remain unstaged/untracked and untouched.
+- Integrated local: passed on local Dev branch `codex/dev-consolidation-20260707`; `npm run verify` passed (45 files / 313 tests, production build, dist validation, seven storage scenarios, PlayCanvas smoke), `npm run smoke:boot-recovery` passed on desktop/touch, and `npm run test:legacy` passed. Feature commit `5d62ec1`; local Dev HEAD after evidence ledger `6c8658e`.
+- Deploy: running. Sole registered environment resolves to Production under the parent `$build-it` target rule. Canonical Vercel target identity passed read-only verification; current stable-alias deployment is Ready, but its source revision still needs reconciliation against the release/main SHA.
 - Deployed test: pending deployment; feature-specific UI/runtime checks on exact revision.
 - Hot-fix: pending; not applicable only if deployed proof passes.
 - Show proof: pending final deployed-state evidence.
@@ -47,7 +47,19 @@
 - Fresh fetch: `git fetch origin` passed; `origin/codex/dev-consolidation-20260707` equals base `9b06a797626234817da4ef126b08cc457f5c5bf0`; no remote `dev` branch.
 - Target identity: `verify_vercel_target.py verify --client preston --app zombie-invasion --repo /Users/preston/Code/zombie_invasion --environment production` passed read-only. Resolver reported a single registered environment and sole-target rule handles production.
 - Baseline source evidence: existing `src/runtime/bootRecovery.js`, `safeStorage.js`, and tests are present only in the copied dirty snapshot at prepare start.
-- Deployment topology: pending inspection through the registered Vercel project and current deployment metadata; never infer production from repo linking alone.
+- Deployment topology: canonical target `preston-popes-projects/zombie-invasion`, team `team_sw7Nix2eZZaMWjwT20q6rWlW`, project `prj_iRhw2dYqI4JyLDH9GQ9fEdMpN1yf`. Stable alias inspect returned Ready deployment `dpl_Huex8wVdXS18UgbpTM7m6Xd4chL8`; its commit/source branch is not yet proven by that response.
 - Candidate evidence: BR-01 `8` focused unit tests + browser Retry click/navigation; BR-02 `7` focused unit tests + initial HUD browser proof; candidate `npm run verify` passed. This does not yet prove the clean production-based release tree.
 - Hosted results: none yet.
-- Next action: read prep-collapse/collapse skills and assemble the exact ready packet for integrating task-owned commits without absorbing primary-checkout or other-worktree changes.
+- Next action: reconcile current remote `main`, publish the task-only release branch through the repository's normal review path, verify required checks/merge, then build/deploy from the exact resulting Production source SHA.
+
+## Prep-collapse packet (2026-09-28)
+
+- Verdict: READY TO COLLAPSE WITH NOTES; collapse is now complete. Both accepted items have passing focused and broad isolated verification, current-state Astra review, and atomic QA specifications. No schema, database, provider-data, or generated-client prerequisites exist. Integrated-runtime and hosted feature proof are recorded below and remain scheduled after deployment, respectively.
+- Target: local Dev-equivalent `/Users/preston/Code/zombie_invasion`, branch `codex/dev-consolidation-20260707`, pre-collapse commit `9b06a797626234817da4ef126b08cc457f5c5bf0`; its tracked upstream `origin/codex/dev-consolidation-20260707` matched at audit. No remote Dev branch exists.
+- Target dirty state: 16 modified tracked files (`README.md`, docs, `index.html`, `package.json`, `progress.md`, smoke script, PlayCanvas/main/runtime/test files) and 5 untracked candidate files. Preserve all pre-existing content and index state; do not stage task-unrelated work. Task-overlapping dirty implementations are incomplete/older: boot overlay setup can dismiss the failure state, storage status starts unknown and is only surfaced on save, and safe-storage helpers are already present. Reconcile the reviewed feature with those files rather than overwriting them.
+- Competing work: `/Users/preston/.codex/worktrees/zombie-visual-showcase-20260830` remains a separate dirty visual lane in shared PlayCanvas files; exclude and preserve it. The candidate worktree `/Users/preston/.codex/worktrees/zi-boot-storage-fix/zombie_invasion` contains the copied dirty candidate; prior archive was refused because protected, so retain it unchanged.
+- History: release implementation is based on fresh `origin/main` `32272385ad42e472d7d32c0031a28c1e3c2ddac3`; local Dev shares ancestor `f295108bf6b774da618d70df3014e989f383f102` and already has the earlier production history. Only `src/playcanvas/main.js` differs between current Dev HEAD and `origin/main`; do not merge the newer production base wholesale. Apply task-owned commits/artifacts only, then semantically reconcile the dirty target state.
+- Task-owned source/evidence: BR-01 `47a8db4`, `3571f78`, `6826a79`; BR-02 `d741b22`, `2a9dbc6`, `43bb885`; QA specifications `ZI-QA-BULK-010/011`; full evidence and review IDs above. These are the only accepted items; monetization/rewarded ads and the visual showcase remain excluded.
+- Deployment is authorized for the sole registered Production Vercel project under the parent `$build-it` rule. Exact Vercel identity and release base were rechecked on 2026-09-28. No GitHub or provider write has occurred yet.
+- Release worktree `/Users/preston/.codex/worktrees/zi-boot-storage-release/zombie_invasion` remains based on exact fetched `origin/main` `32272385ad42e472d7d32c0031a28c1e3c2ddac3`; release candidate `04661c7f19f15a14b531007ce19b358b06463065` passes `npm run verify` (44 files / 286 tests, production build, dist contract, seven storage browser scenarios, PlayCanvas smoke). Only the task ledger is modified locally; `node_modules` is an untracked symlink to the existing root dependency tree. Neither is included in release commits.
+- Next action: reconcile current remote `main`, publish the task-only release branch through the repository's normal review path, verify required checks/merge, then build/deploy from the exact resulting Production source SHA.
