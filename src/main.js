@@ -58,7 +58,10 @@ const params = new URLSearchParams(window.location.search);
 
 const legacy = params.get("legacy") === "1";
 await runBootAttempt({
-  load: () => legacy ? import("./fps/app/FpsGame") : import("./playcanvas/main"),
+  load: async () => {
+    if (legacy) return await import("./fps/app/FpsGame");
+    return await import("./playcanvas/main");
+  },
   start: async (gameModule) => {
     if (legacy) {
       await gameModule.createFpsGame(root);
