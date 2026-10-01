@@ -44,6 +44,22 @@ describe("active PlayCanvas game contract", () => {
     expect(main).toContain('this.input.fire && getPlayCanvasWeaponSnapshot(this.state).fireMode === "automatic"');
   });
 
+  it("keeps pointer-lock capability notices from replacing gameplay status", () => {
+    const main = fs.readFileSync(path.join(repoRoot, "src/playcanvas/main.js"), "utf8");
+
+    expect(main).toContain("Pointer lock is optional: mouse-drag and touch-look remain active.");
+    expect(main).not.toContain('this.state.lastMessage = "Mouse look active');
+    expect(main).not.toContain('this.state.lastMessage = "Pointer lock unavailable here');
+  });
+
+  it("labels kill feedback separately from its coin reward", () => {
+    const main = fs.readFileSync(path.join(repoRoot, "src/playcanvas/main.js"), "utf8");
+
+    expect(main).toContain('this._showKillFeedback(coinsDelta, result.headshot)');
+    expect(main).toContain('const killLabel = isHeadshot ? "HEADSHOT · KILL" : "KILL";');
+    expect(main).toContain("COINS");
+  });
+
   it("keeps every legacy FPS overlay scene wired into FpsGame", () => {
     const source = fs.readFileSync(path.join(repoRoot, "src/fps/app/FpsGame.js"), "utf8");
 

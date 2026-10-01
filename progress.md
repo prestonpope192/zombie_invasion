@@ -2895,3 +2895,43 @@ From a live playtest the user reported: controls flip after turning, tracer not 
 - Pass 3: moved the showcase runner/brute closer and increased their scales so enemy silhouettes read as active threats without blocking the objective.
 - Browser proof: web-game Playwright screenshots and `render_game_to_text` reviewed after each pass; no `errors-*.json` artifacts were emitted.
 - Remaining gap: the scene is still intentionally procedural low-poly geometry. Matching the benchmark's authored asset quality would require a new licensed/CC0 model and texture pipeline, beyond this bounded code-only loop.
+
+## 2026-08-30 - Make-it-better gameplay readability pass
+
+- Reviewed the RemakeBench-inspired visual baseline, active PlayCanvas flow, simulation pacing, HUD copy, smoke contracts, and fixed desktop/mobile visual QA surfaces.
+- Implemented a readable cold-open threat reveal: the first two wave-one walkers now enter on opposite sides of the village lane at a camera-readable approach distance. Later waves retain the existing perimeter spawn behavior.
+- Updated the movement regression to measure progress toward the bell tower rather than assume a positive-Z path, and isolated the explicit pacing attacker from the opening spawner in the village-drain test.
+- Removed pointer-lock capability strings from `state.lastMessage`; mouse drag and touch look remain available, while the top status toast preserves the current wave/objective message instead of showing a browser-specific warning during combat.
+- Added source-contract coverage for the pointer-lock/HUD relationship and updated the PlayCanvas smoke assertion to require non-empty gameplay status without the technical fallback warning.
+- Browser proof: normal PlayCanvas at `?glb=0` reached running wave 1 with two live walkers at approximately `(-4.4,-18.9)` and `(4.4,-18.9)`, player-facing wave status, first-contact guidance, and no page errors. Capture: `output/qa/make-it-better-normal-final.png`.
+- Verification: focused tests passed 3 files / 128 tests; `npm run qa:visual` passed desktop and mobile; `npm run verify` passed 43 files / 269 tests, build, dist validation, and PlayCanvas smoke.
+- Release boundary remains local-only on the isolated `codex/bulk-zombie-visual-showcase-20260830` worktree. No deploy, hosted validation, or external asset licensing was performed.
+
+## 2026-08-30 - Make-it-better first-contact preparation loop
+
+- Refined the wave-one grace window into an intentional preparation beat: `Prepare the line` tells players to watch the village approach and explains that the first walkers enter from both sides.
+- Preserved the existing `First contact` guidance after grace expires, so the copy now progresses from anticipation to action instead of showing the same instruction throughout the opening.
+- Added deterministic guidance coverage for the grace and post-grace states.
+- Browser proof: at approximately 3.2 seconds remaining in grace, the live normal route showed the new guidance, countdown overlay, intact village composition, and no page errors. Capture: `output/qa/make-it-better-preparation.png`.
+- Focused Vitest passed 2 files / 126 tests. The canonical full gate then passed 43 files / 269 tests, build, dist validation, and PlayCanvas smoke.
+
+## 2026-08-30 - Make-it-better combat feedback loop
+
+- Audited the existing hitmarker, recoil, screen-shake, audio, haptic, kill-floater, and streak paths with a live scripted kill.
+- Kept the existing effect stack and clarified the center reward label: kills now read `KILL · +N COINS`, with `HEADSHOT · KILL` for headshots, instead of displaying only a number.
+- Added source-contract coverage for the explicit kill/coin distinction.
+- Browser proof: a scripted pistol kill produced a live kill hitmarker, kill floater, explicit combat event, updated reward message, and no page errors. Capture: `output/qa/make-it-better-combat-feedback-final.png`.
+- Verification: full `npm run verify` passed 43 files / 270 tests, build, dist validation, and PlayCanvas smoke; `npm run qa:visual` passed desktop and mobile with no browser errors.
+- Release boundary remains local-only.
+
+## Make-it-better ledger
+
+- Reference pattern: the supplied RemakeBench example makes quality legible quickly through authored scene composition, readable silhouettes, immediate gameplay context, and a focused presentation surface.
+- Current strengths: the PlayCanvas route already has a strong village-street composition, cool-moon/warm-lantern lighting, HUD/minimap feedback, mobile controls, structured progression, and fixed visual QA.
+- Highest-confidence issue found: wave-one status could announce an attack while the default camera showed an empty lane; browser fallback copy could also replace the useful gameplay status.
+- Accepted changes: readable wave-one opening placement, contextual HUD status preservation, and an explicit grace-window preparation beat.
+- Deferred P1: replace procedural placeholder geometry with a small licensed/CC0 art kit (hero survivor, 3-4 zombie archetypes, modular village materials, decals, and authored props). This is the main remaining benchmark-quality gap and needs an asset source/license decision.
+- Deferred P1: add a true 30-45 second onboarding/cold-open sequence with explicit first contact, one guaranteed kill, and a clear first upgrade beat; current guidance is improved but still starts inside the broader campaign shell.
+- Deferred P2: finish authored hit-stop/recoil/impact readability and a short wave-complete reward beat; explicit kill/reward feedback is now implemented and validated.
+- Deferred P2: split the large PlayCanvas runtime into smaller modules and investigate the existing chunk-size warning after behavior is stable.
+- Delegation exception: no worker wave was launched because the safe-run snapshot showed high system swap usage and several long-lived Codex helper processes; work stayed in the main thread with file-backed logs and bounded checks.

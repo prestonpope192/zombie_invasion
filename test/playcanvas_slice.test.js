@@ -62,14 +62,27 @@ describe("PlayCanvas campaign simulation", () => {
     const state = startSlice(createSliceState());
     state.waveGraceSec = 0; // skip grace period
     stepSlice(state, idleInput(), 0.1); // let spawner fire
-    const before = state.zombies[0].z;
+    const before = Math.hypot(state.zombies[0].x, state.zombies[0].z + 24);
 
     stepSlice(state, idleInput(), 1);
 
     expect(state.waveNumber).toBe(1);
     expect(state.spawnedThisWave).toBeGreaterThan(0);
-    expect(state.zombies[0].z).toBeGreaterThan(before);
+    const after = Math.hypot(state.zombies[0].x, state.zombies[0].z + 24);
+    expect(after).toBeLessThan(before);
     expect(state.phase).toBe("running");
+  });
+
+  it("puts the first wave's opening threats in the readable lane", () => {
+    const state = startSlice(createSliceState());
+    state.waveGraceSec = 0;
+
+    stepSlice(state, idleInput(), 0.1);
+
+    expect(state.zombies).toHaveLength(2);
+    expect(state.zombies[0].x).toBeLessThan(-2);
+    expect(state.zombies[1].x).toBeGreaterThan(2);
+    expect(state.zombies.every((zombie) => zombie.z > -18.1 && zombie.z < -17.8)).toBe(true);
   });
 
   it("moves relative to the camera heading (W/strafe match the aim basis at any yaw)", () => {
@@ -348,9 +361,18 @@ describe("PlayCanvas campaign simulation", () => {
     const running = startSlice(createSliceState({ ownedWeapons: ["pistol"], equippedWeaponId: "pistol" }));
     running.zombies = [];
     running.spawnedThisWave = 0;
+    running.waveGraceSec = 0;
     const runningGuide = getPlayCanvasGuidanceSnapshot(running);
     expect(runningGuide.stage).toBe("running");
     expect(runningGuide.action).toBe("kill_first_zombie");
+
+    const preparation = startSlice(createSliceState({ ownedWeapons: ["pistol"], equippedWeaponId: "pistol" }));
+    const preparationGuide = getPlayCanvasGuidanceSnapshot(preparation);
+    expect(preparationGuide).toMatchObject({
+      action: "prepare_first_contact",
+      title: "Prepare the line",
+    });
+    expect(preparationGuide.message).toContain("from both sides");
 
     const intermission = createSliceState({
       coins: 200,
@@ -2096,6 +2118,7 @@ describe("PlayCanvas player collision and village drain ramp", () => {
       const state = startSlice(createSliceState());
       state.waveGraceSec = 0;
       state.waveIndex = waveIndex;
+      state.spawnedThisWave = 5; // isolate the explicit attacker from wave spawner output
       state.player.x = 30; // far away — zombie targets the village
       state.player.z = 30;
       state.zombies = [{ ...nearbyZombie(), x: -6.7, z: -22, speedMps: 0, attackDps: 20 }];

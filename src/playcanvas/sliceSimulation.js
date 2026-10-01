@@ -1076,7 +1076,14 @@ function spawnWaveZombies(state, dt) {
   const openingSpawnCap = state.spawnedThisWave < 2 ? 2 : wave.budget;
   while (state.spawnTimerSec <= 0 && state.spawnedThisWave < wave.budget && state.spawnedThisWave < openingSpawnCap) {
     const type = pickWaveSpawnType(state, wave);
-    spawnZombie(state, type);
+    // Make first contact readable from the default camera. Wave one used to
+    // place both opening threats deep on the perimeter, so the HUD could warn
+    // about an attack while the player still saw an empty lane. Keep later
+    // waves and the full perimeter spawn logic unchanged.
+    const openingSpawn = state.waveIndex === 0 && state.spawnedThisWave < 2
+      ? { x: state.spawnedThisWave === 0 ? -3.3 : 3.3, z: -18 }
+      : null;
+    spawnZombie(state, type, openingSpawn);
     state.spawnedThisWave += 1;
     const pressureScale = Math.max(0.72, 1 - state.waveIndex * 0.025);
     const progress = state.spawnedThisWave / wave.budget;
@@ -2656,6 +2663,10 @@ export function getPlayCanvasGuidanceSnapshot(state) {
       title = "Inside a building";
       message = "Find the survivor, press E or Use nearby, then return through the interior door.";
       action = "find_survivor";
+    } else if (state.waveNumber === 1 && state.waveGraceSec > 0) {
+      title = "Prepare the line";
+      message = "Watch the village approach. The first walkers enter from both sides—line up your shot and hold the street.";
+      action = "prepare_first_contact";
     } else if (state.waveElapsedSec < 10 && state.kills === 0) {
       title = "First contact";
       message = "Aim down the village street, fire in short bursts, and use Blast when a group reaches the barricades.";

@@ -2573,14 +2573,10 @@ export class PlayCanvasZombieSlice {
       this.input.pointerLocked = document.pointerLockElement === this.canvas;
       if (this.input.pointerLocked) {
         this.input.dragLooking = false;
-        this.state.lastMessage = "Mouse look active — click to fire, Esc to release.";
-        this.updateHud();
       }
     });
     this._on(document, "pointerlockerror", () => {
       this.input.pointerLocked = false;
-      this.state.lastMessage = "Pointer lock unavailable here; drag the mouse to look around.";
-      this.updateHud();
     });
     this.canvas.addEventListener("pointerdown", (event) => {
       if (event.target.closest?.("button, a")) {
@@ -3126,8 +3122,9 @@ export class PlayCanvasZombieSlice {
     const result = this.canvas.requestPointerLock?.();
     if (result && typeof result.catch === "function") {
       result.catch(() => {
-        this.state.lastMessage = "Pointer lock unavailable here; drag the mouse to look around.";
-        this.updateHud();
+        // Pointer lock is optional: mouse-drag and touch-look remain active.
+        // Keep the gameplay status visible instead of replacing it with a
+        // browser capability warning in the middle of combat.
       });
     }
   }
@@ -3479,7 +3476,7 @@ export class PlayCanvasZombieSlice {
 
     if (result.killCount > 0) {
       const coinsDelta = this.state.coins - coinsBefore;
-      this._showKillFeedback(coinsDelta);
+      this._showKillFeedback(coinsDelta, result.headshot);
       this._updateStreak(result.killCount);
       // Cue 2: kill thud
       this.sfxCues.kill();
@@ -6164,14 +6161,15 @@ export class PlayCanvasZombieSlice {
     }, isKill ? 200 : 160);
   }
 
-  /** Float "+N coins" or "+KILL" text near centre and pop HUD value spans */
-  _showKillFeedback(coinsDelta) {
+  /** Float an explicit kill/reward label near centre and pop HUD value spans */
+  _showKillFeedback(coinsDelta, isHeadshot = false) {
     // Float text
     if (this.killFloaterEl) {
       const el = this.killFloaterEl;
       el.classList.remove("is-active");
       void el.offsetWidth;
-      el.textContent = coinsDelta > 0 ? `+${coinsDelta}` : "+KILL";
+      const killLabel = isHeadshot ? "HEADSHOT · KILL" : "KILL";
+      el.textContent = coinsDelta > 0 ? `${killLabel} · +${coinsDelta} COINS` : killLabel;
       el.classList.add("is-active");
       clearTimeout(this._floaterTimer);
       this._floaterTimer = setTimeout(() => el.classList.remove("is-active"), 750);

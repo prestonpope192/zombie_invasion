@@ -480,7 +480,8 @@ try {
   assert(state.text.includes("tutorialStage=running"), "running tutorial guidance stage missing");
   assert(state.text.includes("flowPanel=hidden"), "campaign flow panel did not hide during running play");
   assert(topToastMessage.exists, "top status toast message element missing");
-  assert(topToastMessage.text.includes("drag the mouse to look around"), "top status toast did not show pointer-lock fallback guidance");
+  assert(topToastMessage.text.trim().length > 0, "top status toast lost its gameplay status message");
+  assert(!topToastMessage.text.includes("drag the mouse to look around"), "top status toast replaced gameplay status with pointer-lock fallback guidance");
   assert(topToastMessage.whiteSpace !== "nowrap", "top status toast still forces single-line truncation");
   assert(topToastMessage.overflow !== "hidden", "top status toast still hides overflowing text");
   assert(topToastMessage.textOverflow !== "ellipsis", "top status toast still ellipsizes messages");
